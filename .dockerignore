@@ -7,3 +7,11 @@ deps/moxygen/.git/
 deps/moxygen/moxygen/
 deps/moxygen/standalone/
 install/
+
+!build
+!build/moqx
+!.scratch
+!.scratch/moxygen-install
+!.scratch/moxygen-install/bin
+!.scratch/moxygen-install/bin/moqdateserver
+!.scratch/moxygen-install/bin/moqtextclient

@@ -1,0 +1,51 @@
+name: moqlab
+
+services:
+  relay:
+    container_name: moqlab-relay
+    build:
+      context: ../..
+      dockerfile: moqlab/docker/Dockerfile.relay
+    networks: [moqlab]
+    ports:
+      - "9668:9668/udp"
+      - "9669:9669/tcp"
+    volumes:
+      - ../../relay-a.yaml:/etc/moqx/relay.yaml:ro
+    restart: unless-stopped
+
+  pub:
+    container_name: moqlab-pub
+    build:
+      context: ../..
+      dockerfile: moqlab/docker/Dockerfile.pub
+    networks: [moqlab]
+    depends_on: [relay]
+    command:
+      - --port=9667
+      - --ns=moq-date
+      - --relay_url=https://relay:9668/moq-relay
+      - --insecure
+      - --logging=INFO
+    restart: unless-stopped
+
+  sub:
+    container_name: moqlab-sub
+    build:
+      context: ../..
+      dockerfile: moqlab/docker/Dockerfile.sub
+    networks: [moqlab]
+    depends_on: [relay, pub]
+    command:
+      - --connect_url=https://relay:9668/moq-relay
+      - --track_namespace=moq-date
+      - --track_name=date
+      - --insecure
+      - --logging=INFO
+    restart: unless-stopped
+    tty: true
+    stdin_open: true
+
+networks:
+  moqlab:
+    driver: bridge

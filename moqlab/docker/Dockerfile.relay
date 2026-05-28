@@ -1,0 +1,24 @@
+FROM ubuntu:24.04
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libboost-context1.83.0 \
+        libsodium23 \
+        libgoogle-glog0v6 \
+        libdouble-conversion3 \
+        libgflags2.2 \
+        libevent-2.1-7t64 \
+        libssl3t64 \
+        libzstd1 \
+        libunwind8 \
+        liblzma5 \
+        libstdc++6 \
+        ca-certificates \
+        iputils-ping iproute2 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY build/moqx /usr/local/bin/moqx
+
+EXPOSE 9668/udp 9669/tcp
+
+ENTRYPOINT ["/usr/local/bin/moqx"]
+CMD ["--config", "/etc/moqx/relay.yaml"]
