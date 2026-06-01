@@ -79,9 +79,14 @@ def _moxygen_binaries_ready(root: Path) -> bool:
     return all(path.exists() for path in _moxygen_binary_paths(root))
 
 
-def _ensure_image_artifacts(root: Path) -> None:
+def missing_image_artifacts(root: Path | None = None) -> list[Path]:
+    root = root or repo_root()
     required = [root / "build" / "moqx", *_moxygen_binary_paths(root)]
-    missing = [path for path in required if not path.exists()]
+    return [path for path in required if not path.exists()]
+
+
+def _ensure_image_artifacts(root: Path) -> None:
+    missing = missing_image_artifacts(root)
     if missing:
         formatted = "\n".join(f"  - {path}" for path in missing)
         raise OrchestratorError(

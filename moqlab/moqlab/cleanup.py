@@ -15,7 +15,7 @@ class PycacheCleanupResult:
     pytest_cache_dirs: int
 
 
-def remove_pycache(root: Path) -> PycacheCleanupResult:
+def remove_pycaches(root: Path) -> PycacheCleanupResult:
     pycache_dirs = 0
     bytecode_files = 0
     pytest_cache_dirs = 0
@@ -38,6 +38,9 @@ def remove_pycache(root: Path) -> PycacheCleanupResult:
         bytecode_files=bytecode_files,
         pytest_cache_dirs=pytest_cache_dirs,
     )
+
+
+remove_pycache = remove_pycaches
 
 
 def _is_skipped(path: Path, root: Path) -> bool:

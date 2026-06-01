@@ -1,13 +1,3 @@
-"""moqlab CLI.
-
-`moqlab build moqx` prepares local moqx/moxygen binaries.
-`moqlab build images` builds the local Docker images from those binaries.
-
-`moqlab run --backend containernet` runs foreground; the command blocks inside
-the Mininet `CLI(net)` shell and tears the topology down when you exit.
-Detached state (`ls`, `down`, `logs`) only applies to the Docker backend.
-"""
-
 from __future__ import annotations
 
 import atexit
@@ -21,13 +11,19 @@ from moqlab.build import (
     moqx_build_commands,
     run_build_command,
 )
-from moqlab.cleanup import remove_pycache
+from moqlab.cleanup import remove_pycaches
 from moqlab.config.schema import load_topology
+from moqlab.doctor import doctor_checks, ensure_run_ready, has_failures
 from moqlab.exceptions import MoqlabError
 from moqlab.orchestrator.docker_backend import DockerBackend
 
 
-@click.group()
+@click.group(
+    help=(
+        "Run MoQ relay topologies from YAML. `run` defaults to the "
+        "Containernet backend; use `build` to prepare binaries/images first."
+    )
+)
 @click.option(
     "--runs-dir",
     type=click.Path(file_okay=False, path_type=Path),
@@ -37,7 +33,6 @@ from moqlab.orchestrator.docker_backend import DockerBackend
 )
 @click.pass_context
 def cli(ctx: click.Context, runs_dir: Path | None) -> None:
-    """moqlab — MoQ multirelay topology orchestrator."""
     ctx.ensure_object(dict)
     ctx.obj["runs_dir"] = runs_dir
 
@@ -49,14 +44,16 @@ def _docker_backend(ctx: click.Context) -> DockerBackend:
         raise click.ClickException(str(e)) from e
 
 
-@cli.group()
+@cli.group(help="Prepare local build artifacts. Build commands do not run topologies.")
 def build() -> None:
-    """Build local moqx artifacts or moqlab Docker images."""
+    pass
 
 
-@build.command("moqx")
+@build.command(
+    "moqx",
+    help="Build moqx and prepare the moxygen binaries copied into node images.",
+)
 def build_moqx() -> None:
-    """Build moqx and prepare moxygen binaries used by moqlab images."""
     try:
         commands = moqx_build_commands()
         for command in commands:
@@ -67,9 +64,11 @@ def build_moqx() -> None:
         raise click.ClickException(str(e)) from e
 
 
-@build.command("images")
+@build.command(
+    "images",
+    help="Build moqlab-relay, moqlab-pub, and moqlab-sub from local artifacts.",
+)
 def build_images() -> None:
-    """Build local Docker images: moqlab-relay, moqlab-pub, moqlab-sub."""
     try:
         commands = docker_image_build_commands()
         for command in commands:
@@ -80,17 +79,28 @@ def build_images() -> None:
         raise click.ClickException(str(e)) from e
 
 
-@cli.group(name="rm")
+@cli.group(name="rm", help="Remove generated local development artifacts.")
 def remove() -> None:
-    """Remove generated local development artifacts."""
+    pass
 
 
-@remove.command("pycache")
+@remove.command(
+    "pycaches",
+    help="Remove __pycache__, .pyc/.pyo, and .pytest_cache under moqlab/.",
+)
 def remove_pycache_files() -> None:
-    """Remove Python bytecode caches and pytest cache under moqlab/."""
+    _remove_pycaches_command()
+
+
+@remove.command("pycache", hidden=True)
+def remove_pycache_files_alias() -> None:
+    _remove_pycaches_command()
+
+
+def _remove_pycaches_command() -> None:
     project_root = Path(__file__).resolve().parents[1]
-    result = remove_pycache(project_root)
-    atexit.register(remove_pycache, project_root)
+    result = remove_pycaches(project_root)
+    atexit.register(remove_pycaches, project_root)
     click.echo(
         "removed "
         f"{result.pycache_dirs} __pycache__ dirs and "
@@ -99,7 +109,32 @@ def remove_pycache_files() -> None:
     )
 
 
-@cli.command()
+@cli.command(help="Check Python deps, Docker, images, Containernet, and config readiness.")
+@click.option(
+    "--config",
+    "-c",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="Optional topology config. When set, checks the images named by that config.",
+)
+@click.option(
+    "--backend",
+    type=click.Choice(["docker", "containernet"], case_sensitive=False),
+    default="containernet",
+    show_default=True,
+    help="Backend to check. Containernet adds Mininet import and privilege checks.",
+)
+def doctor(config: Path | None, backend: str) -> None:
+    checks = doctor_checks(config_path=config, backend=backend)
+    for check in checks:
+        click.echo(f"{check.status.upper():4} {check.name}: {check.message}")
+        if check.next_step:
+            click.echo(f"     next: {check.next_step}")
+    if has_failures(checks):
+        raise click.exceptions.Exit(1)
+
+
+@cli.command(help="Parse and validate a topology config without side effects.")
 @click.option(
     "--config",
     "-c",
@@ -107,7 +142,6 @@ def remove_pycache_files() -> None:
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
 )
 def validate(config: Path) -> None:
-    """Parse and validate a topology config without side effects."""
     try:
         topology = load_topology(config)
     except MoqlabError as e:
@@ -156,7 +190,10 @@ def _run_options(default_backend: str):
             type=click.Choice(["docker", "containernet"], case_sensitive=False),
             default=default_backend,
             show_default=True,
-            help="Orchestration backend. Containernet blocks in a Mininet CLI shell.",
+            help=(
+                "Orchestration backend. Default containernet opens a Mininet CLI "
+                "and tears down on exit; docker runs detached."
+            ),
         )(fn)
         fn = click.option(
             "--config",
@@ -169,7 +206,13 @@ def _run_options(default_backend: str):
     return _decorator
 
 
-@cli.command(name="run")
+@cli.command(
+    name="run",
+    help=(
+        "Run the topology described by CONFIG. Defaults to containernet. "
+        "Use `moqlab doctor -c CONFIG` when readiness fails."
+    ),
+)
 @_run_options(default_backend="containernet")
 def run_topology(
     ctx: click.Context,
@@ -179,7 +222,6 @@ def run_topology(
     publish_ports: bool,
     readiness_timeout: float,
 ) -> None:
-    """Run the topology described by CONFIG."""
     _run_topology(ctx, config, backend, run_id, publish_ports, readiness_timeout)
 
 
@@ -219,7 +261,6 @@ def up(
     publish_ports: bool,
     readiness_timeout: float,
 ) -> None:
-    """Compatibility alias for `run`."""
     _run_topology(ctx, config, backend, run_id, publish_ports, readiness_timeout)
 
 
@@ -232,11 +273,15 @@ def _run_topology(
     readiness_timeout: float,
 ) -> None:
     backend = backend.lower()
+    try:
+        ensure_run_ready(config, backend)
+    except MoqlabError as e:
+        raise click.ClickException(str(e)) from e
     if backend == "docker":
         _up_docker(ctx, config, run_id, publish_ports, readiness_timeout)
     elif backend == "containernet":
         _up_containernet(ctx, config, run_id)
-    else:  # unreachable: click.Choice enforces this
+    else:
         raise click.ClickException(f"unknown backend: {backend}")
 
 
@@ -278,7 +323,6 @@ def _up_docker(
 
 
 def _up_containernet(ctx: click.Context, config: Path, run_id: str | None) -> None:
-    # Lazy import: don't pull mininet/containernet unless the user asks for it.
     from moqlab.orchestrator.containernet_backend import ContainernetBackend
 
     try:
@@ -286,15 +330,13 @@ def _up_containernet(ctx: click.Context, config: Path, run_id: str | None) -> No
         record = cn.up(config_path=config, run_id=run_id)
     except MoqlabError as e:
         raise click.ClickException(str(e)) from e
-    # When CLI(net) exits, the topology is already torn down. Report only.
     click.echo(f"\ntorn down: run_id={record.run_id} (run dir kept at {record.run_dir})")
 
 
-@cli.command()
+@cli.command(help="Tear down a Docker-backend topology.")
 @click.option("--run-id", required=True)
 @click.pass_context
 def down(ctx: click.Context, run_id: str) -> None:
-    """Tear down a Docker-backend topology (containers + network)."""
     backend = _docker_backend(ctx)
     try:
         backend.down(run_id)
@@ -303,10 +345,9 @@ def down(ctx: click.Context, run_id: str) -> None:
     click.echo(f"stopped: {run_id}")
 
 
-@cli.command()
+@cli.command(help="List active Docker-backend runs from Docker labels.")
 @click.pass_context
 def ls(ctx: click.Context) -> None:
-    """List active Docker-backend runs (sourced from Docker labels)."""
     backend = _docker_backend(ctx)
     records = backend.ls()
     if not records:
@@ -320,7 +361,7 @@ def ls(ctx: click.Context) -> None:
         )
 
 
-@cli.command()
+@cli.command(help="Print container logs for one node in a Docker-backend run.")
 @click.option("--run-id", required=True)
 @click.option("-f", "--follow", is_flag=True, help="Stream logs as they arrive.")
 @click.option(
@@ -333,7 +374,6 @@ def ls(ctx: click.Context) -> None:
 @click.argument("node_id")
 @click.pass_context
 def logs(ctx: click.Context, run_id: str, node_id: str, follow: bool, tail: int) -> None:
-    """Print container logs for one node in a Docker-backend run."""
     backend = _docker_backend(ctx)
     try:
         container = backend.container_for(run_id, node_id)

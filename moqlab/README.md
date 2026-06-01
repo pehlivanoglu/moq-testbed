@@ -68,6 +68,7 @@ Once the environment is ready, run from the moqlab project directory so
 ```bash
 cd /path/to/moq-testbed/moqlab
 python -m pytest -q
+python -m moqlab doctor
 sudo python -m moqlab run -c configs/examples/linear_3relay.yaml
 # inside Mininet CLI:
 #   containernet> sub  tail -f /tmp/sub.log
@@ -98,6 +99,9 @@ python -m moqlab build images
 ```bash
 cd moqlab
 
+# Check Python deps, Docker, images, Containernet importability, and config.
+python -m moqlab doctor -c configs/examples/linear_3relay.yaml
+
 # Validate the topology
 python -m moqlab validate -c configs/examples/linear_3relay.yaml
 
@@ -115,6 +119,11 @@ python -m moqlab ls
 python -m moqlab logs --run-id <id> sub -f
 python -m moqlab down --run-id <id>
 ```
+
+`moqlab run` performs the same readiness checks that matter for the selected
+backend. If Docker is unavailable, an image is missing, or Containernet is not
+importable from the current Python, it exits before starting the topology and
+prints the next command to run.
 
 ## Topology schema
 
@@ -191,6 +200,7 @@ needs the four runtime deps installed (see "Running it").
 
 | Command | Backend | Purpose |
 |---|---|---|
+| `python -m moqlab doctor [-c <config>] [--backend docker\|containernet]` | both | Check Python deps, Docker, required images, Containernet importability, privileges, and optional config readiness. |
 | `python -m moqlab build moqx` | n/a | Build moqx and prepare moxygen binaries used by images. |
 | `python -m moqlab build images` | n/a | Build `moqlab-relay`, `moqlab-pub`, and `moqlab-sub`. |
 | `python -m moqlab validate -c <config>` | both | Parse + validate, no side effects. |
@@ -198,7 +208,7 @@ needs the four runtime deps installed (see "Running it").
 | `python -m moqlab down --run-id <name>` | docker | Stop and remove containers + network. |
 | `python -m moqlab ls` | docker | List active runs. |
 | `python -m moqlab logs --run-id <name> [-f] [-n N] <node_id>` | docker | Container logs for one node. |
-| `python -m moqlab rm pycache` | n/a | Remove project `__pycache__` dirs, `.pyc` / `.pyo` files, and `.pytest_cache`, skipping `.venv` and `.runs`. |
+| `python -m moqlab rm pycaches` | n/a | Remove project `__pycache__` dirs, `.pyc` / `.pyo` files, and `.pytest_cache`, skipping `.venv` and `.runs`. |
 
 `python -m moqlab up ...` is kept as a compatibility alias for `run`.
 
