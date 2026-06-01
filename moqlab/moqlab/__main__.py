@@ -1,4 +1,4 @@
-"""Entry point for `python -m moqlab`."""
+"""Entrypoint for `python -m moqlab`."""
 
 from moqlab.cli import cli
 

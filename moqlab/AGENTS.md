@@ -1,47 +1,88 @@
-# AGENTS.md — `moqlab/` Python package
+# AGENTS.md - `moqlab/` Multirelay Testbed
 
-Component-level guide for AI agents touching the `moqlab` orchestrator. Read
-this file completely before editing anything under `moqlab/`. The root
-[../AGENTS.md](../AGENTS.md) sets project-wide invariants — those still apply;
-this file adds component-specific rules.
+This is the authoritative guide for AI agents working on `moqlab/`.
+There is intentionally no root-level agent guide right now: keep agent-authored
+instructions, plans, and moqlab-specific notes inside this directory.
 
-## What's implemented
+Read this file and [TODO.md](TODO.md) before editing anything under `moqlab/`.
+After any change, update the relevant Markdown in this directory so deferred
+work, missing features, and behavior changes stay visible.
 
-- **Schema** (`config/schema.py`) — Pydantic v2 model for the topology:
-  `relays` + `publishers` + `subscribers` + optional `links`. Strict
-  (`extra="forbid"`), unified node-id namespace, full cross-validation.
-- **Synthesis** (`config/synth.py`) — turns the topology into per-relay
-  moqx YAML files (mounted into relay containers) and argv lists for
-  `moqdateserver` / `moqtextclient`.
-- **Docker backend** (`orchestrator/docker_backend.py`) — bridge network +
-  one container per node, container names = node ids = DNS labels.
-- **Containernet backend** (`orchestrator/containernet_backend.py`) — same
-  schema, attaches nodes via TCLinks through per-edge OVS bridges, explicitly
-  launches relay/pub/sub binaries after `net.start()`, drops into `CLI(net)`.
-- **CLI** (`cli.py`) — `up / down / validate / logs / ls` with
-  `--backend [docker|containernet]`.
-- 36 passing unit tests.
+## Project Identity
 
-What is NOT implemented (tracked in [TODO.md](TODO.md)):
+`moqlab` is a PhD research testbed for Media over QUIC (MoQT) multirelay
+experiments. It lets a researcher define CDN-like relay topologies in YAML,
+instantiate them as Docker containers, optionally connect them through
+Containernet/Mininet with shaped links, and eventually run repeatable
+network-impairment scenarios with structured logs and QUIC traces.
 
-- Multiple upstreams per relay (mesh / fan-in).
-- Generative topologies, scenario runner, observability, TLS CA per run,
-  archiver, full `experiments/run_*/` layout, structured (JSONL) logging,
-  Prometheus + Grafana sidecar.
+Optimize every decision for correctness, reproducibility, and researcher
+ergonomics. This is research infrastructure, not a demo script.
 
-## Layout
+## Collaboration Rules
+
+- Discuss design choices before making them. Do not make schema, architecture,
+  dependency, or workflow decisions silently.
+- Do not add new hardcoded behavior or new CLI configuration knobs. The
+  topology YAML should be the source of truth for images, ports, endpoints,
+  TLS, cache, launch timing, pub/sub behavior, and link shaping.
+- Existing CLI options that are operational rather than topology-defining are
+  tolerated for now; if a new need is really experiment configuration, put it
+  in the config schema and document it.
+- Do not introduce a dependency without discussion. If accepted, add it to
+  `requirements.txt` with a pinned range and document why.
+- Do not create new project-control documents outside `moqlab/` unless the
+  researcher explicitly asks for root-level files again.
+
+## Current Implementation
+
+- **Schema** (`moqlab/config/schema.py`) - Pydantic v2 topology model:
+  `defaults`, `startup`, `relays`, `publishers`, `subscribers`, and optional
+  `links`. It is strict (`extra="forbid"`) and validates node ids, relay
+  references, port collisions, cycles, and duplicate links.
+- **Synthesis** (`moqlab/config/synth.py`) - turns topology config into
+  per-relay moqx YAML files and argv lists for `moqdateserver` and
+  `moqtextclient`.
+- **Docker backend** (`moqlab/orchestrator/docker_backend.py`) - creates one
+  bridge network and one detached container per node. Docker labels are the
+  state of truth.
+- **Containernet backend** (`moqlab/orchestrator/containernet_backend.py`) -
+  creates Docker hosts inside Containernet, attaches endpoints through
+  per-edge OVS bridges with `TCLink`, starts node binaries explicitly after
+  `net.start()`, opens `CLI(net)`, and tears down on CLI exit.
+- **CLI** (`moqlab/cli.py`) - `build moqx`, `build images`, `validate`,
+  `run`, `down`, `logs`, `ls`, and `rm pycache`. `up` remains a hidden
+  compatibility alias for `run`.
+- **Tests** (`tests/unit/`) - unit tests for schema, synthesis, and
+  Containernet launch ordering. They do not require Docker, Containernet, or
+  root.
+
+Not implemented yet: multiple upstreams per relay, generative topologies,
+scenario runner, observability, JSONL collector, Prometheus/Grafana, QLOG
+archive, TLS CA per run, full `experiments/run_*/` archive layout, replay,
+and analysis helpers. Track all of these in [TODO.md](TODO.md).
+
+## Current Layout
 
 ```
 moqlab/
-├── requirements.txt                ← runtime deps
-├── requirements-dev.txt            ← + pytest
-├── pytest.ini                      ← pytest config
-├── conftest.py                     ← pytest rootdir marker (empty)
-├── README.md                       ← user-facing quickstart + schema reference
-├── AGENTS.md                       ← you are here
-├── TODO.md                         ← deferred / future work
-├── moqlab/                         ← package source (PEP 420 namespace package)
-│   ├── __main__.py                 ← entry point for `python -m moqlab`
+├── AGENTS.md
+├── README.md
+├── TODO.md
+├── requirements.txt
+├── requirements-dev.txt
+├── pytest.ini
+├── conftest.py
+├── configs/
+│   └── examples/
+├── docker/
+│   ├── Dockerfile.relay
+│   ├── Dockerfile.pub
+│   ├── Dockerfile.sub
+│   └── README.md
+├── moqlab/
+│   ├── __main__.py
+│   ├── build.py
 │   ├── cli.py
 │   ├── exceptions.py
 │   ├── config/
@@ -50,120 +91,221 @@ moqlab/
 │   └── orchestrator/
 │       ├── docker_backend.py
 │       └── containernet_backend.py
-├── configs/examples/               ← example topologies (committed)
-├── docker/                         ← Dockerfiles only; orchestration is in moqlab/
-└── tests/unit/                     ← pytest, no Docker required
+└── tests/
+    └── unit/
 ```
 
-**moqlab is not a pip-installable library.** There is no `pyproject.toml`,
-no `setup.py`, no console-script entry point. Users invoke it with
-`python -m moqlab <subcommand>` from the project root. Runtime deps live in
-`requirements.txt` and are installed into whatever venv is convenient (the
-project's `.venv` for dev/docker work; the Containernet venv for the
-Containernet backend). There is no `__init__.py` anywhere — the package is a
-PEP 420 namespace package; `moqlab/__main__.py` is the entry point.
+`moqlab` is not a pip-installable library right now. There is no
+`pyproject.toml`, no `setup.py`, no console script, and no package
+`__init__.py`. Run it from this directory with `python -m moqlab`.
 
-Use fully-qualified imports (`from moqlab.config.schema import …`); there
-are no convenience re-exports.
+Use fully qualified imports such as `from moqlab.config.schema import ...`.
+There are no convenience re-exports.
 
-## Hard rules for editing this package
+## Current Config Shape
 
-1. **Config-driven, no CLI-arg configs, no hardcoded values.** Per root
-   AGENTS.md IMPORTANT NOTE 3. The CLI takes a topology YAML; everything
-   else (image, endpoint, ports, TLS, cache, pub/sub flags, link shaping)
-   comes from that YAML.
-2. **Pydantic v2 for every structured input.** Never round-trip a raw
-   `dict`. New config fields go into `schema.py` with explicit types and
-   validators. `extra="forbid"` is required so typos surface as
-   `ConfigError`.
-3. **No bare `Exception` / `RuntimeError`.** Use `moqlab.exceptions`:
-   `ConfigError`, `OrchestratorError`, `RunNotFoundError`,
-   `RunAlreadyExistsError`. Add new domain exceptions there if needed.
-4. **No hardcoded IPs anywhere.** Both backends use container DNS — node id
-   == container name == DNS label. Phase 2 link shaping uses TCLink, which
-   does not require knowing IPs.
-5. **State of truth lives in Docker labels** (Docker backend). Every
-   container and network we create is tagged
-   `moqlab.run_id=<run_id>` + `moqlab.role=<relay|publisher|subscriber>` +
-   `moqlab.node_id=<id>`. `ls`, `down`, `container_for` re-derive state
-   from Docker. The Containernet backend tears down at CLI exit; it does
-   not persist state.
-6. **No `print` in package code.** Use `click.echo` from CLI handlers and
-   stdlib `logging` from library code (a later change moves library logging
-   to `structlog`; see TODO).
-7. **No internet access at runtime.** All container deps must be in the
-   node images at build time.
-8. **No `__init__.py`.** If you need package-level state, attach it to a
-   submodule (e.g. `moqlab.config.schema._RELAY_ID_RE`), not a package
-   `__init__`. The only module that lives at the package root is
-   `moqlab/__main__.py`, and its sole responsibility is to invoke the
-   Click `cli` object.
-9. **Do not reintroduce `pyproject.toml`, `setup.py`, or any console-script
-   entry point.** moqlab is run with `python -m moqlab`, not installed.
-   New dependencies are added to `requirements.txt`.
+The implemented schema is explicit-only:
 
-## Where shared state lives
+```yaml
+topology_mode: explicit
 
-- **Docker labels** (`moqlab.run_id`, `moqlab.role`, `moqlab.node_id`) —
-  authoritative for the Docker backend.
-- **Run dir** at `<runs_dir>/<run_id>/`:
-  - `topology.yaml` — exact copy of the input (traceability).
-  - `configs/<relay_id>.yaml` — synthesized moqx config, bind-mounted into
-    each relay container.
-- **No `state.json` or pickle.** If a future feature needs more state, prefer
-  Docker labels first; only if labels can't express it, add a YAML/JSON file
-  with a Pydantic model for its schema.
+defaults:
+  relay:
+    image: moqlab-relay
+    endpoint: /moq-relay
+    tls: { insecure: true }
+    cache: { enabled: false, max_tracks: 100, max_groups_per_track: 3 }
+  publisher:
+    image: moqlab-pub
+    insecure: true
+    log_level: INFO
+  subscriber:
+    image: moqlab-sub
+    insecure: true
+    log_level: INFO
 
-## Adding a new schema field
+startup:
+  relay_warmup_s: 2.0
+  publisher_warmup_s: 1.0
 
-1. Add it to the right Pydantic model in `moqlab/config/schema.py`. Use
-   `_StrictBase` as the parent.
-2. If it affects per-relay YAML or pub/sub argv, plumb it through
-   `synth.py`.
-3. Add unit tests in `tests/unit/test_config_schema.py` (valid + invalid)
-   and `tests/unit/test_synth.py` (output shape).
-4. Document it in `README.md` under the schema table.
+relays:
+  relay-a: { listen_port: 9668, admin_port: 9669, upstream: null }
+  relay-b: { listen_port: 9670, admin_port: 9671, upstream: relay-a }
 
-## Adding a new backend
+publishers:
+  pub: { connects_to: relay-a, namespace: moq-date }
 
-A new orchestrator backend (e.g. Kubernetes, AWS Fargate) goes at
-`moqlab/orchestrator/<name>_backend.py`. Required invariants:
+subscribers:
+  sub: { connects_to: relay-b, namespace: moq-date, track: date }
 
-- Same `TopologyConfig` schema; no schema fork.
-- Same per-relay YAML synthesis via `synth.synthesize_relay_configs` — do
-  not duplicate.
-- Idempotent teardown unless the UX is foreground (Containernet style).
-- Same Docker labels if backend creates Docker containers.
-- Wire CLI dispatch via the existing `--backend` choice list in `cli.py`.
+links:
+  - { from: pub, to: relay-a, bandwidth_mbps: 100, delay_ms: 5 }
+  - { from: relay-a, to: relay-b, bandwidth_mbps: 50, delay_ms: 20 }
+  - { from: relay-b, to: sub, bandwidth_mbps: 20, delay_ms: 69 }
+```
+
+Implemented invariants:
+
+- `topology_mode` must be `explicit`.
+- Node ids are globally unique and valid as Docker names/DNS labels.
+- Relay `upstream` and pub/sub `connects_to` references must target known
+  relays.
+- A relay has at most one upstream; upstream chains must be cycle-free.
+- Relay listen/admin ports must be unique across the topology.
+- `startup` warmups are non-negative seconds and config-driven.
+- `links` reference known nodes and may not duplicate an undirected pair.
+- Unknown fields are rejected.
+
+Future target config work may introduce named `networks`, relay `upstreams`,
+ECN/L4S fields, browser subscribers, scenarios, and generative topology mode.
+Do not start that migration without discussion.
+
+## Containernet Notes
+
+Containernet is Mininet extended with Docker-container hosts. The important
+mental model is:
+
+```text
+Host machine
+└── Containernet process
+    ├── Docker host: relay/pub/sub container
+    ├── Docker host: relay/pub/sub container
+    └── OVS switches and TCLinks connecting those hosts
+```
+
+Applications run inside the Docker hosts, not on the Ubuntu host running
+Containernet. Do not use host `localhost` for node-to-node traffic. In the
+current backend, nodes should address each other by node id/DNS label, while
+the backend manages per-link addresses internally.
+
+Containernet specifics that matter in this repo:
+
+- Use `addDocker(...)` for node containers.
+- Use `TCLink` for link shaping.
+- `net.start()` starts the Mininet network, not the moqx/moxygen binaries.
+  The backend must launch relays, publishers, and subscribers explicitly after
+  `net.start()`.
+- Keep Containernet imports lazy so Docker-only workflows still work on normal
+  developer machines.
+- Containernet runs foreground and tears down when `CLI(net)` exits.
+
+## State And Runtime Outputs
+
+- Docker backend state lives in Docker labels:
+  `moqlab.run_id`, `moqlab.role`, and `moqlab.node_id`.
+- Current run scratch data lives under `<runs_dir>/<run_id>/`:
+  `topology.yaml` plus synthesized `configs/<relay_id>.yaml`.
+- The current default is `moqlab/.runs/`; the future experiment archive may
+  move to `<repo_root>/experiments/run_*`. Decide and document that before
+  implementing the archive.
+- Do not commit runtime output, `.runs/`, `.venv/`, `.pytest_cache/`, or
+  `__pycache__/`.
+- Use `python -m moqlab rm pycache` to remove project bytecode caches and
+  `.pytest_cache` when they clutter the tree. It intentionally skips `.venv`
+  and `.runs`.
+
+## Coding Rules
+
+- Python 3.11+.
+- Put `from __future__ import annotations` at the top of every Python module.
+- Use Pydantic v2 for every structured input. Never keep structured config as
+  raw dictionaries after loading.
+- Use domain exceptions from `moqlab/exceptions.py`; add new domain exceptions
+  there if needed.
+- Do not add `print()` in package code. CLI handlers use `click.echo`; library
+  code currently uses stdlib `logging` until the tracked `structlog` migration.
+- Type annotate public function signatures. Avoid `Any` unless the shape is
+  genuinely external or dynamic; keep it localized and obvious.
+- Keep backend modules independent. They may share helpers, but they should
+  not import each other.
+- Prefer config/schema helpers over duplicating string construction in
+  backends.
+- Do not add comments or docstrings that merely restate a function, class, or
+  file name. For example, avoid docstrings like "Commands that build the local
+  Docker images" on a function already named `docker_image_build_commands`.
+  Keep comments only when they explain non-obvious rationale, external quirks,
+  constraints, or surprising behavior.
+- Click command help should live in Click decorators when the function name is
+  already self-explanatory. Do not keep trivial function docstrings only for
+  command help text.
+
+## Docker Rules
+
+- Dockerfiles are image-build inputs only; orchestration belongs in Python.
+- Build preparation is separate from running topologies:
+  `python -m moqlab build moqx` prepares binaries and
+  `python -m moqlab build images` builds local node images.
+- Images must not contain secrets. TLS material will eventually be injected at
+  runtime from the run directory.
+- Image defaults are local-development defaults; topology config can override
+  image names per role or per node.
+- Future production-style Dockerfiles should pin base images by full digest
+  and use multi-stage builds when binaries are built in image.
+
+## Scenario And Observability Target
+
+Scenarios will be separate YAML files applied to a running topology. Time
+values should be strings such as `30s`, `2m`, and `90s`, parsed by scenario
+code with monotonic timing. Planned actions include:
+
+- `set_link`
+- `add_loss`
+- `restore`
+- `add_node`
+- `remove_node`
+- `set_ecn`
+- `set_l4s`
+
+Every experiment run should eventually be reproducible from its run directory,
+including exact topology/scenario copies, resolved generated topology, git
+hashes, host info, image digests, logs, qlog, metrics, netem command log, and
+a final `SEALED` sentinel for completed runs.
+
+Structured node logs should be JSONL on stdout with required fields:
+`ts`, `run_id`, `node`, `node_type`, `event`, and `level`.
+Never log raw binary data or TLS key material.
+
+## Adding A Schema Field
+
+1. Add it to the right Pydantic model in `moqlab/config/schema.py`.
+2. Validate it with explicit types and `model_validator` if needed.
+3. Plumb it through `synth.py` if it affects relay YAML or pub/sub argv.
+4. Add focused tests in `tests/unit/test_config_schema.py` and, when relevant,
+   `tests/unit/test_synth.py`.
+5. Document it in `README.md`.
+
+## Adding A Backend
+
+New backends go in `moqlab/orchestrator/<name>_backend.py`.
+
+Required invariants:
+
+- Use the same `TopologyConfig`; do not fork the schema.
+- Reuse synthesis helpers instead of duplicating relay YAML or argv logic.
+- Make teardown idempotent unless the backend is intentionally foreground like
+  Containernet.
+- Use the same Docker labels if the backend creates Docker containers.
+- Wire CLI dispatch through the existing backend choice only after discussion.
 
 ## Tests
 
-- `tests/unit/` is pytest-only, runs without Docker or Containernet, must
-  pass on any laptop. Don't import `docker` or `mininet` at test-module
-  level — keep these imports inside the modules under test.
-- Integration tests (Docker + Containernet) are deferred. When they land
-  they go in `tests/integration/` gated by an env flag, not run by default.
+- Unit tests live in `tests/unit/`; they must not require Docker,
+  Containernet, root, or network access.
+- Do not import `docker`, `mininet`, or `containernet` at test-module import
+  time unless the test is explicitly gated as integration-only.
+- Integration tests are deferred. When added, put them under
+  `tests/integration/` and gate them with an environment variable such as
+  `MOQLAB_INTEGRATION=1`.
 
-## Style
+## When To Ask First
 
-- Python 3.11+. `from __future__ import annotations` at the top of every
-  module so we get cheap PEP 604 union types.
-- Type-annotate every public function. Internal helpers may skip return
-  annotations on trivial getters but should still annotate parameters.
-- Module docstrings explain *why*, not *what*. No comments restating what
-  the code does — comments are for non-obvious invariants or rationale.
-- The orchestrator backends never import each other. `containernet_backend`
-  may import only from `moqlab.config.*` and `moqlab.exceptions`.
+Ask before:
 
-## When to ask before changing
-
-Per root AGENTS.md IMPORTANT NOTE 2, ask before:
-
-- Adding any dependency not already in `requirements.txt`.
-- Changing the schema in a non-additive way (any rename, removal, or
-  meaning change of existing fields breaks topology configs in the wild).
-- Adding new top-level CLI subcommands.
-- Reintroducing `pyproject.toml` / `setup.py` / console-script entry points.
-  The "run with `python -m moqlab`, never install" model is a deliberate
-  choice — it avoids the cross-venv install ceremony that caused real pain
-  when first wiring up the Containernet backend.
+- Adding or changing dependencies.
+- Changing the config schema in a non-additive way.
+- Adding top-level CLI commands or new CLI configuration flags.
+- Reintroducing `pyproject.toml`, `setup.py`, console scripts, or package
+  `__init__.py` files.
+- Moving run output from `.runs/` to an experiment archive layout.
+- Implementing intentionally incomplete behavior. If something is deferred,
+  document it in [TODO.md](TODO.md).

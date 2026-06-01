@@ -3,11 +3,12 @@
 `moqlab` takes a single YAML topology and brings it up as a graph of MoQ
 relays, publishers, and subscribers. Two backends share the same config:
 
-- **`--backend docker`** (default) — each node is a Docker container on a
+- **`--backend containernet`** (default for `run`) — each node is a
+  Containernet Docker host attached to one or more shaped TCLinks via an OVS
+  bridge per edge. Foreground; drops you into the Mininet CLI shell. Exit to
+  tear down.
+- **`--backend docker`** — each node is a Docker container on a
   user-defined bridge network. Detached; `moqlab down` to tear down.
-- **`--backend containernet`** — each node is a Containernet Docker host
-  attached to one or more shaped TCLinks via an OVS bridge per edge.
-  Foreground; drops you into the Mininet CLI shell. Exit to tear down.
 
 No per-relay YAMLs. No hardcoded IPs. No `localhost`. The orchestrator wires
 everything by container DNS, so the same config runs on either backend.
@@ -25,6 +26,7 @@ moqlab/
 ├── TODO.md                         ← deferred / future work
 ├── moqlab/                         ← package source (PEP 420 namespace pkg, no __init__.py)
 │   ├── __main__.py                 ← `python -m moqlab` entry point
+│   ├── build.py                    ← build command planning helpers
 │   ├── cli.py                      ← Click commands
 │   ├── exceptions.py
 │   ├── config/
@@ -51,57 +53,44 @@ in place with `python -m moqlab`. You only need to make sure the four
 runtime deps (`pydantic`, `click`, `PyYAML`, `docker`) are available to the
 interpreter you invoke.
 
-### Day-to-day dev venv (Docker backend, tests)
+For Containernet setup and venv choices, see [INSTALL.md](INSTALL.md).
 
-```bash
-cd moqlab
-python3 -m venv .venv
-.venv/bin/pip install -r requirements-dev.txt
-.venv/bin/python -m moqlab --help
-.venv/bin/pytest -q
-```
+### Python environment
 
-### Containernet backend
+Use one Python environment that can import both moqlab's dependencies and
+Containernet's `mininet` package. That venv can live outside this repo in the
+Containernet checkout, or inside `moqlab/.venv`; [INSTALL.md](INSTALL.md)
+shows both options.
 
-Containernet ships its own venv (its `mininet` install lives only there).
-moqlab itself doesn't need installing — only its deps do. Once per machine:
-
-```bash
-sudo /path/to/containernet/venv/bin/pip install -r \
-     /path/to/moq-testbed/moqlab/requirements.txt
-```
-
-Then from the moqlab project directory (so `moqlab/` is importable on the
-default sys.path):
+Once the environment is ready, run from the moqlab project directory so
+`moqlab/` is importable on the default `sys.path`:
 
 ```bash
 cd /path/to/moq-testbed/moqlab
-sudo /path/to/containernet/venv/bin/python3 -m moqlab up \
-     -c configs/examples/linear_3relay.yaml --backend containernet
+python -m pytest -q
+sudo python -m moqlab run -c configs/examples/linear_3relay.yaml
 # inside Mininet CLI:
 #   containernet> sub  tail -f /tmp/sub.log
 #   containernet> exit
 ```
 
-Two venvs, different jobs:
+Since moqlab is not installed into the venv, edits to the source take effect
+immediately on the next `python -m moqlab` invocation. No reinstall, ever.
 
-| Venv | What it's for |
-|---|---|
-| `moqlab/.venv` | `pytest`, `python -m moqlab up --backend docker`, day-to-day dev |
-| Containernet venv (e.g. `~/Research/Repos/containernet/venv`) | `sudo python -m moqlab up --backend containernet` |
+## Building moqx and node images
 
-Since moqlab isn't installed into either venv, edits to the source take
-effect immediately on the next `python -m moqlab` invocation. No reinstall,
-ever.
-
-## Building the node images
-
-Once, before the first `up` (see [docker/README.md](docker/README.md)):
+Use moqlab build commands instead of hand-running the repo build and Docker
+commands:
 
 ```bash
-docker build -f moqlab/docker/Dockerfile.relay -t moqlab-relay ../..
-docker build -f moqlab/docker/Dockerfile.pub   -t moqlab-pub   ../..
-docker build -f moqlab/docker/Dockerfile.sub   -t moqlab-sub   ../..
+cd moqlab
+
+# Builds moqx and prepares moxygen artifacts. If the moxygen artifacts are
+# missing, this runs the repository setup step first.
+python -m moqlab build moqx
+
+# Builds moqlab-relay, moqlab-pub, and moqlab-sub from the repo root context.
+python -m moqlab build images
 ```
 
 ## Quick start
@@ -112,15 +101,19 @@ cd moqlab
 # Validate the topology
 python -m moqlab validate -c configs/examples/linear_3relay.yaml
 
+# Build local binaries and images once, or after source changes
+python -m moqlab build moqx
+python -m moqlab build images
+
+# Containernet backend (default; foreground)
+sudo /path/to/containernet/venv/bin/python3 -m moqlab run \
+     -c configs/examples/linear_3relay.yaml
+
 # Docker backend (detached)
-python -m moqlab up   -c configs/examples/linear_3relay.yaml --backend docker --publish-ports
+python -m moqlab run -c configs/examples/linear_3relay.yaml --backend docker --publish-ports
 python -m moqlab ls
 python -m moqlab logs --run-id <id> sub -f
 python -m moqlab down --run-id <id>
-
-# Containernet backend (foreground; see "Running it" above)
-sudo /path/to/containernet/venv/bin/python3 -m moqlab up \
-     -c configs/examples/linear_3relay.yaml --backend containernet
 ```
 
 ## Topology schema
@@ -172,7 +165,7 @@ Invariants the schema enforces:
 
 ## How wiring works
 
-`moqlab up` synthesizes one moqx YAML per relay into
+`moqlab run` synthesizes one moqx YAML per relay into
 `<runs_dir>/<run_id>/configs/<relay>.yaml`, then:
 
 - **Docker backend**: creates bridge network `moqlab_<run_id>`. Starts relays
@@ -198,11 +191,16 @@ needs the four runtime deps installed (see "Running it").
 
 | Command | Backend | Purpose |
 |---|---|---|
+| `python -m moqlab build moqx` | n/a | Build moqx and prepare moxygen binaries used by images. |
+| `python -m moqlab build images` | n/a | Build `moqlab-relay`, `moqlab-pub`, and `moqlab-sub`. |
 | `python -m moqlab validate -c <config>` | both | Parse + validate, no side effects. |
-| `python -m moqlab up -c <config> [--backend docker\|containernet] [--run-id N] [--publish-ports]` | both | Bring topology up. |
+| `python -m moqlab run -c <config> [--backend docker\|containernet] [--run-id N] [--publish-ports]` | both | Run topology. Defaults to `containernet`. |
 | `python -m moqlab down --run-id <name>` | docker | Stop and remove containers + network. |
 | `python -m moqlab ls` | docker | List active runs. |
 | `python -m moqlab logs --run-id <name> [-f] [-n N] <node_id>` | docker | Container logs for one node. |
+| `python -m moqlab rm pycache` | n/a | Remove project `__pycache__` dirs, `.pyc` / `.pyo` files, and `.pytest_cache`, skipping `.venv` and `.runs`. |
+
+`python -m moqlab up ...` is kept as a compatibility alias for `run`.
 
 Global option: `--runs-dir <path>` (or `MOQLAB_RUNS_DIR=…`). Default:
 `moqlab/.runs/`.
@@ -211,7 +209,7 @@ Global option: `--runs-dir <path>` (or `MOQLAB_RUNS_DIR=…`). Default:
 
 ```bash
 cd moqlab
-.venv/bin/pytest -q          # 36 unit tests, no Docker required
+.venv/bin/pytest -q          # unit tests, no Docker required
 ```
 
 `pytest.ini` + `conftest.py` at the project root tell pytest where the test
@@ -222,8 +220,8 @@ Coverage: schema validation (uniqueness, upstream resolution, cycles, port
 collisions, link dedup, mode gating, log-level validation), relay YAML
 synthesis (DNS URLs, override inheritance, multi-relay file emission),
 publisher and subscriber argv synthesis (flag composition, optional flags,
-endpoint propagation), startup warmup validation, and Containernet process
-launch order.
+endpoint propagation), build command planning, cleanup helpers, startup warmup
+validation, and Containernet process launch order.
 
 Integration tests (require Docker + Containernet) are deferred — see
 [TODO.md](TODO.md).

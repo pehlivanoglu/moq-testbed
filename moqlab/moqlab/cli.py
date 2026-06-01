@@ -1,20 +1,27 @@
-"""moqlab CLI — `up / down / validate / logs / ls`.
+"""moqlab CLI.
 
-`moqlab up --backend docker` runs detached; the topology stays up until
-`moqlab down --run-id <id>`.
+`moqlab build moqx` prepares local moqx/moxygen binaries.
+`moqlab build images` builds the local Docker images from those binaries.
 
-`moqlab up --backend containernet` runs foreground; the command blocks inside
+`moqlab run --backend containernet` runs foreground; the command blocks inside
 the Mininet `CLI(net)` shell and tears the topology down when you exit.
 Detached state (`ls`, `down`, `logs`) only applies to the Docker backend.
 """
 
 from __future__ import annotations
 
+import atexit
 import sys
 from pathlib import Path
 
 import click
 
+from moqlab.build import (
+    docker_image_build_commands,
+    moqx_build_commands,
+    run_build_command,
+)
+from moqlab.cleanup import remove_pycache
 from moqlab.config.schema import load_topology
 from moqlab.exceptions import MoqlabError
 from moqlab.orchestrator.docker_backend import DockerBackend
@@ -42,6 +49,56 @@ def _docker_backend(ctx: click.Context) -> DockerBackend:
         raise click.ClickException(str(e)) from e
 
 
+@cli.group()
+def build() -> None:
+    """Build local moqx artifacts or moqlab Docker images."""
+
+
+@build.command("moqx")
+def build_moqx() -> None:
+    """Build moqx and prepare moxygen binaries used by moqlab images."""
+    try:
+        commands = moqx_build_commands()
+        for command in commands:
+            click.echo(f"==> {command.label}")
+            click.echo(f"    {' '.join(command.argv)}")
+            run_build_command(command)
+    except MoqlabError as e:
+        raise click.ClickException(str(e)) from e
+
+
+@build.command("images")
+def build_images() -> None:
+    """Build local Docker images: moqlab-relay, moqlab-pub, moqlab-sub."""
+    try:
+        commands = docker_image_build_commands()
+        for command in commands:
+            click.echo(f"==> {command.label}")
+            click.echo(f"    {' '.join(command.argv)}")
+            run_build_command(command)
+    except MoqlabError as e:
+        raise click.ClickException(str(e)) from e
+
+
+@cli.group(name="rm")
+def remove() -> None:
+    """Remove generated local development artifacts."""
+
+
+@remove.command("pycache")
+def remove_pycache_files() -> None:
+    """Remove Python bytecode caches and pytest cache under moqlab/."""
+    project_root = Path(__file__).resolve().parents[1]
+    result = remove_pycache(project_root)
+    atexit.register(remove_pycache, project_root)
+    click.echo(
+        "removed "
+        f"{result.pycache_dirs} __pycache__ dirs and "
+        f"{result.bytecode_files} bytecode files and "
+        f"{result.pytest_cache_dirs} .pytest_cache dirs"
+    )
+
+
 @cli.command()
 @click.option(
     "--config",
@@ -65,14 +122,68 @@ def validate(config: Path) -> None:
     )
     for rid, r in topology.relays.items():
         up = r.upstream or "<origin>"
-        click.echo(f"  relay      {rid:14}  listen={r.listen_port}  admin={r.admin_port}  upstream={up}")
+        click.echo(
+            f"  relay      {rid:14}  listen={r.listen_port}  "
+            f"admin={r.admin_port}  upstream={up}"
+        )
     for pid, p in topology.publishers.items():
         click.echo(f"  publisher  {pid:14}  -> {p.connects_to}  ns={p.namespace}")
     for sid, s in topology.subscribers.items():
         click.echo(f"  subscriber {sid:14}  -> {s.connects_to}  ns={s.namespace}  track={s.track}")
 
 
-@cli.command()
+def _run_options(default_backend: str):
+    def _decorator(fn):
+        fn = click.option(
+            "--readiness-timeout",
+            type=float,
+            default=10.0,
+            show_default=True,
+            help="Docker backend only: per-container startup timeout (seconds).",
+        )(fn)
+        fn = click.option(
+            "--publish-ports/--no-publish-ports",
+            default=False,
+            help="Docker backend only: publish each relay's ports on the host.",
+        )(fn)
+        fn = click.option(
+            "--run-id",
+            default=None,
+            help="Run identifier. Auto-generated if omitted.",
+        )(fn)
+        fn = click.option(
+            "--backend",
+            type=click.Choice(["docker", "containernet"], case_sensitive=False),
+            default=default_backend,
+            show_default=True,
+            help="Orchestration backend. Containernet blocks in a Mininet CLI shell.",
+        )(fn)
+        fn = click.option(
+            "--config",
+            "-c",
+            required=True,
+            type=click.Path(exists=True, dir_okay=False, path_type=Path),
+        )(fn)
+        return click.pass_context(fn)
+
+    return _decorator
+
+
+@cli.command(name="run")
+@_run_options(default_backend="containernet")
+def run_topology(
+    ctx: click.Context,
+    config: Path,
+    backend: str,
+    run_id: str | None,
+    publish_ports: bool,
+    readiness_timeout: float,
+) -> None:
+    """Run the topology described by CONFIG."""
+    _run_topology(ctx, config, backend, run_id, publish_ports, readiness_timeout)
+
+
+@cli.command(hidden=True)
 @click.option(
     "--config",
     "-c",
@@ -82,7 +193,7 @@ def validate(config: Path) -> None:
 @click.option(
     "--backend",
     type=click.Choice(["docker", "containernet"], case_sensitive=False),
-    default="docker",
+    default="containernet",
     show_default=True,
     help="Orchestration backend. Containernet blocks in a Mininet CLI shell.",
 )
@@ -108,7 +219,18 @@ def up(
     publish_ports: bool,
     readiness_timeout: float,
 ) -> None:
-    """Bring up the topology described by CONFIG."""
+    """Compatibility alias for `run`."""
+    _run_topology(ctx, config, backend, run_id, publish_ports, readiness_timeout)
+
+
+def _run_topology(
+    ctx: click.Context,
+    config: Path,
+    backend: str,
+    run_id: str | None,
+    publish_ports: bool,
+    readiness_timeout: float,
+) -> None:
     backend = backend.lower()
     if backend == "docker":
         _up_docker(ctx, config, run_id, publish_ports, readiness_timeout)

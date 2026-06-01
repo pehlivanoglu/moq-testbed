@@ -3,7 +3,7 @@
 This directory contains the Dockerfiles for the three node images the
 orchestrator launches. **There is no orchestration here.** Topologies are
 defined in YAML under [../configs/](../configs/) and brought up with
-`moqlab up`.
+`moqlab run`.
 
 | File | Image | Binary | Used by |
 |---|---|---|---|
@@ -21,14 +21,18 @@ orchestrator builds the argv from the topology config's
 ## Building the images
 
 The Dockerfiles `COPY` pre-built binaries from build-output paths in the repo
-root (e.g. `build/moqx`, `.scratch/moxygen-install/bin/moqdateserver`). Build
-those first, then:
+root (e.g. `build/moqx`, `.scratch/moxygen-install/bin/moqdateserver`).
+Build the binaries and images through the moqlab CLI:
 
 ```bash
-docker build -f moqlab/docker/Dockerfile.relay -t moqlab-relay ../..
-docker build -f moqlab/docker/Dockerfile.pub   -t moqlab-pub   ../..
-docker build -f moqlab/docker/Dockerfile.sub   -t moqlab-sub   ../..
+cd ../
+python -m moqlab build moqx
+python -m moqlab build images
 ```
+
+`build images` runs Docker builds from the repository root context so the
+Dockerfiles can copy `build/moqx` and `.scratch/moxygen-install/bin/...`
+without requiring manual path juggling.
 
 Image tags can be overridden per topology via `defaults.relay.image` /
 `defaults.publisher.image` / `defaults.subscriber.image` or per-node `image:`.

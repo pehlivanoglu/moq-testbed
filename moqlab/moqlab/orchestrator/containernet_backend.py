@@ -8,7 +8,7 @@ independently via `TCLink`. After everything is up, drops into the Containernet
 This module imports mininet/containernet lazily so the rest of the package
 remains usable on a developer laptop that doesn't have Containernet installed
 (the Docker backend has no such dep). Import-time failure surfaces only when
-the user actually runs `moqlab up --backend containernet`.
+the user actually runs `moqlab run --backend containernet`.
 """
 
 from __future__ import annotations
