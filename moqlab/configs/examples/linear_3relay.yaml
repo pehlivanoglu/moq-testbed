@@ -1,0 +1,68 @@
+# Three-relay linear chain with one publisher and one subscriber.
+#
+#   pub  ───►  relay-a  ◄───  relay-b  ◄───  relay-c  ◄───  sub
+#                                  (upstream chain)
+#
+# pub publishes the date stream into relay-a; the chain caches/forwards it; sub
+# subscribes to it through relay-c.
+#
+# Bring it up on either backend:
+#   moqlab up -c moqlab/configs/examples/linear_3relay.yaml --backend docker
+#   moqlab up -c moqlab/configs/examples/linear_3relay.yaml --backend containernet
+#
+# The `links:` block is read only by the Containernet backend.
+
+topology_mode: explicit
+
+defaults:
+  relay:
+    image: moqlab-relay
+    endpoint: /moq-relay
+    tls: { insecure: true }
+    cache: { enabled: false, max_tracks: 100, max_groups_per_track: 3 }
+  publisher:
+    image: moqlab-pub
+    insecure: true
+    log_level: INFO
+  subscriber:
+    image: moqlab-sub
+    insecure: true
+    log_level: INFO
+
+startup:
+  relay_warmup_s: 2.0
+  publisher_warmup_s: 1.0
+
+relays:
+  relay-a:
+    listen_port: 9668
+    admin_port: 9669
+    upstream: null      # origin
+
+  relay-b:
+    listen_port: 9670
+    admin_port: 9671
+    upstream: relay-a
+
+  relay-c:
+    listen_port: 9672
+    admin_port: 9673
+    upstream: relay-b
+
+publishers:
+  pub:
+    connects_to: relay-a
+    namespace: moq-date
+
+subscribers:
+  sub:
+    connects_to: relay-c
+    namespace: moq-date
+    track: date
+
+# Optional per-link shaping (Containernet backend only; Docker backend ignores).
+links:
+  - { from: pub,     to: relay-a, bandwidth_mbps: 100, delay_ms: 5 }
+  - { from: relay-a, to: relay-b, bandwidth_mbps: 50,  delay_ms: 20 }
+  - { from: relay-b, to: relay-c, bandwidth_mbps: 50,  delay_ms: 20 }
+  - { from: relay-c, to: sub,     bandwidth_mbps: 20,  delay_ms: 69 }

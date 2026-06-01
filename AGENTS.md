@@ -27,6 +27,43 @@ This is a long-lived research tool. Every decision should optimise for
 
 ---
 
+## Current implementation status (as of 2026-05-29)
+
+The Python package described below is being delivered in phases. The slice
+that exists today:
+
+- `moqlab/{requirements.txt, requirements-dev.txt, pytest.ini, conftest.py}` —
+  no `pyproject.toml` / no install; run with `python -m moqlab`
+- `moqlab/moqlab/{__main__.py, cli.py, exceptions.py}`
+- `moqlab/moqlab/config/{schema.py, synth.py}` — topology schema + relay-YAML / pub-argv / sub-argv synthesis
+- `moqlab/moqlab/orchestrator/{docker_backend.py, containernet_backend.py}`
+- `moqlab/configs/examples/linear_3relay.yaml` — 3 relays + 1 pub + 1 sub + 4 shaped links
+- `moqlab/docker/{Dockerfile.relay, Dockerfile.pub, Dockerfile.sub, README.md}` — image-build inputs only; no orchestration here
+- `moqlab/tests/unit/{test_config_schema.py, test_synth.py, test_containernet_backend.py}` — 36 unit tests
+- `moqlab/{README.md, AGENTS.md, TODO.md}`
+
+What works end-to-end today:
+
+- **Docker backend** — `moqlab up --backend docker` brings up the full
+  topology (relays + pubs + subs) on a bridge network; detached;
+  `moqlab down` to tear down.
+- **Containernet backend** — `moqlab up --backend containernet` builds the
+  same topology with `TCLink` per edge (bw / delay / jitter / loss from the
+  `links:` block), explicitly launches relay/pub/sub binaries after
+  `net.start()`, drops into `CLI(net)`, tears down on exit.
+
+What is NOT implemented (tracked in [moqlab/TODO.md](moqlab/TODO.md)):
+
+- Multiple upstreams per relay (mesh / fan-in).
+- Generative topologies (`topology_mode: generative`).
+- Scenario runner, observability (JSONL collector, Prometheus, QLOG),
+  TLS CA per run, full `experiments/run_*/` archive layout.
+
+For day-to-day implementation rules read [moqlab/AGENTS.md](moqlab/AGENTS.md);
+the remainder of this file is the **target** architecture for future phases.
+
+---
+
 ## Canonical repository layout
 
 ```
@@ -148,6 +185,10 @@ All topology configs live in `configs/`. Two modes exist, selected by `topology_
 ```yaml
 topology_mode: explicit
 
+startup:
+  relay_warmup_s: 2.0                 # wait after relays start before pubs
+  publisher_warmup_s: 1.0             # wait after pubs start before subs
+
 relays:
   relay_1:
     image: moqlab/relay:latest         # Docker image tag
@@ -248,6 +289,8 @@ default_network:
 - Every network name referenced by a relay, publisher, or subscriber must be declared in
   the `networks` block. The validator will catch missing references but do not rely on it
   as a substitute for careful editing.
+- Startup warmups are seconds and must be non-negative. Keep launch timing in
+  the topology config, not in CLI flags or backend constants.
 - Ports must be unique across all relay containers on the same host.
 - Range syntax `{N..M}` is only valid in subscriber names, not relay or publisher names.
 - `l4s: true` requires `ecn: true` on the same network block.

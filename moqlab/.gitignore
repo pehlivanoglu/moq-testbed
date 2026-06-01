@@ -1,0 +1,8 @@
+# moqlab Python build / install artifacts
+.venv/
+*.egg-info/
+__pycache__/
+.pytest_cache/
+
+# Per-run scratch directory (synthesized configs + state)
+.runs/

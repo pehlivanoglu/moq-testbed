@@ -1,0 +1,235 @@
+"""moqlab CLI — `up / down / validate / logs / ls`.
+
+`moqlab up --backend docker` runs detached; the topology stays up until
+`moqlab down --run-id <id>`.
+
+`moqlab up --backend containernet` runs foreground; the command blocks inside
+the Mininet `CLI(net)` shell and tears the topology down when you exit.
+Detached state (`ls`, `down`, `logs`) only applies to the Docker backend.
+"""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+import click
+
+from moqlab.config.schema import load_topology
+from moqlab.exceptions import MoqlabError
+from moqlab.orchestrator.docker_backend import DockerBackend
+
+
+@click.group()
+@click.option(
+    "--runs-dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    envvar="MOQLAB_RUNS_DIR",
+    default=None,
+    help="Directory holding per-run state. Defaults to moqlab/.runs/.",
+)
+@click.pass_context
+def cli(ctx: click.Context, runs_dir: Path | None) -> None:
+    """moqlab — MoQ multirelay topology orchestrator."""
+    ctx.ensure_object(dict)
+    ctx.obj["runs_dir"] = runs_dir
+
+
+def _docker_backend(ctx: click.Context) -> DockerBackend:
+    try:
+        return DockerBackend(runs_dir=ctx.obj.get("runs_dir"))
+    except MoqlabError as e:
+        raise click.ClickException(str(e)) from e
+
+
+@cli.command()
+@click.option(
+    "--config",
+    "-c",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+)
+def validate(config: Path) -> None:
+    """Parse and validate a topology config without side effects."""
+    try:
+        topology = load_topology(config)
+    except MoqlabError as e:
+        raise click.ClickException(str(e)) from e
+
+    click.echo(f"OK: {config}")
+    click.echo(
+        f"  relays={len(topology.relays)} "
+        f"publishers={len(topology.publishers)} "
+        f"subscribers={len(topology.subscribers)} "
+        f"links={len(topology.links)}"
+    )
+    for rid, r in topology.relays.items():
+        up = r.upstream or "<origin>"
+        click.echo(f"  relay      {rid:14}  listen={r.listen_port}  admin={r.admin_port}  upstream={up}")
+    for pid, p in topology.publishers.items():
+        click.echo(f"  publisher  {pid:14}  -> {p.connects_to}  ns={p.namespace}")
+    for sid, s in topology.subscribers.items():
+        click.echo(f"  subscriber {sid:14}  -> {s.connects_to}  ns={s.namespace}  track={s.track}")
+
+
+@cli.command()
+@click.option(
+    "--config",
+    "-c",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+)
+@click.option(
+    "--backend",
+    type=click.Choice(["docker", "containernet"], case_sensitive=False),
+    default="docker",
+    show_default=True,
+    help="Orchestration backend. Containernet blocks in a Mininet CLI shell.",
+)
+@click.option("--run-id", default=None, help="Run identifier. Auto-generated if omitted.")
+@click.option(
+    "--publish-ports/--no-publish-ports",
+    default=False,
+    help="Docker backend only: publish each relay's ports on the host.",
+)
+@click.option(
+    "--readiness-timeout",
+    type=float,
+    default=10.0,
+    show_default=True,
+    help="Docker backend only: per-container startup timeout (seconds).",
+)
+@click.pass_context
+def up(
+    ctx: click.Context,
+    config: Path,
+    backend: str,
+    run_id: str | None,
+    publish_ports: bool,
+    readiness_timeout: float,
+) -> None:
+    """Bring up the topology described by CONFIG."""
+    backend = backend.lower()
+    if backend == "docker":
+        _up_docker(ctx, config, run_id, publish_ports, readiness_timeout)
+    elif backend == "containernet":
+        _up_containernet(ctx, config, run_id)
+    else:  # unreachable: click.Choice enforces this
+        raise click.ClickException(f"unknown backend: {backend}")
+
+
+def _up_docker(
+    ctx: click.Context,
+    config: Path,
+    run_id: str | None,
+    publish_ports: bool,
+    readiness_timeout: float,
+) -> None:
+    backend = _docker_backend(ctx)
+    try:
+        record = backend.up(
+            config_path=config,
+            run_id=run_id,
+            publish_ports=publish_ports,
+            readiness_timeout_s=readiness_timeout,
+        )
+    except MoqlabError as e:
+        raise click.ClickException(str(e)) from e
+
+    click.echo(f"run_id:   {record.run_id}")
+    click.echo(f"network:  {record.network_name}")
+    click.echo(f"run_dir:  {record.run_dir}")
+    if record.relays:
+        click.echo("relays:")
+        for rid, cid in record.relays.items():
+            click.echo(f"  {rid:14}  {cid[:12]}")
+    if record.publishers:
+        click.echo("publishers:")
+        for pid, cid in record.publishers.items():
+            click.echo(f"  {pid:14}  {cid[:12]}")
+    if record.subscribers:
+        click.echo("subscribers:")
+        for sid, cid in record.subscribers.items():
+            click.echo(f"  {sid:14}  {cid[:12]}")
+    click.echo(f"\nlogs:  moqlab logs --run-id {record.run_id} <node_id>")
+    click.echo(f"down:  moqlab down --run-id {record.run_id}")
+
+
+def _up_containernet(ctx: click.Context, config: Path, run_id: str | None) -> None:
+    # Lazy import: don't pull mininet/containernet unless the user asks for it.
+    from moqlab.orchestrator.containernet_backend import ContainernetBackend
+
+    try:
+        cn = ContainernetBackend(runs_dir=ctx.obj.get("runs_dir"))
+        record = cn.up(config_path=config, run_id=run_id)
+    except MoqlabError as e:
+        raise click.ClickException(str(e)) from e
+    # When CLI(net) exits, the topology is already torn down. Report only.
+    click.echo(f"\ntorn down: run_id={record.run_id} (run dir kept at {record.run_dir})")
+
+
+@cli.command()
+@click.option("--run-id", required=True)
+@click.pass_context
+def down(ctx: click.Context, run_id: str) -> None:
+    """Tear down a Docker-backend topology (containers + network)."""
+    backend = _docker_backend(ctx)
+    try:
+        backend.down(run_id)
+    except MoqlabError as e:
+        raise click.ClickException(str(e)) from e
+    click.echo(f"stopped: {run_id}")
+
+
+@cli.command()
+@click.pass_context
+def ls(ctx: click.Context) -> None:
+    """List active Docker-backend runs (sourced from Docker labels)."""
+    backend = _docker_backend(ctx)
+    records = backend.ls()
+    if not records:
+        click.echo("(no active runs)")
+        return
+    for r in records:
+        total = len(r.relays) + len(r.publishers) + len(r.subscribers)
+        click.echo(
+            f"{r.run_id}  net={r.network_name}  "
+            f"nodes={total} (relays={len(r.relays)}, pubs={len(r.publishers)}, subs={len(r.subscribers)})"
+        )
+
+
+@cli.command()
+@click.option("--run-id", required=True)
+@click.option("-f", "--follow", is_flag=True, help="Stream logs as they arrive.")
+@click.option(
+    "-n",
+    "--tail",
+    default=200,
+    show_default=True,
+    help="Lines to print from the tail before streaming.",
+)
+@click.argument("node_id")
+@click.pass_context
+def logs(ctx: click.Context, run_id: str, node_id: str, follow: bool, tail: int) -> None:
+    """Print container logs for one node in a Docker-backend run."""
+    backend = _docker_backend(ctx)
+    try:
+        container = backend.container_for(run_id, node_id)
+    except MoqlabError as e:
+        raise click.ClickException(str(e)) from e
+
+    stream = container.logs(stream=follow, follow=follow, tail=tail)
+    if follow:
+        try:
+            for chunk in stream:
+                sys.stdout.buffer.write(chunk)
+                sys.stdout.flush()
+        except KeyboardInterrupt:
+            return
+    else:
+        sys.stdout.buffer.write(stream)
+        sys.stdout.flush()
+
+
+if __name__ == "__main__":
+    cli()
