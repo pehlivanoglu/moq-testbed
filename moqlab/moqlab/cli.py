@@ -22,7 +22,6 @@ from moqlab.visualizer import VisualizerHTTPServer, make_server
 
 _VIS_HOST = "127.0.0.1"
 _VIS_PORT = 8765
-_VIS_REFRESH_MS = 1000
 
 
 @click.group(
@@ -416,7 +415,6 @@ def _start_visualizer(config: Path) -> VisualizerHTTPServer:
             config_path=config,
             host=_VIS_HOST,
             port=_VIS_PORT,
-            refresh_ms=_VIS_REFRESH_MS,
         )
     except MoqlabError as e:
         raise click.ClickException(str(e)) from e

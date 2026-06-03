@@ -29,7 +29,7 @@ moqlab/
 │   ├── build.py                    ← build command planning helpers
 │   ├── cli.py                      ← Click commands
 │   ├── exceptions.py
-│   ├── visualizer.py               ← localhost topology/rate visualizer
+│   ├── visualizer.py               ← localhost visualizer API/static server
 │   ├── config/
 │   │   ├── schema.py               ← Pydantic v2 topology model
 │   │   └── synth.py                ← topology → relay YAML + pub/sub argv
@@ -43,6 +43,7 @@ moqlab/
 │       └── tree_3r_4s.yaml   ← 3-relay tree + 4 subscribers
 ├── docker/                         ← Dockerfiles for the three node images
 │   └── README.md
+├── visualizer/                      ← browser UI assets (HTML, CSS, JS)
 └── tests/unit/                     ← pytest, no Docker required
 ```
 
@@ -207,7 +208,7 @@ needs the four runtime deps installed (see "Running it").
 | `python -m moqlab build moqx` | n/a | Build moqx and prepare moxygen binaries used by images. |
 | `python -m moqlab build images` | n/a | Build `moqlab-relay`, `moqlab-pub`, and `moqlab-sub`. |
 | `python -m moqlab validate -c <config>` | both | Parse + validate, no side effects. |
-| `python -m moqlab run -c <config> [--backend docker\|containernet] [--run-id N] [--publish-ports] [--vis\|--visualize]` | both | Run topology. Defaults to `containernet`. With `--visualize`, also serves `http://127.0.0.1:8765/` showing the topology graph and link rates. Live per-link throughput is available for Containernet runs, where every topology edge has its own interface. Docker-backend runs still render the correct topology, but Docker's single bridge interface is not split per topology link. |
+| `python -m moqlab run -c <config> [--backend docker\|containernet] [--run-id N] [--publish-ports] [--vis\|--visualize]` | both | Run topology. Defaults to `containernet`. With `--visualize`, also serves `http://127.0.0.1:8765/` showing a pannable/zoomable topology graph and link rates. Live per-link throughput is available for Containernet runs, where every topology edge has its own interface. Docker-backend runs still render the correct topology, but Docker's single bridge interface is not split per topology link. |
 | `python -m moqlab down --run-id <name>` | docker | Stop and remove containers + network. |
 | `python -m moqlab ls` | docker | List active runs. |
 | `python -m moqlab logs --run-id <name> [-f] [-n N] <node_id>` | docker | Container logs for one node. |

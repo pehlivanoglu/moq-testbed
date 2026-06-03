@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>moqlab topology</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <div>
+      <h1>moqlab topology</h1>
+      <p id="summary">Loading topology...</p>
+    </div>
+    <div id="updated">Waiting for first sample</div>
+  </header>
+  <main>
+    <section id="graph-wrap">
+      <svg id="graph" role="img" aria-label="moqlab topology graph"></svg>
+    </section>
+    <section id="details">
+      <h2>Links</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Edge</th>
+            <th>Throughput</th>
+            <th>Shape</th>
+          </tr>
+        </thead>
+        <tbody id="links"></tbody>
+      </table>
+    </section>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>

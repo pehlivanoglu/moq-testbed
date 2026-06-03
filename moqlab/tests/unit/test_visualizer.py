@@ -1,11 +1,36 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from moqlab.config.schema import TopologyConfig
 from moqlab.visualizer import (
     InterfaceCounters,
     ThroughputSampler,
+    _VisualizerHandler,
     topology_snapshot,
 )
+
+
+def test_browser_assets_live_outside_python_package():
+    root = Path(__file__).resolve().parents[2] / "visualizer"
+
+    assert (root / "index.html").is_file()
+    assert (root / "style.css").is_file()
+    assert (root / "app.js").is_file()
+
+
+def test_response_write_ignores_broken_pipe():
+    class BrokenPipeWriter:
+        def write(self, _body: bytes) -> None:
+            raise BrokenPipeError
+
+    handler = object.__new__(_VisualizerHandler)
+    handler.wfile = BrokenPipeWriter()
+    handler.send_response = lambda *_args, **_kwargs: None
+    handler.send_header = lambda *_args, **_kwargs: None
+    handler.end_headers = lambda: None
+
+    handler._send_json({"ok": True})
 
 
 def _topology() -> TopologyConfig:

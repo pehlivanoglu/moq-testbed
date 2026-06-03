@@ -143,3 +143,10 @@ These become tractable once Phase 4 lands.
 - 2026-06-03: Added `python -m moqlab run --visualize` to serve a
   dependency-free localhost topology graph with live Containernet per-link
   throughput while the run is active.
+- 2026-06-03: Moved visualizer browser code out of Python and into
+  `moqlab/visualizer/{index.html,style.css,app.js}`.
+- 2026-06-03: Added mouse-driven pan and zoom to the localhost topology graph.
+- 2026-06-03: Suppressed harmless visualizer `BrokenPipeError` tracebacks when
+  browser polling requests disconnect before the response is written.
+- 2026-06-03: Moved the visualizer links table into a fixed right-side panel
+  so the main page does not need to scroll on desktop.

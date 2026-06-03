@@ -54,11 +54,12 @@ ergonomics. This is research infrastructure, not a demo script.
   `run`, `down`, `logs`, `ls`, and `rm pycache`. `up` remains a hidden
   compatibility alias for `run`. `run --vis/--visualize` serves the
   localhost visualizer while the topology is active.
-- **Visualizer** (`moqlab/visualizer.py`) - dependency-free localhost HTTP
-  server that renders the validated topology and samples live per-link
-  throughput from active Containernet `mn.<node>` interfaces when available.
-  Docker-backend runs render topology only because Docker bridge counters are
-  not per-topology-link.
+- **Visualizer** (`moqlab/visualizer.py` + `visualizer/`) - dependency-free
+  localhost HTTP/API server with separate browser assets under
+  `moqlab/visualizer/`. It renders a pannable/zoomable validated topology and
+  samples live per-link throughput from active Containernet `mn.<node>`
+  interfaces when available. Docker-backend runs render topology only because
+  Docker bridge counters are not per-topology-link.
 - **Tests** (`tests/unit/`) - unit tests for schema, synthesis, and
   Containernet launch ordering plus visualizer snapshot/rate helpers. They do
   not require Docker, Containernet, or root.
@@ -86,11 +87,16 @@ moqlab/
 │   ├── Dockerfile.pub
 │   ├── Dockerfile.sub
 │   └── README.md
+├── visualizer/
+│   ├── index.html
+│   ├── style.css
+│   └── app.js
 ├── moqlab/
 │   ├── __main__.py
 │   ├── build.py
 │   ├── cli.py
 │   ├── exceptions.py
+│   ├── visualizer.py
 │   ├── config/
 │   │   ├── schema.py
 │   │   └── synth.py

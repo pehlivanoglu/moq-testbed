@@ -1,0 +1,187 @@
+:root {
+  color-scheme: light;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #f5f7f8;
+  color: #1b2428;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  overflow: hidden;
+}
+
+header {
+  align-items: center;
+  background: #ffffff;
+  border-bottom: 1px solid #d9e0e3;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  min-height: 64px;
+  padding: 12px 16px;
+}
+
+h1 {
+  font-size: 22px;
+  font-weight: 700;
+  margin: 0;
+}
+
+h2 {
+  font-size: 16px;
+  margin: 0 0 12px;
+}
+
+p {
+  color: #586970;
+  margin: 4px 0 0;
+}
+
+#updated {
+  color: #586970;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+main {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+  height: calc(100vh - 64px);
+  min-height: 0;
+  padding: 12px;
+}
+
+#graph-wrap,
+#details {
+  background: #ffffff;
+  border: 1px solid #d9e0e3;
+  border-radius: 8px;
+}
+
+#graph-wrap {
+  min-height: 0;
+  overflow: hidden;
+}
+
+#graph {
+  cursor: grab;
+  display: block;
+  height: 100%;
+  min-height: 0;
+  touch-action: none;
+  user-select: none;
+  width: 100%;
+}
+
+#graph.panning {
+  cursor: grabbing;
+}
+
+.edge {
+  stroke: #8a9aa2;
+  stroke-linecap: round;
+}
+
+.edge.hot {
+  stroke: #0f8f76;
+}
+
+.edge-label {
+  fill: #33454d;
+  font-size: 13px;
+  paint-order: stroke;
+  stroke: #ffffff;
+  stroke-width: 5px;
+  text-anchor: middle;
+}
+
+.node circle {
+  stroke: #ffffff;
+  stroke-width: 3px;
+}
+
+.node text {
+  fill: #172126;
+  font-size: 14px;
+  font-weight: 700;
+  text-anchor: middle;
+}
+
+.node .role {
+  fill: #586970;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.publisher circle {
+  fill: #2f7dd1;
+}
+
+.relay circle {
+  fill: #24343b;
+}
+
+.subscriber circle {
+  fill: #d08b2f;
+}
+
+#details {
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+th,
+td {
+  border-top: 1px solid #e3e8ea;
+  font-size: 14px;
+  padding: 10px 8px;
+  text-align: left;
+}
+
+th {
+  border-top: 0;
+  color: #586970;
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.muted {
+  color: #73848b;
+}
+
+@media (max-width: 720px) {
+  body {
+    overflow: auto;
+  }
+
+  header {
+    align-items: flex-start;
+    flex-direction: column;
+    min-height: auto;
+  }
+
+  #updated {
+    white-space: normal;
+  }
+
+  main {
+    grid-template-columns: minmax(0, 1fr);
+    height: auto;
+  }
+
+  #graph-wrap {
+    min-height: 60vh;
+  }
+}
