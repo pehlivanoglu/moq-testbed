@@ -6,8 +6,8 @@
 # relay-a.
 #
 # Bring it up on either backend:
-#   moqlab up -c moqlab/configs/examples/linear_1relay.yaml --backend docker
-#   moqlab up -c moqlab/configs/examples/linear_1relay.yaml --backend containernet
+#   moqlab up -c moqlab/configs/examples/linear_1r_1s.yaml --backend docker
+#   moqlab up -c moqlab/configs/examples/linear_1r_1s.yaml --backend containernet
 #
 # The `links:` block is read only by the Containernet backend.
 

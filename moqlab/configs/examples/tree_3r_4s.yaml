@@ -1,0 +1,89 @@
+# Three-relay tree topology with one publisher and four subscribers.
+#
+#             ┌───►  r2  ◄───  s1
+#             │           ◄───  s2
+#   pub ───►  r1
+#             │           ◄───  s3
+#             └───►  r3  ◄───  s4
+#
+# pub publishes the date stream into r1; r2 and r3 both use r1 as their
+# upstream relay; subscribers attach to the leaf relays.
+#
+# Bring it up on either backend:
+#   moqlab up -c moqlab/configs/examples/tree_3r_4s.yaml --backend docker
+#   moqlab up -c moqlab/configs/examples/tree_3r_4s.yaml --backend containernet
+#
+# The `links:` block is read only by the Containernet backend.
+
+topology_mode: explicit
+
+defaults:
+  relay:
+    image: moqlab-relay
+    endpoint: /moq-relay
+    tls: { insecure: true }
+    cache: { enabled: false, max_tracks: 100, max_groups_per_track: 3 }
+  publisher:
+    image: moqlab-pub
+    insecure: true
+    log_level: INFO
+  subscriber:
+    image: moqlab-sub
+    insecure: true
+    log_level: INFO
+
+startup:
+  relay_warmup_s: 2.0
+  publisher_warmup_s: 1.0
+
+relays:
+  relay-1:
+    listen_port: 9668
+    admin_port: 9669
+    upstream: null      # origin
+
+  relay-2:
+    listen_port: 9670
+    admin_port: 9671
+    upstream: relay-1
+
+  relay-3:
+    listen_port: 9672
+    admin_port: 9673
+    upstream: relay-1
+
+publishers:
+  pub:
+    connects_to: relay-1
+    namespace: moq-date
+
+subscribers:
+  sub-1:
+    connects_to: relay-2
+    namespace: moq-date
+    track: date
+
+  sub-2:
+    connects_to: relay-2
+    namespace: moq-date
+    track: date
+
+  sub-3:
+    connects_to: relay-3
+    namespace: moq-date
+    track: date
+
+  sub-4:
+    connects_to: relay-3
+    namespace: moq-date
+    track: date
+
+# Optional per-link shaping (Containernet backend only; Docker backend ignores).
+links:
+  - { from: pub, to: relay-1, bandwidth_mbps: 100, delay_ms: 1 }
+  - { from: relay-1,  to: relay-2, bandwidth_mbps: 50,  delay_ms: 1 }
+  - { from: relay-1,  to: relay-3, bandwidth_mbps: 50,  delay_ms: 1 }
+  - { from: relay-2,  to: sub-1, bandwidth_mbps: 20,  delay_ms: 1 }
+  - { from: relay-2,  to: sub-2, bandwidth_mbps: 20,  delay_ms: 1 }
+  - { from: relay-3,  to: sub-3, bandwidth_mbps: 20,  delay_ms: 1 }
+  - { from: relay-3,  to: sub-4, bandwidth_mbps: 20,  delay_ms: 1 }

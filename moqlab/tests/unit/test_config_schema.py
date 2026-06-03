@@ -10,7 +10,7 @@ from moqlab.config.schema import TopologyConfig, load_topology
 from moqlab.exceptions import ConfigError
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-EXAMPLE = REPO_ROOT / "moqlab" / "configs" / "examples" / "linear_3relay.yaml"
+EXAMPLE = REPO_ROOT / "moqlab" / "configs" / "examples" / "linear_3r_1s.yaml"
 
 
 def _minimal_relays() -> dict:
@@ -23,7 +23,7 @@ def _minimal_relays() -> dict:
 # ── example round-trip ─────────────────────────────────────────────────────
 
 
-def test_loads_linear_3relay_example():
+def test_loads_linear_3r_1s_example():
     t = load_topology(EXAMPLE)
     assert set(t.relays.keys()) == {"relay-a", "relay-b", "relay-c"}
     assert set(t.publishers.keys()) == {"pub"}

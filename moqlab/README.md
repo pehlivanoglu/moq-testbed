@@ -38,7 +38,9 @@ moqlab/
 │       └── containernet_backend.py ← Containernet backend
 ├── configs/
 │   └── examples/
-│       └── linear_3relay.yaml      ← 3 relays + pub + sub + shaped links
+│       ├── linear_1r_1s.yaml      ← 1 relay + pub + sub + shaped links
+│       ├── linear_3r_1s.yaml      ← 3 relays + pub + sub + shaped links
+│       └── tree_3r_4s.yaml   ← 3-relay tree + 4 subscribers
 ├── docker/                         ← Dockerfiles for the three node images
 │   └── README.md
 └── tests/unit/                     ← pytest, no Docker required
@@ -70,7 +72,7 @@ Once the environment is ready, run from the moqlab project directory so
 cd /path/to/moq-testbed/moqlab
 python -m pytest -q
 python -m moqlab doctor
-sudo python -m moqlab run -c configs/examples/linear_3relay.yaml
+sudo python -m moqlab run -c configs/examples/linear_3r_1s.yaml
 # inside Mininet CLI:
 #   containernet> sub  tail -f /tmp/sub.log
 #   containernet> exit
@@ -101,10 +103,10 @@ python -m moqlab build images
 cd moqlab
 
 # Check Python deps, Docker, images, Containernet importability, and config.
-python -m moqlab doctor -c configs/examples/linear_3relay.yaml
+python -m moqlab doctor -c configs/examples/linear_3r_1s.yaml
 
 # Validate the topology
-python -m moqlab validate -c configs/examples/linear_3relay.yaml
+python -m moqlab validate -c configs/examples/linear_3r_1s.yaml
 
 # Build local binaries and images once, or after source changes
 python -m moqlab build moqx
@@ -112,10 +114,10 @@ python -m moqlab build images
 
 # Containernet backend (default; foreground)
 sudo /path/to/containernet/venv/bin/python3 -m moqlab run \
-     -c configs/examples/linear_3relay.yaml --visualize
+     -c configs/examples/linear_3r_1s.yaml --visualize
 
 # Docker backend (detached)
-python -m moqlab run -c configs/examples/linear_3relay.yaml --backend docker --publish-ports --visualize
+python -m moqlab run -c configs/examples/linear_3r_1s.yaml --backend docker --publish-ports --visualize
 python -m moqlab ls
 python -m moqlab logs --run-id <id> sub -f
 python -m moqlab down --run-id <id>

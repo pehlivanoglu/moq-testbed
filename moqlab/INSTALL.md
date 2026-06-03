@@ -23,7 +23,7 @@ cd /path/to/moq-testbed/moqlab
 Run Containernet topologies with the same Python, usually through `sudo`:
 
 ```bash
-sudo /path/to/containernet/venv/bin/python -m moqlab run -c configs/examples/linear_3relay.yaml
+sudo /path/to/containernet/venv/bin/python -m moqlab run -c configs/examples/linear_3r_1s.yaml
 ```
 
 ## Option 2: Put the Containernet venv Inside moqlab
@@ -42,7 +42,7 @@ python3 -m venv .venv
 Run with:
 
 ```bash
-sudo .venv/bin/python -m moqlab run -c configs/examples/linear_3relay.yaml
+sudo .venv/bin/python -m moqlab run -c configs/examples/linear_3r_1s.yaml
 ```
 
 ## Build Once
@@ -52,5 +52,5 @@ After the Python environment is ready:
 ```bash
 python -m moqlab build moqx
 python -m moqlab build images
-python -m moqlab doctor -c configs/examples/linear_3relay.yaml
+python -m moqlab doctor -c configs/examples/linear_3r_1s.yaml
 ```

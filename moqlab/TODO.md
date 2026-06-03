@@ -37,7 +37,7 @@ cut from current versions, not bugs or oversights.
       for research reproducibility, or whether missing links may keep meaning
       "unshaped/default".
 - [ ] First integration test under `tests/integration/` gated by
-      `MOQLAB_INTEGRATION=1`: bring up `linear_3relay.yaml` on the Docker
+      `MOQLAB_INTEGRATION=1`: bring up `linear_3r_1s.yaml` on the Docker
       backend, assert every container reaches `running`, assert the subscriber
       receives at least one date object, then `down`.
 - [ ] `moqlab status --run-id NAME` reporting per-node container status,
