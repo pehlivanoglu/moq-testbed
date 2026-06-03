@@ -10,6 +10,7 @@ from typing import Literal
 from moqlab.build import missing_image_artifacts, repo_root
 from moqlab.config.schema import TopologyConfig, load_topology
 from moqlab.exceptions import OrchestratorError
+from moqlab.runtime import topology_image_tags
 
 CheckStatus = Literal["ok", "warn", "fail"]
 
@@ -22,6 +23,7 @@ class CheckResult:
     status: CheckStatus
     message: str
     next_step: str | None = None
+    category: str = "Environment"
 
 
 def doctor_checks(
@@ -53,7 +55,7 @@ def doctor_checks(
                 )
             )
         else:
-            checks.append(CheckResult("config", "ok", str(config_path)))
+            checks.append(CheckResult("config", "ok", str(config_path), category="Topology"))
 
     checks.append(_docker_images_check(_image_tags(topology)))
 
@@ -110,13 +112,19 @@ def _python_dependencies_check() -> CheckResult:
 def _image_artifacts_check(root: Path) -> CheckResult:
     missing = missing_image_artifacts(root)
     if not missing:
-        return CheckResult("moqx artifacts", "ok", "local binaries are present")
+        return CheckResult(
+            "moqx artifacts",
+            "ok",
+            "local binaries are present",
+            category="Build",
+        )
     formatted = ", ".join(str(path.relative_to(root)) for path in missing)
     return CheckResult(
         "moqx artifacts",
         "fail",
         f"missing {formatted}",
         "Run `python -m moqlab build moqx`.",
+        "Build",
     )
 
 
@@ -130,7 +138,7 @@ def _docker_daemon_check() -> CheckResult:
         return CheckResult(
             "docker daemon",
             "fail",
-            str(e),
+            _short_error(e),
             "Start Docker and make sure this user can access the daemon.",
         )
     return CheckResult("docker daemon", "ok", "reachable")
@@ -153,17 +161,24 @@ def _docker_images_check(image_tags: set[str]) -> CheckResult:
         return CheckResult(
             "docker images",
             "fail",
-            f"cannot inspect local images: {e}",
+            f"cannot inspect local images: {_short_error(e)}",
             "Fix Docker daemon access first.",
+            "Build",
         )
 
     if not missing:
-        return CheckResult("docker images", "ok", "required images are present")
+        return CheckResult(
+            "docker images",
+            "ok",
+            "required images are present",
+            category="Build",
+        )
     return CheckResult(
         "docker images",
         "fail",
         "missing " + ", ".join(missing),
         "Run `python -m moqlab build images`.",
+        "Build",
     )
 
 
@@ -174,10 +189,11 @@ def _containernet_import_check() -> CheckResult:
         return CheckResult(
             "containernet python",
             "fail",
-            str(e),
+            _short_error(e),
             "Use the Python from the Containernet venv, then install moqlab requirements there.",
+            "Backend",
         )
-    return CheckResult("containernet python", "ok", "mininet imports")
+    return CheckResult("containernet python", "ok", "mininet imports", category="Backend")
 
 
 def _containernet_privilege_check() -> CheckResult:
@@ -187,15 +203,27 @@ def _containernet_privilege_check() -> CheckResult:
             "warn",
             "current process is not root",
             "Run containernet topologies with `sudo <venv>/bin/python -m moqlab run ...`.",
+            "Backend",
         )
-    return CheckResult("containernet privileges", "ok", "root privileges available")
+    return CheckResult(
+        "containernet privileges",
+        "ok",
+        "root privileges available",
+        category="Backend",
+    )
 
 
 def _image_tags(topology: TopologyConfig | None) -> set[str]:
     if topology is None:
         return set(_DEFAULT_IMAGE_TAGS)
-    return {
-        *(topology.relay_image(rid) for rid in topology.relays),
-        *(topology.publisher_image(pid) for pid in topology.publishers),
-        *(topology.subscriber_image(sid) for sid in topology.subscribers),
-    }
+    return topology_image_tags(topology)
+
+
+def _short_error(error: Exception) -> str:
+    text = str(error).strip().splitlines()[0] if str(error).strip() else repr(error)
+    lowered = text.lower()
+    if "permissionerror" in lowered or "permission denied" in lowered:
+        return "Docker daemon access denied"
+    if "connection refused" in lowered:
+        return "Docker daemon is not reachable"
+    return text[:240]

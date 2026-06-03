@@ -27,9 +27,9 @@ cut from current versions, not bugs or oversights.
 - [ ] Move experiment-relevant CLI knobs such as readiness timing into the
       topology config if they should be reproducible config, not operator
       convenience.
-- [ ] Factor shared launch-plan logic out of the Docker and Containernet
-      backends so relay ordering, publisher warmup, and subscriber launch order
-      live in one place.
+- [ ] Finish factoring shared launch logic so publisher warmup and
+      subscriber launch order live in one place. Relay ordering, topology
+      edges, run ids, run dirs, and image tag collection are already shared.
 - [ ] Decide whether Containernet link shaping should be symmetric or
       direction-aware. The current backend applies shaping to one side of each
       edge to avoid doubling one-way delay.
@@ -42,8 +42,8 @@ cut from current versions, not bugs or oversights.
       receives at least one date object, then `down`.
 - [ ] `moqlab status --run-id NAME` reporting per-node container status,
       recent log tail, and admin-port reachability.
-- [ ] `--dry-run` for `moqlab run` that synthesizes the run dir and prints
-      what would be launched but skips Docker/Containernet calls.
+- [ ] Decide whether `moqlab run` should grow a plan/preview mode later, and
+      what exact output should be useful for experiments.
 - [ ] Decide on run-dir location (`moqlab/.runs/` vs
       `<repo_root>/experiments/run_*`) once the experiment-archive layout
       lands. Document the choice in `README.md`.
@@ -130,6 +130,9 @@ These become tractable once Phase 4 lands.
 - 2026-06-01: Added `python -m moqlab build moqx`,
   `python -m moqlab build images`, and `python -m moqlab run`. `run` defaults
   to the Containernet backend; `up` remains as a hidden compatibility alias.
-- 2026-06-01: Added `python -m moqlab rm pycache` to remove project
+- 2026-06-01: Added `python -m moqlab rm pycaches` to remove project
   `__pycache__` directories, bytecode files, and `.pytest_cache` while
   skipping `.venv` and `.runs`.
+- 2026-06-01: Added `python -m moqlab doctor`, run readiness checks, and
+  shared runtime helpers for relay ordering, topology edges, run ids, run
+  dirs, and image tags.

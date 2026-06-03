@@ -27,6 +27,7 @@ from moqlab.config.synth import (
     synthesize_subscriber_command,
 )
 from moqlab.exceptions import OrchestratorError
+from moqlab.runtime import default_run_id, default_runs_dir, relay_order, topology_edges
 
 _log = logging.getLogger(__name__)
 
@@ -113,12 +114,8 @@ def _tclink_kwargs(spec: LinkSpec | None) -> dict[str, object]:
 
 
 class ContainernetBackend:
-    """Brings a topology up under Containernet. Foreground, drops into CLI(net)."""
-
     def __init__(self, runs_dir: str | Path | None = None) -> None:
-        self._runs_root = (
-            Path(runs_dir) if runs_dir else Path(__file__).resolve().parents[2] / ".runs"
-        )
+        self._runs_root = Path(runs_dir) if runs_dir else default_runs_dir()
         self._runs_root.mkdir(parents=True, exist_ok=True)
 
     def up(
@@ -127,7 +124,7 @@ class ContainernetBackend:
         run_id: str | None = None,
     ) -> ContainernetRunRecord:
         topology = load_topology(config_path)
-        run_id = run_id or time.strftime("run_%Y%m%d_%H%M%S")
+        run_id = run_id or default_run_id()
 
         CLI, TCLink, info, setLogLevel, Containernet, OVSBridge = _import_mininet()
         setLogLevel("info")
@@ -206,7 +203,7 @@ class ContainernetBackend:
         # nodes (relays in the middle of a chain) get one IP per interface.
         # Don't pass `ip=` to addDocker — Containernet's auto-assigned default
         # would land on the wrong interface and confuse routing.
-        for rid in self._relay_order(topology):
+        for rid in relay_order(topology):
             cfg = relay_yaml_paths[rid].resolve()
             nodes[rid] = net.addDocker(
                 rid,
@@ -290,8 +287,7 @@ class ContainernetBackend:
         """
         # Order relays so origins (no upstream) boot first, mirroring how the
         # Docker backend does it.
-        relay_order = ContainernetBackend._relay_order(topology)
-        for rid in relay_order:
+        for rid in relay_order(topology):
             cmd_line = f"{_RELAY_BINARY} --config {_RELAY_CONFIG_PATH}"
             info(f"*** launching relay {rid}: {cmd_line}\n")
             net.get(rid).cmd(f"{cmd_line} > /tmp/{rid}.log 2>&1 &")
@@ -322,40 +318,8 @@ class ContainernetBackend:
             net.get(sid).cmd(f"{cmd_line} > /tmp/{sid}.log 2>&1 &")
 
     @staticmethod
-    def _relay_order(topology: TopologyConfig) -> list[str]:
-        depth: dict[str, int] = {}
-
-        def _d(rid: str) -> int:
-            if rid in depth:
-                return depth[rid]
-            up = topology.relays[rid].upstream
-            depth[rid] = 0 if up is None else _d(up) + 1
-            return depth[rid]
-
-        for rid in topology.relays:
-            _d(rid)
-        return sorted(topology.relays.keys(), key=lambda r: (depth[r], r))
-
-    @staticmethod
     def _derive_edges(topology: TopologyConfig) -> list[tuple[str, str]]:
-        """Topology edges (undirected, deduped, canonical-ordered)."""
-        seen: set[tuple[str, str]] = set()
-        ordered: list[tuple[str, str]] = []
-
-        def _add(a: str, b: str) -> None:
-            key = tuple(sorted([a, b]))
-            if key not in seen:
-                seen.add(key)
-                ordered.append(key)  # type: ignore[arg-type]
-
-        for rid, r in topology.relays.items():
-            if r.upstream is not None:
-                _add(rid, r.upstream)
-        for pid, p in topology.publishers.items():
-            _add(pid, p.connects_to)
-        for sid, s in topology.subscribers.items():
-            _add(sid, s.connects_to)
-        return ordered
+        return topology_edges(topology)
 
 
 def _shell_quote_argv(argv: list[str]) -> list[str]:

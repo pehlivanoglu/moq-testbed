@@ -41,6 +41,7 @@ from moqlab.exceptions import (
     RunAlreadyExistsError,
     RunNotFoundError,
 )
+from moqlab.runtime import default_run_id, default_runs_dir, relay_order
 
 LABEL_RUN_ID = "moqlab.run_id"
 LABEL_ROLE = "moqlab.role"
@@ -61,10 +62,8 @@ class RunRecord:
 
 
 class DockerBackend:
-    """Brings a TopologyConfig up as a set of Docker containers on a private network."""
-
     def __init__(self, runs_dir: str | Path | None = None) -> None:
-        self._runs_root = Path(runs_dir) if runs_dir else _default_runs_dir()
+        self._runs_root = Path(runs_dir) if runs_dir else default_runs_dir()
         self._runs_root.mkdir(parents=True, exist_ok=True)
         try:
             self._client = docker.from_env()
@@ -82,7 +81,7 @@ class DockerBackend:
         readiness_timeout_s: float = 10.0,
     ) -> RunRecord:
         topology = load_topology(config_path)
-        run_id = run_id or _default_run_id()
+        run_id = run_id or default_run_id()
 
         if self._run_dir(run_id).exists() or self._find_network(run_id) is not None:
             raise RunAlreadyExistsError(
@@ -103,7 +102,7 @@ class DockerBackend:
 
         try:
             # Phase 1: relays, upstream-first so each one's upstream is up.
-            for rid in self._relay_order(topology):
+            for rid in relay_order(topology):
                 container = self._run_relay(
                     topology=topology,
                     relay_id=rid,
@@ -400,27 +399,3 @@ class DockerBackend:
                     raise OrchestratorError(
                         f"failed to remove network {net.name!r}: {e}"
                     ) from e
-
-    @staticmethod
-    def _relay_order(topology: TopologyConfig) -> list[str]:
-        """Relays sorted by upstream depth so origins come first."""
-        depth: dict[str, int] = {}
-
-        def _depth(rid: str) -> int:
-            if rid in depth:
-                return depth[rid]
-            up = topology.relays[rid].upstream
-            depth[rid] = 0 if up is None else _depth(up) + 1
-            return depth[rid]
-
-        for rid in topology.relays:
-            _depth(rid)
-        return sorted(topology.relays.keys(), key=lambda r: (depth[r], r))
-
-
-def _default_runs_dir() -> Path:
-    return Path(__file__).resolve().parents[2] / ".runs"
-
-
-def _default_run_id() -> str:
-    return time.strftime("run_%Y%m%d_%H%M%S")

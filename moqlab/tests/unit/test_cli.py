@@ -38,6 +38,7 @@ def test_doctor_prints_checks_and_exits_nonzero_on_failure(monkeypatch):
                 "fail",
                 "missing moqlab-relay",
                 "Run `python -m moqlab build images`.",
+                "Build",
             )
         ],
     )
@@ -45,6 +46,8 @@ def test_doctor_prints_checks_and_exits_nonzero_on_failure(monkeypatch):
     result = CliRunner().invoke(cli, ["doctor"])
 
     assert result.exit_code == 1
+    assert "moqlab doctor: not ready" in result.output
+    assert "Build" in result.output
     assert "FAIL docker images: missing moqlab-relay" in result.output
     assert "build images" in result.output
 

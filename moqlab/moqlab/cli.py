@@ -126,12 +126,27 @@ def _remove_pycaches_command() -> None:
 )
 def doctor(config: Path | None, backend: str) -> None:
     checks = doctor_checks(config_path=config, backend=backend)
+    click.echo(_doctor_summary(checks))
+    current_category: str | None = None
     for check in checks:
-        click.echo(f"{check.status.upper():4} {check.name}: {check.message}")
+        if check.category != current_category:
+            current_category = check.category
+            click.echo(f"\n{current_category}")
+        click.echo(f"  {check.status.upper():4} {check.name}: {check.message}")
         if check.next_step:
-            click.echo(f"     next: {check.next_step}")
+            click.echo(f"       next: {check.next_step}")
     if has_failures(checks):
         raise click.exceptions.Exit(1)
+
+
+def _doctor_summary(checks) -> str:
+    failures = sum(1 for check in checks if check.status == "fail")
+    warnings = sum(1 for check in checks if check.status == "warn")
+    if failures:
+        return f"moqlab doctor: not ready ({failures} failed, {warnings} warnings)"
+    if warnings:
+        return f"moqlab doctor: ready with warnings ({warnings} warnings)"
+    return "moqlab doctor: ready"
 
 
 @cli.command(help="Parse and validate a topology config without side effects.")
@@ -222,7 +237,14 @@ def run_topology(
     publish_ports: bool,
     readiness_timeout: float,
 ) -> None:
-    _run_topology(ctx, config, backend, run_id, publish_ports, readiness_timeout)
+    _run_topology(
+        ctx,
+        config,
+        backend,
+        run_id,
+        publish_ports,
+        readiness_timeout,
+    )
 
 
 @cli.command(hidden=True)
@@ -261,7 +283,14 @@ def up(
     publish_ports: bool,
     readiness_timeout: float,
 ) -> None:
-    _run_topology(ctx, config, backend, run_id, publish_ports, readiness_timeout)
+    _run_topology(
+        ctx,
+        config,
+        backend,
+        run_id,
+        publish_ports,
+        readiness_timeout,
+    )
 
 
 def _run_topology(

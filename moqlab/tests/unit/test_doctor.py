@@ -19,6 +19,59 @@ def test_doctor_reports_missing_build_artifacts(tmp_path: Path):
     assert "build moqx" in artifact_check.next_step
 
 
+def test_doctor_uses_custom_image_names_from_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    config = tmp_path / "topology.yaml"
+    config.write_text(
+        "\n".join(
+            [
+                "topology_mode: explicit",
+                "relays:",
+                "  relay-a: { listen_port: 9668, admin_port: 9669, image: custom-relay }",
+                "publishers:",
+                "  pub: { connects_to: relay-a, namespace: moq-date, image: custom-pub }",
+                "subscribers:",
+                "  sub: { connects_to: relay-a, namespace: moq-date, track: date, image: custom-sub }",
+            ]
+        )
+    )
+    seen_tags: set[str] = set()
+
+    def fake_images_check(image_tags: set[str]) -> CheckResult:
+        seen_tags.update(image_tags)
+        return CheckResult("docker images", "ok", "mocked", category="Build")
+
+    monkeypatch.setattr(doctor, "_docker_daemon_check", lambda: CheckResult("docker daemon", "ok", "mocked"))
+    monkeypatch.setattr(doctor, "_docker_images_check", fake_images_check)
+
+    doctor_checks(config_path=config, backend="docker", include_build_artifacts=False)
+
+    assert seen_tags == {"custom-relay", "custom-pub", "custom-sub"}
+
+
+def test_doctor_docker_backend_skips_containernet_checks(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(doctor, "_docker_daemon_check", lambda: CheckResult("docker daemon", "ok", "mocked"))
+    monkeypatch.setattr(doctor, "_docker_images_check", lambda image_tags: CheckResult("docker images", "ok", "mocked"))
+
+    checks = doctor_checks(backend="docker", include_build_artifacts=False)
+
+    assert "containernet python" not in {check.name for check in checks}
+    assert "containernet privileges" not in {check.name for check in checks}
+
+
+def test_ensure_run_ready_does_not_require_build_artifacts(monkeypatch: pytest.MonkeyPatch):
+    kwargs_seen = {}
+
+    def fake_checks(**kwargs):
+        kwargs_seen.update(kwargs)
+        return [CheckResult("docker images", "ok", "mocked")]
+
+    monkeypatch.setattr(doctor, "doctor_checks", fake_checks)
+
+    ensure_run_ready("topology.yaml", "docker")
+
+    assert kwargs_seen["include_build_artifacts"] is False
+
+
 def test_ensure_run_ready_formats_failures(monkeypatch: pytest.MonkeyPatch):
     def fake_checks(**kwargs):
         return [
