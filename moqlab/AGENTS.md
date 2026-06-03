@@ -52,10 +52,16 @@ ergonomics. This is research infrastructure, not a demo script.
   `net.start()`, opens `CLI(net)`, and tears down on CLI exit.
 - **CLI** (`moqlab/cli.py`) - `build moqx`, `build images`, `validate`,
   `run`, `down`, `logs`, `ls`, and `rm pycache`. `up` remains a hidden
-  compatibility alias for `run`.
+  compatibility alias for `run`. `run --vis/--visualize` serves the
+  localhost visualizer while the topology is active.
+- **Visualizer** (`moqlab/visualizer.py`) - dependency-free localhost HTTP
+  server that renders the validated topology and samples live per-link
+  throughput from active Containernet `mn.<node>` interfaces when available.
+  Docker-backend runs render topology only because Docker bridge counters are
+  not per-topology-link.
 - **Tests** (`tests/unit/`) - unit tests for schema, synthesis, and
-  Containernet launch ordering. They do not require Docker, Containernet, or
-  root.
+  Containernet launch ordering plus visualizer snapshot/rate helpers. They do
+  not require Docker, Containernet, or root.
 
 Not implemented yet: multiple upstreams per relay, generative topologies,
 scenario runner, observability, JSONL collector, Prometheus/Grafana, QLOG

@@ -26,6 +26,14 @@ def test_run_help_points_to_doctor():
     assert "Defaults to containernet" in result.output
     assert "moqlab" in result.output
     assert "doctor -c CONFIG" in result.output
+    assert "--vis, --visualize" in result.output
+
+
+def test_visualize_is_not_a_standalone_command():
+    result = CliRunner().invoke(cli, ["visualize", "--help"])
+
+    assert result.exit_code != 0
+    assert "No such command" in result.output
 
 
 def test_doctor_prints_checks_and_exits_nonzero_on_failure(monkeypatch):
@@ -75,3 +83,25 @@ def test_run_readiness_failure_stops_before_backend(monkeypatch, tmp_path: Path)
     assert result.exit_code == 1
     assert "run readiness failed" in result.output
     assert not called
+
+
+def test_run_visualize_starts_server_and_passes_it_to_backend(monkeypatch, tmp_path: Path):
+    config = tmp_path / "topology.yaml"
+    config.write_text("topology_mode: explicit\nrelays:\n  relay-a: { listen_port: 9668, admin_port: 9669 }\n")
+    server = object()
+    seen = {}
+
+    def fake_up_docker(ctx, config, run_id, publish_ports, readiness_timeout, visualizer):
+        seen["visualizer"] = visualizer
+
+    monkeypatch.setattr(cli_module, "ensure_run_ready", lambda config_path, backend: None)
+    monkeypatch.setattr(cli_module, "_start_visualizer", lambda config_path: server)
+    monkeypatch.setattr(cli_module, "_up_docker", fake_up_docker)
+
+    result = CliRunner().invoke(
+        cli,
+        ["run", "-c", str(config), "--backend", "docker", "--visualize"],
+    )
+
+    assert result.exit_code == 0
+    assert seen["visualizer"] is server

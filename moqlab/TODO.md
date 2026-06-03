@@ -42,6 +42,10 @@ cut from current versions, not bugs or oversights.
       receives at least one date object, then `down`.
 - [ ] `moqlab status --run-id NAME` reporting per-node container status,
       recent log tail, and admin-port reachability.
+- [ ] Extend the first localhost visualizer beyond Containernet interface
+      counters once a real observability collector exists. The current
+      `moqlab run --visualize` flag intentionally avoids guessing Docker
+      per-link throughput from aggregate bridge counters.
 - [ ] Decide whether `moqlab run` should grow a plan/preview mode later, and
       what exact output should be useful for experiments.
 - [ ] Decide on run-dir location (`moqlab/.runs/` vs
@@ -136,3 +140,6 @@ These become tractable once Phase 4 lands.
 - 2026-06-01: Added `python -m moqlab doctor`, run readiness checks, and
   shared runtime helpers for relay ordering, topology edges, run ids, run
   dirs, and image tags.
+- 2026-06-03: Added `python -m moqlab run --visualize` to serve a
+  dependency-free localhost topology graph with live Containernet per-link
+  throughput while the run is active.

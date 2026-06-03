@@ -29,6 +29,7 @@ moqlab/
 │   ├── build.py                    ← build command planning helpers
 │   ├── cli.py                      ← Click commands
 │   ├── exceptions.py
+│   ├── visualizer.py               ← localhost topology/rate visualizer
 │   ├── config/
 │   │   ├── schema.py               ← Pydantic v2 topology model
 │   │   └── synth.py                ← topology → relay YAML + pub/sub argv
@@ -111,10 +112,10 @@ python -m moqlab build images
 
 # Containernet backend (default; foreground)
 sudo /path/to/containernet/venv/bin/python3 -m moqlab run \
-     -c configs/examples/linear_3relay.yaml
+     -c configs/examples/linear_3relay.yaml --visualize
 
 # Docker backend (detached)
-python -m moqlab run -c configs/examples/linear_3relay.yaml --backend docker --publish-ports
+python -m moqlab run -c configs/examples/linear_3relay.yaml --backend docker --publish-ports --visualize
 python -m moqlab ls
 python -m moqlab logs --run-id <id> sub -f
 python -m moqlab down --run-id <id>
@@ -204,7 +205,7 @@ needs the four runtime deps installed (see "Running it").
 | `python -m moqlab build moqx` | n/a | Build moqx and prepare moxygen binaries used by images. |
 | `python -m moqlab build images` | n/a | Build `moqlab-relay`, `moqlab-pub`, and `moqlab-sub`. |
 | `python -m moqlab validate -c <config>` | both | Parse + validate, no side effects. |
-| `python -m moqlab run -c <config> [--backend docker\|containernet] [--run-id N] [--publish-ports]` | both | Run topology. Defaults to `containernet`. |
+| `python -m moqlab run -c <config> [--backend docker\|containernet] [--run-id N] [--publish-ports] [--vis\|--visualize]` | both | Run topology. Defaults to `containernet`. With `--visualize`, also serves `http://127.0.0.1:8765/` showing the topology graph and link rates. Live per-link throughput is available for Containernet runs, where every topology edge has its own interface. Docker-backend runs still render the correct topology, but Docker's single bridge interface is not split per topology link. |
 | `python -m moqlab down --run-id <name>` | docker | Stop and remove containers + network. |
 | `python -m moqlab ls` | docker | List active runs. |
 | `python -m moqlab logs --run-id <name> [-f] [-n N] <node_id>` | docker | Container logs for one node. |

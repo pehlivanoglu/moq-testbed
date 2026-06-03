@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import atexit
 import sys
+import threading
+import time
 from pathlib import Path
 
 import click
@@ -16,6 +18,11 @@ from moqlab.config.schema import load_topology
 from moqlab.doctor import doctor_checks, ensure_run_ready, has_failures
 from moqlab.exceptions import MoqlabError
 from moqlab.orchestrator.docker_backend import DockerBackend
+from moqlab.visualizer import VisualizerHTTPServer, make_server
+
+_VIS_HOST = "127.0.0.1"
+_VIS_PORT = 8765
+_VIS_REFRESH_MS = 1000
 
 
 @click.group(
@@ -184,6 +191,13 @@ def validate(config: Path) -> None:
 def _run_options(default_backend: str):
     def _decorator(fn):
         fn = click.option(
+            "--vis",
+            "--visualize",
+            "visualize",
+            is_flag=True,
+            help="Serve a localhost topology and throughput visualizer during the run.",
+        )(fn)
+        fn = click.option(
             "--readiness-timeout",
             type=float,
             default=10.0,
@@ -236,6 +250,7 @@ def run_topology(
     run_id: str | None,
     publish_ports: bool,
     readiness_timeout: float,
+    visualize: bool,
 ) -> None:
     _run_topology(
         ctx,
@@ -244,6 +259,7 @@ def run_topology(
         run_id,
         publish_ports,
         readiness_timeout,
+        visualize,
     )
 
 
@@ -274,6 +290,13 @@ def run_topology(
     show_default=True,
     help="Docker backend only: per-container startup timeout (seconds).",
 )
+@click.option(
+    "--vis",
+    "--visualize",
+    "visualize",
+    is_flag=True,
+    help="Serve a localhost topology and throughput visualizer during the run.",
+)
 @click.pass_context
 def up(
     ctx: click.Context,
@@ -282,6 +305,7 @@ def up(
     run_id: str | None,
     publish_ports: bool,
     readiness_timeout: float,
+    visualize: bool,
 ) -> None:
     _run_topology(
         ctx,
@@ -290,6 +314,7 @@ def up(
         run_id,
         publish_ports,
         readiness_timeout,
+        visualize,
     )
 
 
@@ -300,17 +325,28 @@ def _run_topology(
     run_id: str | None,
     publish_ports: bool,
     readiness_timeout: float,
+    visualize: bool,
 ) -> None:
     backend = backend.lower()
     try:
         ensure_run_ready(config, backend)
     except MoqlabError as e:
         raise click.ClickException(str(e)) from e
+
+    visualizer = _start_visualizer(config) if visualize else None
     if backend == "docker":
-        _up_docker(ctx, config, run_id, publish_ports, readiness_timeout)
+        _up_docker(
+            ctx,
+            config,
+            run_id,
+            publish_ports,
+            readiness_timeout,
+            visualizer,
+        )
     elif backend == "containernet":
-        _up_containernet(ctx, config, run_id)
+        _up_containernet(ctx, config, run_id, visualizer)
     else:
+        _stop_visualizer(visualizer)
         raise click.ClickException(f"unknown backend: {backend}")
 
 
@@ -320,9 +356,10 @@ def _up_docker(
     run_id: str | None,
     publish_ports: bool,
     readiness_timeout: float,
+    visualizer: VisualizerHTTPServer | None,
 ) -> None:
-    backend = _docker_backend(ctx)
     try:
+        backend = _docker_backend(ctx)
         record = backend.up(
             config_path=config,
             run_id=run_id,
@@ -330,6 +367,7 @@ def _up_docker(
             readiness_timeout_s=readiness_timeout,
         )
     except MoqlabError as e:
+        _stop_visualizer(visualizer)
         raise click.ClickException(str(e)) from e
 
     click.echo(f"run_id:   {record.run_id}")
@@ -349,17 +387,65 @@ def _up_docker(
             click.echo(f"  {sid:14}  {cid[:12]}")
     click.echo(f"\nlogs:  moqlab logs --run-id {record.run_id} <node_id>")
     click.echo(f"down:  moqlab down --run-id {record.run_id}")
+    if visualizer is not None:
+        _wait_for_visualizer_interrupt(visualizer)
 
 
-def _up_containernet(ctx: click.Context, config: Path, run_id: str | None) -> None:
+def _up_containernet(
+    ctx: click.Context,
+    config: Path,
+    run_id: str | None,
+    visualizer: VisualizerHTTPServer | None,
+) -> None:
     from moqlab.orchestrator.containernet_backend import ContainernetBackend
 
     try:
         cn = ContainernetBackend(runs_dir=ctx.obj.get("runs_dir"))
         record = cn.up(config_path=config, run_id=run_id)
     except MoqlabError as e:
+        _stop_visualizer(visualizer)
         raise click.ClickException(str(e)) from e
+    finally:
+        _stop_visualizer(visualizer)
     click.echo(f"\ntorn down: run_id={record.run_id} (run dir kept at {record.run_dir})")
+
+
+def _start_visualizer(config: Path) -> VisualizerHTTPServer:
+    try:
+        server = make_server(
+            config_path=config,
+            host=_VIS_HOST,
+            port=_VIS_PORT,
+            refresh_ms=_VIS_REFRESH_MS,
+        )
+    except MoqlabError as e:
+        raise click.ClickException(str(e)) from e
+    except OSError as e:
+        raise click.ClickException(f"failed to start visualizer: {e}") from e
+
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    host, port = server.server_address[:2]
+    click.echo(f"visualizer: http://{host}:{port}/")
+    click.echo("throughput: live per-link rates require an active Containernet run")
+    return server
+
+
+def _stop_visualizer(server: VisualizerHTTPServer | None) -> None:
+    if server is None:
+        return
+    server.shutdown()
+    server.server_close()
+
+
+def _wait_for_visualizer_interrupt(server: VisualizerHTTPServer) -> None:
+    click.echo("visualizer is running; press Ctrl-C to stop it")
+    try:
+        while True:
+            time.sleep(3600)
+    except KeyboardInterrupt:
+        _stop_visualizer(server)
+        click.echo("\nstopped visualizer")
 
 
 @cli.command(help="Tear down a Docker-backend topology.")
