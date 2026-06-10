@@ -33,6 +33,8 @@ cut from current versions, not bugs or oversights.
 - [ ] Decide whether Containernet link shaping should be symmetric or
       direction-aware. The current backend applies shaping to one side of each
       edge to avoid doubling one-way delay.
+- [ ] Decide when to introduce explicit router/link-emulator nodes for ECN,
+      L4S, AQM, and underlay routing experiments. See `ROUTER.md`.
 - [ ] Decide whether every derived edge must have an explicit `links:` entry
       for research reproducibility, or whether missing links may keep meaning
       "unshaped/default".
@@ -107,6 +109,9 @@ These become tractable once Phase 4 lands.
 - [ ] Should the future config use named `networks:` blocks instead of the
       current edge-list `links:` shape? Named networks may make scenario files
       much cleaner.
+- [ ] Should ECN/L4S/AQM scenario support require a router/link-emulator
+      backend mode, or can endpoint-side `tc` remain an acceptable fast path?
+      See `ROUTER.md`.
 - [ ] Should publisher/subscriber definitions support a generic `flags: [...]`
       escape hatch for moxygen flags we have not first-classed? Useful for
       experiments; risk of becoming a junk drawer.
