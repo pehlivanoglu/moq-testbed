@@ -12,6 +12,9 @@ from moqlab.config.schema import TopologyConfig
 from moqlab.orchestrator.containernet_backend import (
     ContainernetBackend,
     ContainernetRunRecord,
+    _htb_r2q_for_bw,
+    _is_qdisc_root_delete,
+    _qdisc_show_has_deletable_root,
 )
 
 
@@ -78,3 +81,27 @@ def test_launches_relays_before_pub_sub(monkeypatch):
     )
     assert fake_net.calls[3][1].startswith("/usr/local/bin/moqdateserver")
     assert fake_net.calls[4][1].startswith("/usr/local/bin/moqtextclient")
+
+
+def test_htb_r2q_targets_packet_sized_quantum():
+    assert _htb_r2q_for_bw(100) == 8333
+    assert _htb_r2q_for_bw(50) == 4167
+    assert _htb_r2q_for_bw(20) == 1667
+    assert _htb_r2q_for_bw(0) == 10
+
+
+def test_qdisc_delete_precheck_skips_only_zero_handle_roots():
+    assert _is_qdisc_root_delete("%s qdisc del dev %s root")
+    assert not _is_qdisc_root_delete("%s qdisc add dev %s root handle 5:0 htb")
+
+    assert not _qdisc_show_has_deletable_root(
+        "qdisc fq_codel 0: root refcnt 2 limit 10240p\r\n"
+    )
+    assert not _qdisc_show_has_deletable_root("qdisc noqueue 0: root refcnt 2\r\n")
+    assert not _qdisc_show_has_deletable_root("")
+    assert _qdisc_show_has_deletable_root(
+        "qdisc htb 5: root refcnt 2 r2q 8333 default 0x1\r\n"
+    )
+    assert _qdisc_show_has_deletable_root(
+        "RTNETLINK answers: Operation not permitted\r\n"
+    )

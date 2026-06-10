@@ -150,3 +150,6 @@ These become tractable once Phase 4 lands.
   browser polling requests disconnect before the response is written.
 - 2026-06-03: Moved the visualizer links table into a fixed right-side panel
   so the main page does not need to scroll on desktop.
+- 2026-06-03: Wrapped Containernet `TCLink` setup to tune HTB `r2q` and avoid
+  issuing invalid handle-zero qdisc deletes while preserving real tc failures
+  in the console.

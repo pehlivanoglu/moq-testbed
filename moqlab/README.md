@@ -190,7 +190,10 @@ Invariants the schema enforces:
   attaches both endpoints with `TCLink` for shaping. Same DNS-by-name URLs.
   After `net.start()`, it explicitly launches node binaries in the same
   config-driven order and drops into `CLI(net)` after the node processes are
-  started.
+  started. moqlab wraps Mininet's `TCLink` only to make tc setup deterministic:
+  it chooses an HTB `r2q` value that avoids large-quantum warnings for shaped
+  links and skips Mininet's invalid first-time delete when Linux reports a
+  root qdisc with handle `0:`. Other tc failures remain visible.
 
 State of truth for the Docker backend is Docker labels
 (`moqlab.run_id=<id>`); `ls` / `down` re-derive from there, so deleting the

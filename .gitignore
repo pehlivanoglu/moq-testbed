@@ -33,3 +33,6 @@ _CPack_Packages/
 # Docker secrets (never commit)
 docker/.env
 docker/cloudflare.ini
+
+.agents
+skills-lock.json

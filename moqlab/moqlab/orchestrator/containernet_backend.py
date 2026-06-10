@@ -45,6 +45,8 @@ _SUB_BINARY = "/usr/local/bin/moqtextclient"
 # default 10.0.0.0/8 pool so our explicit subnets don't collide with anything
 # Containernet auto-assigns.
 _LINK_SUBNET_POOL = "10.20.0.0/16"
+_HTB_TARGET_QUANTUM_BYTES = 1500
+_HTB_DEFAULT_R2Q = 10
 
 
 @dataclass
@@ -73,7 +75,7 @@ def _import_mininet():
     try:
         from mininet.net import Containernet
         from mininet.node import OVSBridge
-        from mininet.link import TCLink
+        from mininet.link import TCIntf, TCLink
         from mininet.cli import CLI
         from mininet.log import info, setLogLevel
     except ImportError as e:
@@ -94,7 +96,82 @@ def _import_mininet():
                 self.identchars = self.identchars + "-"
             super().run()
 
-    return _LenientCLI, TCLink, info, setLogLevel, Containernet, OVSBridge
+    class _MoqlabTCIntf(TCIntf):  # type: ignore[misc, valid-type]
+        """TCIntf variant with deterministic moqlab shaping setup."""
+
+        def bwCmds(
+            self,
+            bw=None,
+            speedup=0,
+            use_hfsc=False,
+            use_tbf=False,
+            latency_ms=None,
+            enable_ecn=False,
+            enable_red=False,
+        ):
+            cmds, parent = super().bwCmds(
+                bw=bw,
+                speedup=speedup,
+                use_hfsc=use_hfsc,
+                use_tbf=use_tbf,
+                latency_ms=latency_ms,
+                enable_ecn=enable_ecn,
+                enable_red=enable_red,
+            )
+            if bw is None or use_hfsc or use_tbf:
+                return cmds, parent
+
+            r2q = _htb_r2q_for_bw(float(bw))
+            cmds = [
+                cmd.replace("htb default 1", f"htb default 1 r2q {r2q}", 1)
+                if "root handle 5:0 htb default 1" in cmd
+                else cmd
+                for cmd in cmds
+            ]
+            return cmds, parent
+
+        def tc(self, cmd, tc="tc"):
+            if _is_qdisc_root_delete(cmd):
+                qdisc = super().tc("%s qdisc show dev %s", tc=tc)
+                if not _qdisc_show_has_deletable_root(qdisc):
+                    return ""
+            return super().tc(cmd, tc=tc)
+
+    class _MoqlabTCLink(TCLink):  # type: ignore[misc, valid-type]
+        def __init__(self, *args, **kwargs):
+            kwargs.setdefault("cls1", _MoqlabTCIntf)
+            kwargs.setdefault("cls2", _MoqlabTCIntf)
+            super().__init__(*args, **kwargs)
+
+    return _LenientCLI, _MoqlabTCLink, info, setLogLevel, Containernet, OVSBridge
+
+
+def _htb_r2q_for_bw(bw_mbit: float) -> int:
+    """Pick an HTB r2q that keeps the class quantum near one Ethernet MTU."""
+    if bw_mbit <= 0:
+        return _HTB_DEFAULT_R2Q
+    bytes_per_second = bw_mbit * 1_000_000 / 8
+    return max(1, round(bytes_per_second / _HTB_TARGET_QUANTUM_BYTES))
+
+
+def _is_qdisc_root_delete(cmd: str) -> bool:
+    return "qdisc del" in cmd and " root" in cmd
+
+
+def _qdisc_show_has_deletable_root(output: str) -> bool:
+    """Return whether `tc qdisc show` reports a root qdisc worth deleting."""
+    if not output.strip():
+        return False
+    for line in output.splitlines():
+        parts = line.strip().split()
+        if len(parts) < 3 or parts[0] != "qdisc" or "root" not in parts:
+            continue
+        handle = parts[2].rstrip(":")
+        return handle != "0"
+
+    # Malformed or error output should not be hidden; let the delete command
+    # run so tc reports the real problem through Mininet's normal path.
+    return True
 
 
 def _tclink_kwargs(spec: LinkSpec | None) -> dict[str, object]:
