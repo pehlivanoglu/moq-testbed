@@ -27,7 +27,7 @@ from moqlab.config.synth import (
     synthesize_subscriber_command,
 )
 from moqlab.exceptions import OrchestratorError
-from moqlab.runtime import default_run_id, default_runs_dir, relay_order, topology_edges
+from moqlab.runtime import default_run_id, default_runs_dir, relay_order, topology_edges, validate_run_id
 
 _log = logging.getLogger(__name__)
 
@@ -202,6 +202,7 @@ class ContainernetBackend:
     ) -> ContainernetRunRecord:
         topology = load_topology(config_path)
         run_id = run_id or default_run_id()
+        validate_run_id(run_id)
 
         CLI, TCLink, info, setLogLevel, Containernet, OVSBridge = _import_mininet()
         setLogLevel("info")

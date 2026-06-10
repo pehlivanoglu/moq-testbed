@@ -41,7 +41,7 @@ from moqlab.exceptions import (
     RunAlreadyExistsError,
     RunNotFoundError,
 )
-from moqlab.runtime import default_run_id, default_runs_dir, relay_order
+from moqlab.runtime import default_run_id, default_runs_dir, relay_order, validate_run_id
 
 LABEL_RUN_ID = "moqlab.run_id"
 LABEL_ROLE = "moqlab.role"
@@ -82,6 +82,7 @@ class DockerBackend:
     ) -> RunRecord:
         topology = load_topology(config_path)
         run_id = run_id or default_run_id()
+        validate_run_id(run_id)
 
         if self._run_dir(run_id).exists() or self._find_network(run_id) is not None:
             raise RunAlreadyExistsError(
@@ -149,7 +150,6 @@ class DockerBackend:
                 self._await_running(container, readiness_timeout_s)
         except Exception:
             self._teardown(run_id, swallow=True)
-            shutil.rmtree(run_dir, ignore_errors=True)
             raise
 
         return RunRecord(

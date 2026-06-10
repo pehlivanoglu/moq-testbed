@@ -2,8 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from moqlab.config.schema import load_topology
-from moqlab.runtime import relay_order, topology_edges
+from moqlab.exceptions import OrchestratorError
+from moqlab.runtime import relay_order, topology_edges, validate_run_id
 
 
 def test_relay_order_sorts_upstreams_before_downstreams(tmp_path: Path):
@@ -46,3 +49,36 @@ def test_topology_edges_dedupes_undirected_edges(tmp_path: Path):
     topology = load_topology(config)
 
     assert topology_edges(topology) == [("pub", "relay-a"), ("relay-a", "sub")]
+
+
+@pytest.mark.parametrize(
+    "run_id",
+    [
+        "run_20260610_120000",
+        "myrun",
+        "run-1",
+        "A",
+        "a1-b2_c3",
+        "x" * 63,
+    ],
+)
+def test_validate_run_id_accepts_valid(run_id: str) -> None:
+    validate_run_id(run_id)
+
+
+@pytest.mark.parametrize(
+    "run_id",
+    [
+        "../../etc/passwd",
+        "../escape",
+        "run/sub",
+        "run id",
+        "",
+        "-starts-with-dash",
+        "_starts_with_underscore",
+        "x" * 64,
+    ],
+)
+def test_validate_run_id_rejects_invalid(run_id: str) -> None:
+    with pytest.raises(OrchestratorError, match="invalid run id"):
+        validate_run_id(run_id)

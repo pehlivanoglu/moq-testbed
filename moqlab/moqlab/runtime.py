@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import re
 import time
 from pathlib import Path
 
 from moqlab.config.schema import TopologyConfig
+from moqlab.exceptions import OrchestratorError
+
+_RUN_ID_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,62}$")
 
 
 def default_runs_dir() -> Path:
@@ -12,6 +16,14 @@ def default_runs_dir() -> Path:
 
 def default_run_id() -> str:
     return time.strftime("run_%Y%m%d_%H%M%S")
+
+
+def validate_run_id(run_id: str) -> None:
+    """Raise OrchestratorError if run_id would escape the runs directory or break Docker naming."""
+    if not _RUN_ID_RE.match(run_id):
+        raise OrchestratorError(
+            f"invalid run id {run_id!r}: must match {_RUN_ID_RE.pattern}"
+        )
 
 
 def relay_order(topology: TopologyConfig) -> list[str]:
