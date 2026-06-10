@@ -43,6 +43,15 @@ class _FakeNet:
         return self._nodes[node_id]
 
 
+class _FakeBuildNet:
+    def __init__(self) -> None:
+        self.docker_nodes: list[str] = []
+
+    def addDocker(self, node_id: str, **kwargs):
+        self.docker_nodes.append(node_id)
+        return object()
+
+
 def _topology() -> TopologyConfig:
     return TopologyConfig.model_validate(
         {
@@ -111,6 +120,40 @@ def test_qdisc_delete_precheck_skips_only_zero_handle_roots():
     assert _qdisc_show_has_deletable_root(
         "RTNETLINK answers: Operation not permitted\r\n"
     )
+
+
+def test_build_raises_clear_error_when_link_subnet_pool_exhausted():
+    subscriber_count = 257
+    topology = TopologyConfig.model_validate(
+        {
+            "relays": {
+                "relay-a": {"listen_port": 9668, "admin_port": 9669, "upstream": None}
+            },
+            "subscribers": {
+                f"sub-{idx}": {
+                    "connects_to": "relay-a",
+                    "namespace": "moq-date",
+                    "track": "date",
+                }
+                for idx in range(subscriber_count)
+            },
+        }
+    )
+    net = _FakeBuildNet()
+    record = ContainernetRunRecord(run_id="run-test", run_dir=Path("/tmp/run-test"))
+    backend = ContainernetBackend()
+
+    with pytest.raises(OrchestratorError, match="link subnet pool"):
+        backend._build(
+            net,
+            topology,
+            {"relay-a": Path("/tmp/relay-a.yaml")},
+            record,
+            lambda _: None,
+            object,
+        )
+
+    assert net.docker_nodes == []
 
 
 def test_write_etc_hosts_raises_when_docker_sdk_missing(monkeypatch):

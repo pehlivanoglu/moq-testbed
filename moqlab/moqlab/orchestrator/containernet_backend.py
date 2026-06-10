@@ -277,6 +277,14 @@ class ContainernetBackend:
         nodes: dict[str, object] = {}
         info(f"*** moqlab containernet run_id={record.run_id}\n")
 
+        edges = self._derive_edges(topology)
+        link_subnets = list(ipaddress.ip_network(_LINK_SUBNET_POOL).subnets(new_prefix=24))
+        if len(edges) > len(link_subnets):
+            raise OrchestratorError(
+                f"topology has {len(edges)} edges but link subnet pool "
+                f"{_LINK_SUBNET_POOL} only provides {len(link_subnets)} /24 subnets"
+            )
+
         # We assign IPs ourselves via addLink(params1=...) so that multi-link
         # nodes (relays in the middle of a chain) get one IP per interface.
         # Don't pass `ip=` to addDocker — Containernet's auto-assigned default
@@ -308,10 +316,10 @@ class ContainernetBackend:
         # isolated L2 segment (we add one switch per edge for per-leg
         # shaping). A single 10.0.0.0/8 would only let neighbors directly
         # connected to the same switch reach each other.
-        subnet_iter = ipaddress.ip_network(_LINK_SUBNET_POOL).subnets(new_prefix=24)
+        subnet_iter = iter(link_subnets)
         link_counter: dict[str, int] = {nid: 0 for nid in nodes}
 
-        for idx, (a, b) in enumerate(self._derive_edges(topology), start=1):
+        for idx, (a, b) in enumerate(edges, start=1):
             sub = next(subnet_iter)
             a_ip = f"{sub.network_address + 1}/{sub.prefixlen}"
             b_ip = f"{sub.network_address + 2}/{sub.prefixlen}"
