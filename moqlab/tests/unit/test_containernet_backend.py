@@ -6,15 +6,21 @@ or root privileges.
 
 from __future__ import annotations
 
+import builtins
+import types
 from pathlib import Path
 
+import pytest
+
 from moqlab.config.schema import TopologyConfig
+from moqlab.exceptions import OrchestratorError
 from moqlab.orchestrator.containernet_backend import (
     ContainernetBackend,
     ContainernetRunRecord,
     _htb_r2q_for_bw,
     _is_qdisc_root_delete,
     _qdisc_show_has_deletable_root,
+    _write_etc_hosts_via_docker,
 )
 
 
@@ -105,3 +111,39 @@ def test_qdisc_delete_precheck_skips_only_zero_handle_roots():
     assert _qdisc_show_has_deletable_root(
         "RTNETLINK answers: Operation not permitted\r\n"
     )
+
+
+def test_write_etc_hosts_raises_when_docker_sdk_missing(monkeypatch):
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "docker":
+            raise ImportError("missing docker")
+        return real_import(name, *args, **kwargs)
+
+    record = ContainernetRunRecord(
+        run_id="run-test",
+        run_dir=Path("/tmp/run-test"),
+        edge_ips={("relay-a", "sub"): ("10.20.0.1", "10.20.0.2")},
+    )
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+
+    with pytest.raises(OrchestratorError, match="Docker SDK is not installed"):
+        _write_etc_hosts_via_docker(record, lambda _: None)
+
+
+def test_write_etc_hosts_raises_when_docker_daemon_unreachable(monkeypatch):
+    fake_docker = types.SimpleNamespace(
+        from_env=lambda: types.SimpleNamespace(
+            ping=lambda: (_ for _ in ()).throw(RuntimeError("boom"))
+        )
+    )
+    record = ContainernetRunRecord(
+        run_id="run-test",
+        run_dir=Path("/tmp/run-test"),
+        edge_ips={("relay-a", "sub"): ("10.20.0.1", "10.20.0.2")},
+    )
+    monkeypatch.setitem(__import__("sys").modules, "docker", fake_docker)
+
+    with pytest.raises(OrchestratorError, match="Docker daemon is unreachable"):
+        _write_etc_hosts_via_docker(record, lambda _: None)

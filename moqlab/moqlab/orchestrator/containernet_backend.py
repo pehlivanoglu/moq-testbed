@@ -425,13 +425,17 @@ def _write_etc_hosts_via_docker(record: ContainernetRunRecord, info) -> None:
     """
     try:
         import docker
-    except ImportError:
-        return
+    except ImportError as e:
+        raise OrchestratorError(
+            "failed to populate /etc/hosts: Python Docker SDK is not installed"
+        ) from e
     try:
         client = docker.from_env()
         client.ping()
-    except Exception:
-        return
+    except Exception as e:
+        raise OrchestratorError(
+            f"failed to populate /etc/hosts: Docker daemon is unreachable ({e})"
+        ) from e
 
     per_node: dict[str, list[tuple[str, str]]] = {}
     for (a, b), (a_ip, b_ip) in record.edge_ips.items():
@@ -441,13 +445,23 @@ def _write_etc_hosts_via_docker(record: ContainernetRunRecord, info) -> None:
     for nid, neighbors in per_node.items():
         try:
             container = client.containers.get(f"mn.{nid}")
-        except docker.errors.NotFound:
-            info(f"*** /etc/hosts: container mn.{nid} not found, skipping\n")
-            continue
+        except docker.errors.NotFound as e:
+            raise OrchestratorError(
+                f"failed to populate /etc/hosts: container mn.{nid} not found"
+            ) from e
         for neighbor_id, neighbor_ip in neighbors:
             # `>>` rather than `>` to keep Docker's own /etc/hosts entries.
             cmd = f"echo '{neighbor_ip} {neighbor_id}' >> /etc/hosts"
-            container.exec_run(["sh", "-c", cmd])
+            result = container.exec_run(["sh", "-c", cmd])
+            exit_code = getattr(result, "exit_code", 0)
+            if exit_code != 0:
+                output = getattr(result, "output", b"")
+                if isinstance(output, bytes):
+                    output = output.decode(errors="replace")
+                raise OrchestratorError(
+                    f"failed to populate /etc/hosts in mn.{nid}: "
+                    f"docker exec exited {exit_code}: {output}"
+                )
 
 
 def _remove_stale_mn_containers(topology: TopologyConfig, info) -> None:
