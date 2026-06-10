@@ -10,7 +10,7 @@ Schema invariants enforced here:
   - upstream / connects_to references resolve to a known relay
   - all relay listen_port + admin_port values unique (host-port pool)
   - single upstream per relay, no cycles in the upstream chain
-  - links reference known nodes, each undirected pair appears at most once
+  - links reference known topology edges, each undirected pair appears at most once
   - generative mode rejected (v1 explicit only)
 
 The `links:` block is read by the Containernet backend (Phase 2) for tc/netem
@@ -278,7 +278,21 @@ class TopologyConfig(_StrictBase):
                     f"subscriber {sid!r} connects_to {s.connects_to!r} is not a known relay"
                 )
 
-        # Links: endpoints must be known nodes; each undirected pair appears once.
+        topology_edges: set[tuple[str, str]] = set()
+
+        def _add_topology_edge(a: str, b: str) -> None:
+            topology_edges.add(tuple(sorted([a, b])))  # type: ignore[arg-type]
+
+        for rid, relay in self.relays.items():
+            if relay.upstream is not None:
+                _add_topology_edge(rid, relay.upstream)
+        for pid, publisher in self.publishers.items():
+            _add_topology_edge(pid, publisher.connects_to)
+        for sid, subscriber in self.subscribers.items():
+            _add_topology_edge(sid, subscriber.connects_to)
+
+        # Links: endpoints must be known nodes and real topology edges;
+        # each undirected pair appears once.
         seen_links: set[tuple[str, str]] = set()
         for link in self.links:
             for endpoint in (link.from_, link.to):
@@ -290,6 +304,11 @@ class TopologyConfig(_StrictBase):
             if key in seen_links:
                 raise ValueError(
                     f"duplicate link between {key[0]!r} and {key[1]!r}"
+                )
+            if key not in topology_edges:
+                raise ValueError(
+                    f"link between {key[0]!r} and {key[1]!r} does not match a "
+                    "topology edge from upstream/connects_to"
                 )
             seen_links.add(key)
 

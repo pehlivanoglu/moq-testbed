@@ -175,6 +175,16 @@ def test_rejects_self_link():
         TopologyConfig.model_validate(raw)
 
 
+def test_rejects_link_that_is_not_topology_edge():
+    raw = {
+        "relays": _minimal_relays(),
+        "subscribers": {"sub": {"connects_to": "relay-b", "namespace": "x", "track": "t"}},
+        "links": [{"from": "relay-a", "to": "sub", "bandwidth_mbps": 50}],
+    }
+    with pytest.raises(Exception, match="does not match a topology edge"):
+        TopologyConfig.model_validate(raw)
+
+
 def test_link_for_lookup_is_endpoint_order_agnostic():
     t = TopologyConfig.model_validate(
         {
@@ -185,6 +195,22 @@ def test_link_for_lookup_is_endpoint_order_agnostic():
     link = t.link_for("relay-b", "relay-a")
     assert link is not None
     assert link.delay_ms == 5.0
+
+
+def test_link_for_allows_pub_sub_topology_edges():
+    t = TopologyConfig.model_validate(
+        {
+            "relays": _minimal_relays(),
+            "publishers": {"pub": {"connects_to": "relay-a", "namespace": "x"}},
+            "subscribers": {"sub": {"connects_to": "relay-b", "namespace": "x", "track": "t"}},
+            "links": [
+                {"from": "pub", "to": "relay-a", "delay_ms": 5.0},
+                {"from": "relay-b", "to": "sub", "delay_ms": 10.0},
+            ],
+        }
+    )
+    assert t.link_for("relay-a", "pub") is not None
+    assert t.link_for("sub", "relay-b") is not None
 
 
 # ── strictness ─────────────────────────────────────────────────────────────
