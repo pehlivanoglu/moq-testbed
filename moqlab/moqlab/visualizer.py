@@ -11,7 +11,7 @@ from typing import Callable
 from urllib.parse import urlparse
 
 from moqlab.config.schema import TopologyConfig, load_topology
-from moqlab.runtime import relay_order, topology_edges
+from moqlab.runtime import containernet_edge_interfaces, relay_order, topology_edges
 
 _log = logging.getLogger(__name__)
 _STATIC_ROOT = Path(__file__).resolve().parents[1] / "visualizer"
@@ -26,14 +26,6 @@ _STATIC_FILES = {
 class InterfaceCounters:
     rx_bytes: int
     tx_bytes: int
-
-
-@dataclass(frozen=True)
-class _EdgeInterfaces:
-    a: str
-    b: str
-    a_iface: str
-    b_iface: str
 
 
 @dataclass(frozen=True)
@@ -121,7 +113,7 @@ class ThroughputSampler:
         topology: TopologyConfig,
         counter_reader: CounterReader | None = None,
     ) -> None:
-        self._edges = _containernet_edge_interfaces(topology)
+        self._edges = containernet_edge_interfaces(topology)
         self._counter_reader = counter_reader or _read_containernet_counters
         self._previous: dict[str, _EdgeCounterSample] = {}
 
@@ -261,22 +253,6 @@ def _relay_depths(topology: TopologyConfig) -> dict[str, int]:
     for rid in topology.relays:
         depth(rid)
     return depths
-
-
-def _containernet_edge_interfaces(topology: TopologyConfig) -> list[_EdgeInterfaces]:
-    link_counter: dict[str, int] = {
-        **{rid: 0 for rid in topology.relays},
-        **{pid: 0 for pid in topology.publishers},
-        **{sid: 0 for sid in topology.subscribers},
-    }
-    edges: list[_EdgeInterfaces] = []
-    for a, b in topology_edges(topology):
-        a_iface = f"{a}-eth{link_counter[a]}"
-        link_counter[a] += 1
-        b_iface = f"{b}-eth{link_counter[b]}"
-        link_counter[b] += 1
-        edges.append(_EdgeInterfaces(a=a, b=b, a_iface=a_iface, b_iface=b_iface))
-    return edges
 
 
 def _bytes_per_second(previous: int, current: int, elapsed_s: float) -> float:

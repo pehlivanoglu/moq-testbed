@@ -6,7 +6,12 @@ import pytest
 
 from moqlab.config.schema import load_topology
 from moqlab.exceptions import OrchestratorError
-from moqlab.runtime import relay_order, topology_edges, validate_run_id
+from moqlab.runtime import (
+    containernet_edge_interfaces,
+    relay_order,
+    topology_edges,
+    validate_run_id,
+)
 
 
 def test_relay_order_sorts_upstreams_before_downstreams(tmp_path: Path):
@@ -49,6 +54,31 @@ def test_topology_edges_dedupes_undirected_edges(tmp_path: Path):
     topology = load_topology(config)
 
     assert topology_edges(topology) == [("pub", "relay-a"), ("relay-a", "sub")]
+
+
+def test_containernet_edge_interfaces_follow_link_order(tmp_path: Path):
+    config = tmp_path / "topology.yaml"
+    config.write_text(
+        "\n".join(
+            [
+                "topology_mode: explicit",
+                "relays:",
+                "  relay-a: { listen_port: 9668, admin_port: 9669 }",
+                "publishers:",
+                "  pub: { connects_to: relay-a, namespace: moq-date }",
+                "subscribers:",
+                "  sub: { connects_to: relay-a, namespace: moq-date, track: date }",
+            ]
+        )
+    )
+    topology = load_topology(config)
+
+    edges = containernet_edge_interfaces(topology)
+
+    assert [(e.a, e.b, e.a_iface, e.b_iface) for e in edges] == [
+        ("pub", "relay-a", "pub-eth0", "relay-a-eth0"),
+        ("relay-a", "sub", "relay-a-eth1", "sub-eth0"),
+    ]
 
 
 @pytest.mark.parametrize(

@@ -27,7 +27,13 @@ from moqlab.config.synth import (
     synthesize_subscriber_command,
 )
 from moqlab.exceptions import OrchestratorError
-from moqlab.runtime import default_run_id, default_runs_dir, relay_order, topology_edges, validate_run_id
+from moqlab.runtime import (
+    containernet_edge_interfaces,
+    default_run_id,
+    default_runs_dir,
+    relay_order,
+    validate_run_id,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -277,7 +283,7 @@ class ContainernetBackend:
         nodes: dict[str, object] = {}
         info(f"*** moqlab containernet run_id={record.run_id}\n")
 
-        edges = self._derive_edges(topology)
+        edges = containernet_edge_interfaces(topology)
         link_subnets = list(ipaddress.ip_network(_LINK_SUBNET_POOL).subnets(new_prefix=24))
         if len(edges) > len(link_subnets):
             raise OrchestratorError(
@@ -317,9 +323,10 @@ class ContainernetBackend:
         # shaping). A single 10.0.0.0/8 would only let neighbors directly
         # connected to the same switch reach each other.
         subnet_iter = iter(link_subnets)
-        link_counter: dict[str, int] = {nid: 0 for nid in nodes}
 
-        for idx, (a, b) in enumerate(edges, start=1):
+        for idx, edge in enumerate(edges, start=1):
+            a = edge.a
+            b = edge.b
             sub = next(subnet_iter)
             a_ip = f"{sub.network_address + 1}/{sub.prefixlen}"
             b_ip = f"{sub.network_address + 2}/{sub.prefixlen}"
@@ -337,20 +344,16 @@ class ContainernetBackend:
             # second one, a configured `delay_ms: 5` would manifest as 10ms
             # one-way (5+5) — surprising. The current scheme makes
             # `delay_ms: X` mean "X ms one-way for this edge".
-            a_iface = f"{a}-eth{link_counter[a]}"
             net.addLink(nodes[a], sw, cls=TCLink, params1={"ip": a_ip}, **link_kw)
-            link_counter[a] += 1
 
-            b_iface = f"{b}-eth{link_counter[b]}"
             net.addLink(nodes[b], sw, cls=TCLink, params1={"ip": b_ip})
-            link_counter[b] += 1
 
             record.edge_ips[(a, b)] = (
                 str(sub.network_address + 1),
                 str(sub.network_address + 2),
             )
-            record.node_iface_ips.setdefault(a, []).append((a_iface, a_ip))
-            record.node_iface_ips.setdefault(b, []).append((b_iface, b_ip))
+            record.node_iface_ips.setdefault(a, []).append((edge.a_iface, a_ip))
+            record.node_iface_ips.setdefault(b, []).append((edge.b_iface, b_ip))
 
     @staticmethod
     def _launch_node_binaries(
@@ -402,11 +405,6 @@ class ContainernetBackend:
             cmd_line = " ".join([_SUB_BINARY] + _shell_quote_argv(argv))
             info(f"*** launching subscriber {sid}: {cmd_line}\n")
             net.get(sid).cmd(f"{cmd_line} > /tmp/{sid}.log 2>&1 &")
-
-    @staticmethod
-    def _derive_edges(topology: TopologyConfig) -> list[tuple[str, str]]:
-        return topology_edges(topology)
-
 
 def _shell_quote_argv(argv: list[str]) -> list[str]:
     """Shell-quote each argv element so dcmd survives shell interpretation."""

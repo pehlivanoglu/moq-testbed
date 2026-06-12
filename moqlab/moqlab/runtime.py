@@ -2,12 +2,21 @@ from __future__ import annotations
 
 import re
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 from moqlab.config.schema import TopologyConfig
 from moqlab.exceptions import OrchestratorError
 
 _RUN_ID_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,62}$")
+
+
+@dataclass(frozen=True)
+class ContainernetEdgeInterfaces:
+    a: str
+    b: str
+    a_iface: str
+    b_iface: str
 
 
 def default_runs_dir() -> Path:
@@ -59,6 +68,26 @@ def topology_edges(topology: TopologyConfig) -> list[tuple[str, str]]:
     for sid, subscriber in topology.subscribers.items():
         _add(sid, subscriber.connects_to)
     return ordered
+
+
+def containernet_edge_interfaces(
+    topology: TopologyConfig,
+) -> list[ContainernetEdgeInterfaces]:
+    link_counter: dict[str, int] = {
+        **{rid: 0 for rid in topology.relays},
+        **{pid: 0 for pid in topology.publishers},
+        **{sid: 0 for sid in topology.subscribers},
+    }
+    edges: list[ContainernetEdgeInterfaces] = []
+    for a, b in topology_edges(topology):
+        a_iface = f"{a}-eth{link_counter[a]}"
+        link_counter[a] += 1
+        b_iface = f"{b}-eth{link_counter[b]}"
+        link_counter[b] += 1
+        edges.append(
+            ContainernetEdgeInterfaces(a=a, b=b, a_iface=a_iface, b_iface=b_iface)
+        )
+    return edges
 
 
 def topology_image_tags(topology: TopologyConfig) -> set[str]:
