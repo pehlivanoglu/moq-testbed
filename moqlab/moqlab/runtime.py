@@ -35,19 +35,24 @@ def validate_run_id(run_id: str) -> None:
         )
 
 
-def relay_order(topology: TopologyConfig) -> list[str]:
-    depth: dict[str, int] = {}
+def relay_depths(topology: TopologyConfig) -> dict[str, int]:
+    depths: dict[str, int] = {}
 
     def _depth(rid: str) -> int:
-        if rid in depth:
-            return depth[rid]
+        if rid in depths:
+            return depths[rid]
         upstream = topology.relays[rid].upstream
-        depth[rid] = 0 if upstream is None else _depth(upstream) + 1
-        return depth[rid]
+        depths[rid] = 0 if upstream is None else _depth(upstream) + 1
+        return depths[rid]
 
     for rid in topology.relays:
         _depth(rid)
-    return sorted(topology.relays.keys(), key=lambda rid: (depth[rid], rid))
+    return depths
+
+
+def relay_order(topology: TopologyConfig) -> list[str]:
+    depths = relay_depths(topology)
+    return sorted(topology.relays.keys(), key=lambda rid: (depths[rid], rid))
 
 
 def topology_edges(topology: TopologyConfig) -> list[tuple[str, str]]:

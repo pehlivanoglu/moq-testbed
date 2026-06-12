@@ -11,7 +11,12 @@ from typing import Callable
 from urllib.parse import urlparse
 
 from moqlab.config.schema import TopologyConfig, load_topology
-from moqlab.runtime import containernet_edge_interfaces, relay_order, topology_edges
+from moqlab.runtime import (
+    containernet_edge_interfaces,
+    relay_depths,
+    relay_order,
+    topology_edges,
+)
 
 _log = logging.getLogger(__name__)
 _STATIC_ROOT = Path(__file__).resolve().parents[1] / "visualizer"
@@ -40,7 +45,7 @@ CounterReader = Callable[[str, str], InterfaceCounters | None]
 
 def topology_snapshot(topology: TopologyConfig) -> dict[str, object]:
     nodes: list[dict[str, object]] = []
-    relay_depths = _relay_depths(topology)
+    depths = relay_depths(topology)
 
     for rid in relay_order(topology):
         relay = topology.relays[rid]
@@ -48,7 +53,7 @@ def topology_snapshot(topology: TopologyConfig) -> dict[str, object]:
             {
                 "id": rid,
                 "role": "relay",
-                "level": relay_depths[rid] + 1,
+                "level": depths[rid] + 1,
                 "listen_port": relay.listen_port,
                 "admin_port": relay.admin_port,
                 "upstream": relay.upstream,
@@ -59,7 +64,7 @@ def topology_snapshot(topology: TopologyConfig) -> dict[str, object]:
             {
                 "id": pid,
                 "role": "publisher",
-                "level": relay_depths[publisher.connects_to],
+                "level": depths[publisher.connects_to],
                 "connects_to": publisher.connects_to,
                 "namespace": publisher.namespace,
             }
@@ -69,7 +74,7 @@ def topology_snapshot(topology: TopologyConfig) -> dict[str, object]:
             {
                 "id": sid,
                 "role": "subscriber",
-                "level": relay_depths[subscriber.connects_to] + 2,
+                "level": depths[subscriber.connects_to] + 2,
                 "connects_to": subscriber.connects_to,
                 "namespace": subscriber.namespace,
                 "track": subscriber.track,
@@ -238,21 +243,6 @@ class _VisualizerHandler(BaseHTTPRequestHandler):
             self.wfile.write(body)
         except (BrokenPipeError, ConnectionResetError):
             _log.debug("visualizer client disconnected before response completed")
-
-
-def _relay_depths(topology: TopologyConfig) -> dict[str, int]:
-    depths: dict[str, int] = {}
-
-    def depth(rid: str) -> int:
-        if rid in depths:
-            return depths[rid]
-        upstream = topology.relays[rid].upstream
-        depths[rid] = 0 if upstream is None else depth(upstream) + 1
-        return depths[rid]
-
-    for rid in topology.relays:
-        depth(rid)
-    return depths
 
 
 def _bytes_per_second(previous: int, current: int, elapsed_s: float) -> float:
