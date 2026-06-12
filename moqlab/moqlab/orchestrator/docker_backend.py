@@ -177,7 +177,7 @@ class DockerBackend:
             relays: dict[str, str] = {}
             publishers: dict[str, str] = {}
             subscribers: dict[str, str] = {}
-            for c in self._containers_for(run_id):
+            for c in self._running_containers_for(run_id):
                 role = c.labels.get(LABEL_ROLE)
                 node_id = c.labels.get(LABEL_NODE_ID, c.name)
                 bucket = {
@@ -187,6 +187,8 @@ class DockerBackend:
                 }.get(role)
                 if bucket is not None:
                     bucket[node_id] = c.id
+            if not (relays or publishers or subscribers):
+                continue
             out.append(
                 RunRecord(
                     run_id=run_id,
@@ -230,6 +232,12 @@ class DockerBackend:
     def _containers_for(self, run_id: str) -> list[Container]:
         return self._client.containers.list(
             all=True,
+            filters={"label": f"{LABEL_RUN_ID}={run_id}"},
+        )
+
+    def _running_containers_for(self, run_id: str) -> list[Container]:
+        return self._client.containers.list(
+            all=False,
             filters={"label": f"{LABEL_RUN_ID}={run_id}"},
         )
 
