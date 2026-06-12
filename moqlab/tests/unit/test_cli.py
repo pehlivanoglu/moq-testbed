@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
+import pytest
 from click.testing import CliRunner
 
 from moqlab import cli as cli_module
@@ -105,3 +107,27 @@ def test_run_visualize_starts_server_and_passes_it_to_backend(monkeypatch, tmp_p
 
     assert result.exit_code == 0
     assert seen["visualizer"] is server
+
+
+def test_containernet_error_stops_visualizer_once(monkeypatch):
+    stops = []
+    server = object()
+
+    def fake_up(self, config_path, run_id):
+        raise OrchestratorError("containernet failed")
+
+    monkeypatch.setattr(
+        "moqlab.orchestrator.containernet_backend.ContainernetBackend.up",
+        fake_up,
+    )
+    monkeypatch.setattr(cli_module, "_stop_visualizer", lambda visualizer: stops.append(visualizer))
+
+    with pytest.raises(cli_module.click.ClickException):
+        cli_module._up_containernet(
+            SimpleNamespace(obj={}),
+            Path("topology.yaml"),
+            None,
+            server,
+        )
+
+    assert stops == [server]

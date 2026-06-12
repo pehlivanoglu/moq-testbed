@@ -42,9 +42,14 @@ class _FakeNetwork:
 class _FakeNetworkCollection:
     def __init__(self, networks: list[_FakeNetwork]) -> None:
         self._networks = networks
+        self.create_kwargs: dict[str, object] | None = None
 
     def list(self, filters: dict[str, str]):
         return self._networks
+
+    def create(self, **kwargs):
+        self.create_kwargs = kwargs
+        return _FakeNetwork("net-new", kwargs["name"], kwargs["labels"][LABEL_RUN_ID])
 
 
 class _FakeDockerClient:
@@ -94,3 +99,15 @@ def test_ls_reports_runs_with_running_containers(tmp_path: Path):
     assert records[0].run_id == "active-run"
     assert records[0].relays == {"relay-a": "container-relay-a"}
     assert client.containers.list_calls == [False]
+
+
+def test_create_network_omits_deprecated_check_duplicate(tmp_path: Path):
+    client = _FakeDockerClient(networks=[], containers=[])
+
+    network = _backend(client, tmp_path)._create_network(
+        "run-test", {LABEL_RUN_ID: "run-test"}
+    )
+
+    assert network.name == "moqlab_run-test"
+    assert client.networks.create_kwargs is not None
+    assert "check_duplicate" not in client.networks.create_kwargs

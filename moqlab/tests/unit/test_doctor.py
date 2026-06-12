@@ -92,3 +92,24 @@ def test_ensure_run_ready_formats_failures(monkeypatch: pytest.MonkeyPatch):
     assert "run readiness failed" in message
     assert "missing moqlab-relay" in message
     assert "build images" in message
+
+
+def test_ensure_run_ready_rejects_non_root_containernet(monkeypatch: pytest.MonkeyPatch):
+    def fake_checks(**kwargs):
+        return [
+            CheckResult(
+                "containernet privileges",
+                "warn",
+                "current process is not root",
+                "Run containernet topologies with `sudo <venv>/bin/python -m moqlab run ...`.",
+            )
+        ]
+
+    monkeypatch.setattr(doctor, "doctor_checks", fake_checks)
+
+    with pytest.raises(OrchestratorError) as excinfo:
+        ensure_run_ready("topology.yaml", "containernet")
+
+    message = str(excinfo.value)
+    assert "containernet privileges" in message
+    assert "current process is not root" in message

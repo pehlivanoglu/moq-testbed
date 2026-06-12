@@ -220,7 +220,6 @@ class DockerBackend:
                 name=name,
                 driver="bridge",
                 labels=labels,
-                check_duplicate=True,
             )
         except APIError as e:
             raise OrchestratorError(f"failed to create network {name!r}: {e}") from e

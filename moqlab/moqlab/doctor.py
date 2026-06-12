@@ -72,6 +72,12 @@ def ensure_run_ready(config_path: str | Path, backend: str) -> None:
         include_build_artifacts=False,
     )
     failures = [check for check in checks if check.status == "fail"]
+    if backend.lower() == "containernet":
+        failures.extend(
+            check
+            for check in checks
+            if check.name == "containernet privileges" and check.status == "warn"
+        )
     if not failures:
         return
 

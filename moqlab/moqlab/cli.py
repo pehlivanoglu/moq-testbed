@@ -106,6 +106,9 @@ def remove_pycache_files_alias() -> None:
 def _remove_pycaches_command() -> None:
     project_root = Path(__file__).resolve().parents[1]
     result = remove_pycaches(project_root)
+    # This CLI invocation imports moqlab modules, so CPython can recreate
+    # __pycache__ after the cleanup pass. Re-run at process exit to leave the
+    # tree clean for callers that use this command in scripts.
     atexit.register(remove_pycaches, project_root)
     click.echo(
         "removed "
@@ -346,7 +349,6 @@ def _up_containernet(
         cn = ContainernetBackend(runs_dir=ctx.obj.get("runs_dir"))
         record = cn.up(config_path=config, run_id=run_id)
     except MoqlabError as e:
-        _stop_visualizer(visualizer)
         raise click.ClickException(str(e)) from e
     finally:
         _stop_visualizer(visualizer)
