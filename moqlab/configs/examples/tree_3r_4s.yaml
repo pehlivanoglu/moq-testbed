@@ -10,8 +10,8 @@
 # upstream relay; subscribers attach to the leaf relays.
 #
 # Bring it up on either backend:
-#   moqlab up -c moqlab/configs/examples/tree_3r_4s.yaml --backend docker
-#   moqlab up -c moqlab/configs/examples/tree_3r_4s.yaml --backend containernet
+#   moqlab run -c moqlab/configs/examples/tree_3r_4s.yaml --backend docker
+#   moqlab run -c moqlab/configs/examples/tree_3r_4s.yaml --backend containernet
 #
 # The `links:` block is read only by the Containernet backend.
 

@@ -138,7 +138,7 @@ These become tractable once Phase 4 lands.
   files so moqlab-specific guidance lives inside `moqlab/`.
 - 2026-06-01: Added `python -m moqlab build moqx`,
   `python -m moqlab build images`, and `python -m moqlab run`. `run` defaults
-  to the Containernet backend; `up` remains as a hidden compatibility alias.
+  to the Containernet backend.
 - 2026-06-01: Added `python -m moqlab rm pycaches` to remove project
   `__pycache__` directories, bytecode files, and `.pytest_cache` while
   skipping `.venv` and `.runs`.

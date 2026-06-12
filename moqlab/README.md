@@ -217,8 +217,6 @@ needs the four runtime deps installed (see "Running it").
 | `python -m moqlab logs --run-id <name> [-f] [-n N] <node_id>` | docker | Container logs for one node. |
 | `python -m moqlab rm pycaches` | n/a | Remove project `__pycache__` dirs, `.pyc` / `.pyo` files, and `.pytest_cache`, skipping `.venv` and `.runs`. |
 
-`python -m moqlab up ...` is kept as a compatibility alias for `run`.
-
 Global option: `--runs-dir <path>` (or `MOQLAB_RUNS_DIR=…`). Default:
 `moqlab/.runs/`.
 

@@ -261,62 +261,6 @@ def run_topology(
         visualize,
     )
 
-
-@cli.command(hidden=True)
-@click.option(
-    "--config",
-    "-c",
-    required=True,
-    type=click.Path(exists=True, dir_okay=False, path_type=Path),
-)
-@click.option(
-    "--backend",
-    type=click.Choice(["docker", "containernet"], case_sensitive=False),
-    default="containernet",
-    show_default=True,
-    help="Orchestration backend. Containernet blocks in a Mininet CLI shell.",
-)
-@click.option("--run-id", default=None, help="Run identifier. Auto-generated if omitted.")
-@click.option(
-    "--publish-ports/--no-publish-ports",
-    default=False,
-    help="Docker backend only: publish each relay's ports on the host.",
-)
-@click.option(
-    "--readiness-timeout",
-    type=float,
-    default=10.0,
-    show_default=True,
-    help="Docker backend only: per-container startup timeout (seconds).",
-)
-@click.option(
-    "--vis",
-    "--visualize",
-    "visualize",
-    is_flag=True,
-    help="Serve a localhost topology and throughput visualizer during the run.",
-)
-@click.pass_context
-def up(
-    ctx: click.Context,
-    config: Path,
-    backend: str,
-    run_id: str | None,
-    publish_ports: bool,
-    readiness_timeout: float,
-    visualize: bool,
-) -> None:
-    _run_topology(
-        ctx,
-        config,
-        backend,
-        run_id,
-        publish_ports,
-        readiness_timeout,
-        visualize,
-    )
-
-
 def _run_topology(
     ctx: click.Context,
     config: Path,
