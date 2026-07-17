@@ -1,0 +1,54 @@
+# Router node image: IP forwarding plus a modern tc for L4S AQMs (dualpi2).
+#
+# Ubuntu 24.04's packaged iproute2 is too old to know dualpi2, so tc/ip are
+# built from a pinned upstream release. The host kernel provides sch_dualpi2;
+# this image only needs the matching userspace. No moqx — routers run no MoQ
+# binary, they own queues and forward packets.
+
+FROM ubuntu:24.04 AS iproute2-build
+
+# dualpi2 userspace support landed in iproute2 6.17 (matching the kernel
+# release that shipped sch_dualpi2). The build-time check below catches an
+# accidental downgrade.
+ARG IPROUTE2_VERSION=6.17.0
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        flex \
+        bison \
+        pkg-config \
+        libmnl-dev \
+        wget \
+        xz-utils \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN wget -q "https://www.kernel.org/pub/linux/utils/net/iproute2/iproute2-${IPROUTE2_VERSION}.tar.xz" \
+    && tar -xf "iproute2-${IPROUTE2_VERSION}.tar.xz"
+
+RUN cd "iproute2-${IPROUTE2_VERSION}" \
+    && ./configure \
+    && make -j"$(nproc)" \
+    && make install DESTDIR=/staging SBINDIR=/usr/sbin
+
+# Fail the build if this tc doesn't know dualpi2. Pure userspace parse check
+# (`help` prints usage before any netlink call), so no kernel support needed
+# at build time.
+RUN ! /staging/usr/sbin/tc qdisc add dualpi2 help 2>&1 | grep -q "Unknown qdisc"
+
+
+FROM ubuntu:24.04
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libmnl0 \
+        ethtool \
+        tcpdump \
+        iputils-ping \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=iproute2-build /staging/ /
+
+# No ENTRYPOINT on purpose: routers run nothing. Containernet wipes the
+# entrypoint at container create time anyway and keeps the container alive
+# with its own shell.

@@ -37,9 +37,11 @@ ergonomics. This is research infrastructure, not a demo script.
 ## Current Implementation
 
 - **Schema** (`moqlab/config/schema.py`) - Pydantic v2 topology model:
-  `defaults`, `startup`, `relays`, `publishers`, `subscribers`, and optional
-  `links`. It is strict (`extra="forbid"`) and validates node ids, relay
-  references, port collisions, cycles, and duplicate links.
+  `defaults`, `startup`, `relays`, `publishers`, `subscribers`, `routers`,
+  and `links` (per-direction `forward`/`reverse` shaping incl. `aqm`). It is
+  strict (`extra="forbid"`) and validates node ids, relay references, port
+  collisions, cycles, duplicate links, link-graph reachability of every
+  app edge, aqm-on-router-egress, and orphan routers.
 - **Synthesis** (`moqlab/config/synth.py`) - turns topology config into
   per-relay moqx YAML files and argv lists for `moqdateserver` and
   `moqtextclient`.
@@ -47,9 +49,12 @@ ergonomics. This is research infrastructure, not a demo script.
   bridge network and one detached container per node. Docker labels are the
   state of truth.
 - **Containernet backend** (`moqlab/orchestrator/containernet_backend.py`) -
-  creates Docker hosts inside Containernet, attaches endpoints through
-  per-edge OVS bridges with `TCLink`, starts node binaries explicitly after
-  `net.start()`, opens `CLI(net)`, and tears down on CLI exit.
+  creates Docker hosts inside Containernet (routers included, with forwarding
+  sysctls), wires one direct host↔host veth pair per `links:` entry (no
+  switches), assigns per-node /32 loopbacks + /etc/hosts + static routes,
+  applies per-direction tc chains from `orchestrator/shaping.py`, starts node
+  binaries explicitly after `net.start()`, opens `CLI(net)`, and tears down
+  on CLI exit. Refuses topologies without `links:`.
 - **CLI** (`moqlab/cli.py`) - `build moqx`, `build images`, `validate`,
   `run`, `down`, `logs`, `ls`, and `rm pycache`. `up` remains a hidden
   compatibility alias for `run`. `run --vis/--visualize` serves the
@@ -150,27 +155,50 @@ publishers:
 subscribers:
   sub: { connects_to: relay-b, namespace: moq-date, track: date }
 
+routers:
+  rt-1: {}
+
 links:
-  - { from: pub, to: relay-a, bandwidth_mbps: 100, delay_ms: 5 }
-  - { from: relay-a, to: relay-b, bandwidth_mbps: 50, delay_ms: 20 }
-  - { from: relay-b, to: sub, bandwidth_mbps: 20, delay_ms: 69 }
+  - from: pub
+    to: relay-a
+    forward: { bandwidth_mbps: 100, delay_ms: 5 }
+    reverse: { delay_ms: 5 }
+  - from: relay-a
+    to: rt-1
+    forward: { delay_ms: 20 }
+    reverse: { delay_ms: 20 }
+  - from: rt-1
+    to: relay-b
+    forward: { bandwidth_mbps: 50, aqm: dualpi2 }
+    reverse: { delay_ms: 20 }
+  - from: relay-b
+    to: sub
+    forward: { bandwidth_mbps: 20, delay_ms: 69 }
+    reverse: { delay_ms: 69 }
 ```
 
 Implemented invariants:
 
 - `topology_mode` must be `explicit`.
-- Node ids are globally unique and valid as Docker names/DNS labels.
+- Node ids are globally unique (routers included) and valid as Docker
+  names/DNS labels.
 - Relay `upstream` and pub/sub `connects_to` references must target known
-  relays.
+  relays — never routers.
 - A relay has at most one upstream; upstream chains must be cycle-free.
 - Relay listen/admin ports must be unique across the topology.
 - `startup` warmups are non-negative seconds and config-driven.
 - `links` reference known nodes and may not duplicate an undirected pair.
+- When `links`/`routers` are declared, every `upstream`/`connects_to` pair
+  must be connected through the link graph.
+- `aqm` is only valid on directions whose egress node is a router; every
+  declared router must appear in at least one link; `jitter_ms` requires
+  `delay_ms`.
 - Unknown fields are rejected.
 
 Future target config work may introduce named `networks`, relay `upstreams`,
-ECN/L4S fields, browser subscribers, scenarios, and generative topology mode.
-Do not start that migration without discussion.
+browser subscribers, scenarios, and generative topology mode. Do not start
+that migration without discussion. See [ROUTER.md](ROUTER.md) for the
+implemented router/shaping design.
 
 ## Containernet Notes
 
@@ -181,8 +209,8 @@ mental model is:
 Host machine
 └── Containernet process
     ├── Docker host: relay/pub/sub container
-    ├── Docker host: relay/pub/sub container
-    └── OVS switches and TCLinks connecting those hosts
+    ├── Docker host: router container (ip_forward, owns tc qdiscs)
+    └── direct veth pairs connecting those hosts (one per `links:` entry)
 ```
 
 Applications run inside the Docker hosts, not on the Ubuntu host running
@@ -192,8 +220,11 @@ the backend manages per-link addresses internally.
 
 Containernet specifics that matter in this repo:
 
-- Use `addDocker(...)` for node containers.
-- Use `TCLink` for link shaping.
+- Use `addDocker(...)` for node containers (routers too; pass `sysctls=` for
+  forwarding).
+- Do NOT use `TCLink`/`addSwitch`: links are plain veth pairs, and shaping is
+  explicit tc commands synthesized by `orchestrator/shaping.py` and run via
+  `host.cmd()` inside the owning container.
 - `net.start()` starts the Mininet network, not the moqx/moxygen binaries.
   The backend must launch relays, publishers, and subscribers explicitly after
   `net.start()`.

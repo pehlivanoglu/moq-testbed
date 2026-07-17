@@ -56,6 +56,17 @@ def test_doctor_docker_backend_skips_containernet_checks(monkeypatch: pytest.Mon
 
     assert "containernet python" not in {check.name for check in checks}
     assert "containernet privileges" not in {check.name for check in checks}
+    assert "kernel dualpi2" not in {check.name for check in checks}
+
+
+def test_doctor_containernet_backend_includes_dualpi2_check(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(doctor, "_docker_daemon_check", lambda: CheckResult("docker daemon", "ok", "mocked"))
+    monkeypatch.setattr(doctor, "_docker_images_check", lambda image_tags: CheckResult("docker images", "ok", "mocked"))
+
+    checks = doctor_checks(backend="containernet", include_build_artifacts=False)
+
+    dualpi2 = next(check for check in checks if check.name == "kernel dualpi2")
+    assert dualpi2.status in {"ok", "warn"}  # warn-only check, never blocks
 
 
 def test_ensure_run_ready_does_not_require_build_artifacts(monkeypatch: pytest.MonkeyPatch):

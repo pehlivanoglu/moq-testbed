@@ -50,18 +50,31 @@ def _topology() -> TopologyConfig:
                 }
             },
             "links": [
-                {"from": "pub", "to": "relay-a", "bandwidth_mbps": 100},
-                {"from": "relay-a", "to": "sub", "delay_ms": 5},
+                {"from": "pub", "to": "relay-a", "forward": {"bandwidth_mbps": 100}},
+                {"from": "relay-a", "to": "sub", "forward": {"delay_ms": 5}},
             ],
         }
     )
 
 
-def test_topology_snapshot_includes_pub_sub_edges_and_shape():
+def _unshaped(**overrides) -> dict:
+    payload = {
+        "bandwidth_mbps": None,
+        "delay_ms": None,
+        "jitter_ms": None,
+        "loss_pct": None,
+        "aqm": None,
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_topology_snapshot_includes_directional_links():
     snapshot = topology_snapshot(_topology())
 
     assert snapshot["summary"] == {
         "relays": 1,
+        "routers": 0,
         "publishers": 1,
         "subscribers": 1,
         "links": 2,
@@ -72,21 +85,49 @@ def test_topology_snapshot_includes_pub_sub_edges_and_shape():
             "id": "pub--relay-a",
             "source": "pub",
             "target": "relay-a",
-            "bandwidth_mbps": 100.0,
-            "delay_ms": None,
-            "jitter_ms": None,
-            "loss_pct": None,
+            "forward": _unshaped(bandwidth_mbps=100.0),
+            "reverse": _unshaped(),
         },
         {
             "id": "relay-a--sub",
             "source": "relay-a",
             "target": "sub",
-            "bandwidth_mbps": None,
-            "delay_ms": 5.0,
-            "jitter_ms": None,
-            "loss_pct": None,
+            "forward": _unshaped(delay_ms=5.0),
+            "reverse": _unshaped(),
         },
     ]
+
+
+def test_topology_snapshot_places_router_between_endpoints():
+    topology = TopologyConfig.model_validate(
+        {
+            "relays": {"relay-a": {"listen_port": 9668, "admin_port": 9669}},
+            "publishers": {"pub": {"connects_to": "relay-a", "namespace": "n"}},
+            "subscribers": {
+                "sub": {"connects_to": "relay-a", "namespace": "n", "track": "t"}
+            },
+            "routers": {"rt-1": {}},
+            "links": [
+                {"from": "pub", "to": "relay-a"},
+                {"from": "relay-a", "to": "rt-1"},
+                {
+                    "from": "rt-1",
+                    "to": "sub",
+                    "forward": {"bandwidth_mbps": 20, "aqm": "dualpi2"},
+                },
+            ],
+        }
+    )
+
+    snapshot = topology_snapshot(topology)
+
+    assert snapshot["summary"]["routers"] == 1
+    levels = {node["id"]: node["level"] for node in snapshot["nodes"]}
+    roles = {node["id"]: node["role"] for node in snapshot["nodes"]}
+    assert roles["rt-1"] == "router"
+    assert levels["pub"] < levels["relay-a"] < levels["rt-1"] < levels["sub"]
+    aqm_link = next(l for l in snapshot["links"] if l["id"] == "rt-1--sub")
+    assert aqm_link["forward"]["aqm"] == "dualpi2"
 
 
 def test_throughput_sampler_reports_unavailable_when_counters_missing():

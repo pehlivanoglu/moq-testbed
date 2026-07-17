@@ -1,123 +1,127 @@
 # Router And Link Emulator Architecture
 
-This note describes how moqlab should model network links as the testbed grows
-from simple delay/bandwidth shaping into ECN, L4S, AQM, and routing research.
+This note describes how moqlab models network links now that ECN, L4S, and
+AQM behavior are first-class research targets. It used to be a future-
+direction sketch; the design below is implemented.
 
-## Current Model
+## Model
 
-The Containernet backend currently derives topology edges from:
-
-- relay `upstream`
-- publisher `connects_to`
-- subscriber `connects_to`
-
-For each derived edge, it creates one isolated L2 segment:
-
-```text
-node-a -- switch -- node-b
-```
-
-The switch is not meant to represent a CDN device. It is a Containernet/Mininet
-mechanism for creating a shaped virtual link between two Docker hosts. The link
-properties from `links:` are applied with Linux `tc`/`netem` on one endpoint
-interface so that `delay_ms: X` means approximately `X` ms one-way delay for
-that edge, instead of doubling the delay by shaping both sides.
-
-This model is good for:
-
-- simple bandwidth, delay, jitter, and loss experiments
-- application-level CDN relay graphs
-- keeping the topology schema free of explicit IP addressing
-- avoiding extra routing state when the experiment does not study IP routing
-
-## Why A Router Or Link Emulator May Be Needed
-
-For ECN, L4S, and AQM work, the queue location matters. If `tc` is attached to
-a relay container's egress interface, the relay container effectively owns the
-bottleneck queue. That can be acceptable for simple link emulation, but it is a
-weaker model for experiments where the network queue itself is the subject.
-
-A cleaner future model is:
+The Containernet backend builds exactly what `links:` declares. Every link is
+one direct host↔host veth pair — there are no switches. Routers are declared
+in `routers:` and are ordinary Docker hosts (image `moqlab-router`) with IP
+forwarding enabled; they run no MoQ binary. CDN relays, publishers, and
+subscribers stay application containers.
 
 ```text
-node-a -- link-emulator/router -- node-b
+node-a ── rt-1 ── node-b
+          └── [HTB rate → netem → AQM] on rt-1's egress
 ```
 
-The link emulator or router owns the bottleneck queue:
+The router owns the bottleneck queue. That separation is the point: relays
+own application behavior (caching, fan-out, MoQ semantics), routers own
+network behavior (queueing, marking, dropping, forwarding).
 
-```text
-node-a -> router -> [AQM/ECN/L4S queue] -> node-b
+## Addressing and routing
+
+- Each link gets a /24 from `10.20.0.0/16` (`.1` = `from` side, `.2` = `to`
+  side).
+- Each node gets a canonical /32 on `lo` from `10.99.0.0/24`, assigned in
+  declaration order (relays, routers, publishers, subscribers).
+- `/etc/hosts` on every node maps every peer name to its /32, so the
+  generated moqx/pub/sub URLs (`moqt://relay-a:9668/...`) are path-
+  independent.
+- The orchestrator computes BFS next hops over the link graph
+  (`orchestrator/routing.py`, deterministic tie-break via sorted adjacency)
+  and installs one `ip route replace <dst>/32 via <neighbor> dev <iface>
+  src <own /32>` per destination on every node. No routing daemons.
+- The topology schema still never asks the user for an IP address.
+
+Router containers get `net.ipv4.ip_forward=1`, `rp_filter=0`, and
+`send_redirects=0`; endpoints get `accept_redirects=0` so a forwarding hop
+can never teach an endpoint to bypass the emulated path.
+
+## Per-direction shaping
+
+`links:` entries carry `forward:` (from→to) and `reverse:` (to→from) blocks.
+Each block compiles to an egress qdisc chain on the owning interface
+(`orchestrator/shaping.py`), with fixed handles so `tc -s qdisc show` is
+always readable: htb `5:`/class `5:1`, netem `10:`, AQM `20:`.
+
+| Spec | Chain |
+|---|---|
+| netem fields only | root netem |
+| `bandwidth_mbps` only | root htb (explicit `quantum`, no r2q warnings) |
+| rate + netem | htb → netem |
+| rate + `aqm` | htb → AQM |
+| rate + netem + `aqm` | htb → netem → AQM (netem's single child slot) |
+| `aqm` only | root AQM |
+| netem + `aqm` | netem → AQM |
+
+netem gets an explicit large `limit` so its default 1000-packet queue never
+becomes the real bottleneck ahead of the AQM.
+
+`defaults.link.forward` / `defaults.link.reverse` supply per-direction fields
+that every link inherits, so each `links:` entry states only what differs.
+Inheritance is per-field, not per-block: a link setting `bandwidth_mbps` keeps
+an inherited `delay_ms`. Defaults are folded in during config validation, so
+`link.forward` / `link.reverse` are already the effective specs everywhere
+downstream — and an inherited `aqm` is policed by the router-egress rule just
+like a hand-written one.
+
+Three states, not two — `null` is not `0`:
+
+| Link writes | Effective value |
+|---|---|
+| field omitted | inherited from `defaults.link` |
+| `delay_ms: 25` | 25 (overrides default; `0` is a real value, not "unset") |
+| `delay_ms: null` | cleared — no netem at all |
+
+`null` is what a bottleneck link uses to drop inherited delay and keep its
+chain at htb → AQM.
+
+Caveat: in the htb → netem → AQM chain the delay sits upstream of the AQM on
+the same interface. For the cleanest L4S experiments, put propagation delay
+on the endpoint sides of links and the rate+AQM bottleneck on the router
+egress — the shipped examples follow that pattern.
+
+`aqm` (currently `dualpi2`) is only accepted on directions whose egress node
+is a router. This is an iproute2-version constraint, not a philosophical one:
+endpoint images ship distro iproute2, while `Dockerfile.router` builds a
+pinned modern iproute2 whose tc knows dualpi2. The kernel side
+(`sch_dualpi2`) comes from the host kernel; the backend runs `modprobe`
+host-side when a topology uses an AQM, and `moqlab doctor` warns when the
+module is missing.
+
+GSO/TSO/GRO are disabled on every link interface — offloaded superpackets
+would otherwise hit the qdiscs as 64KB units and distort rate limiting, loss,
+and marking granularity.
+
+## Runtime tweaks
+
+Initial qdiscs come from the YAML. To change shaping mid-run, exec into the
+owning container, e.g.:
+
+```bash
+docker exec mn.rt-1 tc qdisc show dev rt-1-eth1
+docker exec mn.rt-1 tc class change dev rt-1-eth1 parent 5: classid 5:1 htb rate 10mbit ceil 10mbit burst 15k quantum 1500
 ```
 
-This separates application behavior from network behavior. CDN relays remain
-application containers, while the network node owns queueing, marking,
-dropping, and forwarding behavior.
+(Or run the same command from the Mininet CLI: `rt-1 tc ...`.)
 
-## Recommended Direction
+## Routing scope
 
-Keep the current switch-based model for baseline Containernet runs and simple
-link shaping. Add a new abstraction when ECN, L4S, AQM, or underlay routing
-becomes a first-class research target.
+Two different meanings of routing in this testbed:
 
-Recommended long-term roles:
+- **Application-level relay routing** (subscriber picks relay-b instead of
+  relay-c): modeled in the relay graph / generated moqx config. Does not
+  involve `routers:`.
+- **Network-level IP routing** (relay-a → rt-1 → rt-2 → relay-b): modeled
+  with `routers:` + `links:` as described above.
 
-- CDN relays, publishers, subscribers: application containers.
-- Link emulator/router nodes: network containers or namespaces that own `tc`
-  qdiscs, ECN marking, L4S configuration, AQM policy, and forwarding behavior.
-- Topology schema: continue to describe logical application edges and shaped
-  links without requiring users to write raw IP addresses.
+## ECN end-to-end
 
-## Routing Scope
-
-There are two different meanings of routing in this testbed:
-
-Application-level relay routing:
-
-```text
-subscriber chooses relay-b instead of relay-c for a namespace or track
-```
-
-This does not require IP routers. It can be modeled in the relay graph and in
-the generated moqx configuration.
-
-Network-level IP routing:
-
-```text
-relay-a -> r1 -> r2 -> relay-b
-```
-
-This requires forwarding nodes, subnets, routes, and clear bottleneck
-placement. It should use the future link-emulator/router abstraction rather
-than the current per-edge switch-only model.
-
-## Design Principles
-
-- Do not expose fixed IP addresses in the user-facing topology schema unless a
-  future requirement proves it is unavoidable.
-- Keep CDN relay behavior and network queue behavior separate.
-- Make bottleneck placement explicit for ECN, L4S, and AQM experiments.
-- Preserve the simple switch-based path for experiments that only need
-  bandwidth, delay, jitter, and loss.
-- Prefer a named link or network abstraction before adding complex scenario
-  actions such as `set_ecn`, `set_l4s`, or AQM policy changes.
-
-## Possible Future Shape
-
-One possible future schema direction:
-
-```yaml
-links:
-  - name: edge-relay-a-relay-b
-    from: relay-a
-    to: relay-b
-    emulator: router
-    bandwidth_mbps: 50
-    delay_ms: 20
-    aqm: dualpi2
-    ecn: true
-    l4s: true
-```
-
-The exact schema should be decided when the first ECN/L4S/AQM scenario is
-implemented. Until then, `links:` should stay simple and continue to represent
-the real topology edges derived from `upstream` and `connects_to`.
+The testbed plumbing (dualpi2 marking CE at the bottleneck) is necessary but
+not sufficient for L4S results: the QUIC transport must send ECT(1) and react
+to CE. Relay-side tunables exist in the moqx config (`src/config/Config.h`,
+L4S section); verifying that the transport actually negotiates and reads ECN
+is a separate workstream from this topology layer.

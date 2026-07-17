@@ -131,6 +131,10 @@ main {
   fill: #d08b2f;
 }
 
+.router circle {
+  fill: #5a8f5d;
+}
+
 #details {
   min-height: 0;
   overflow: auto;

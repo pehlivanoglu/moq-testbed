@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
+from moqlab.exceptions import OrchestratorError
 from moqlab.orchestrator.docker_backend import (
     LABEL_NODE_ID,
     LABEL_ROLE,
@@ -111,3 +114,24 @@ def test_create_network_omits_deprecated_check_duplicate(tmp_path: Path):
     assert network.name == "moqlab_run-test"
     assert client.networks.create_kwargs is not None
     assert "check_duplicate" not in client.networks.create_kwargs
+
+
+def test_up_refuses_topologies_with_routers(tmp_path: Path):
+    config = tmp_path / "topology.yaml"
+    config.write_text(
+        "\n".join(
+            [
+                "topology_mode: explicit",
+                "relays:",
+                "  relay-a: { listen_port: 9668, admin_port: 9669 }",
+                "routers:",
+                "  rt-1: {}",
+                "links:",
+                "  - { from: relay-a, to: rt-1 }",
+            ]
+        )
+    )
+    client = _FakeDockerClient(networks=[], containers=[])
+
+    with pytest.raises(OrchestratorError, match="declares routers"):
+        _backend(client, tmp_path).up(config_path=config)

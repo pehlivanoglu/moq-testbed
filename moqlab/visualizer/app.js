@@ -18,13 +18,23 @@ function formatRate(bps, status) {
   return `${bps.toFixed(0)} bps`;
 }
 
-function shapeText(link) {
+function directionText(spec, arrow) {
+  if (!spec) return null;
   const parts = [];
-  if (link.bandwidth_mbps !== null) parts.push(`${link.bandwidth_mbps} Mbps cap`);
-  if (link.delay_ms !== null) parts.push(`${link.delay_ms} ms`);
-  if (link.jitter_ms !== null) parts.push(`${link.jitter_ms} ms jitter`);
-  if (link.loss_pct !== null) parts.push(`${link.loss_pct}% loss`);
-  return parts.length ? parts.join(", ") : "unshaped";
+  if (spec.bandwidth_mbps != null) parts.push(`${spec.bandwidth_mbps} Mbps cap`);
+  if (spec.delay_ms != null) parts.push(`${spec.delay_ms} ms`);
+  if (spec.jitter_ms != null) parts.push(`${spec.jitter_ms} ms jitter`);
+  if (spec.loss_pct != null) parts.push(`${spec.loss_pct}% loss`);
+  if (spec.aqm != null) parts.push(spec.aqm);
+  return parts.length ? `${arrow} ${parts.join(", ")}` : null;
+}
+
+function shapeText(link) {
+  const parts = [
+    directionText(link.forward, "→"),
+    directionText(link.reverse, "←"),
+  ].filter(Boolean);
+  return parts.length ? parts.join(" | ") : "unshaped";
 }
 
 function layout(nodes) {
@@ -133,7 +143,7 @@ function draw(data) {
   }
 
   const s = data.summary;
-  summary.textContent = `${s.relays} relays, ${s.publishers} publishers, ${s.subscribers} subscribers, ${s.links} links`;
+  summary.textContent = `${s.relays} relays, ${s.routers} routers, ${s.publishers} publishers, ${s.subscribers} subscribers, ${s.links} links`;
   updated.textContent = `Updated ${new Date(data.sampled_at_unix_s * 1000).toLocaleTimeString()}`;
 }
 

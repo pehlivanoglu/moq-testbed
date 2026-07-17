@@ -8,9 +8,11 @@ from moqlab.config.schema import load_topology
 from moqlab.exceptions import OrchestratorError
 from moqlab.runtime import (
     containernet_edge_interfaces,
+    node_loopback_ips,
     relay_depths,
     relay_order,
     topology_edges,
+    topology_image_tags,
     validate_run_id,
 )
 
@@ -66,7 +68,8 @@ def test_topology_edges_dedupes_undirected_edges(tmp_path: Path):
                 "subscribers:",
                 "  sub: { connects_to: relay-a, namespace: moq-date, track: date }",
                 "links:",
-                "  - { from: relay-a, to: pub, delay_ms: 5 }",
+                "  - { from: relay-a, to: pub, forward: { delay_ms: 5 } }",
+                "  - { from: relay-a, to: sub }",
             ]
         )
     )
@@ -76,7 +79,7 @@ def test_topology_edges_dedupes_undirected_edges(tmp_path: Path):
     assert topology_edges(topology) == [("pub", "relay-a"), ("relay-a", "sub")]
 
 
-def test_containernet_edge_interfaces_follow_link_order(tmp_path: Path):
+def _routed_topology(tmp_path: Path):
     config = tmp_path / "topology.yaml"
     config.write_text(
         "\n".join(
@@ -88,17 +91,50 @@ def test_containernet_edge_interfaces_follow_link_order(tmp_path: Path):
                 "  pub: { connects_to: relay-a, namespace: moq-date }",
                 "subscribers:",
                 "  sub: { connects_to: relay-a, namespace: moq-date, track: date }",
+                "routers:",
+                "  rt-1: {}",
+                "links:",
+                "  - { from: pub, to: relay-a }",
+                "  - { from: relay-a, to: rt-1 }",
+                "  - { from: rt-1, to: sub }",
             ]
         )
     )
-    topology = load_topology(config)
+    return load_topology(config)
+
+
+def test_containernet_edge_interfaces_follow_link_declaration_order(tmp_path: Path):
+    topology = _routed_topology(tmp_path)
 
     edges = containernet_edge_interfaces(topology)
 
     assert [(e.a, e.b, e.a_iface, e.b_iface) for e in edges] == [
         ("pub", "relay-a", "pub-eth0", "relay-a-eth0"),
-        ("relay-a", "sub", "relay-a-eth1", "sub-eth0"),
+        ("relay-a", "rt-1", "relay-a-eth1", "rt-1-eth0"),
+        ("rt-1", "sub", "rt-1-eth1", "sub-eth0"),
     ]
+
+
+def test_node_loopback_ips_deterministic_declaration_order(tmp_path: Path):
+    topology = _routed_topology(tmp_path)
+
+    assert node_loopback_ips(topology) == {
+        "relay-a": "10.99.0.1",
+        "rt-1": "10.99.0.2",
+        "pub": "10.99.0.3",
+        "sub": "10.99.0.4",
+    }
+
+
+def test_topology_image_tags_include_router_image(tmp_path: Path):
+    topology = _routed_topology(tmp_path)
+
+    assert topology_image_tags(topology) == {
+        "moqlab-relay",
+        "moqlab-pub",
+        "moqlab-sub",
+        "moqlab-router",
+    }
 
 
 @pytest.mark.parametrize(

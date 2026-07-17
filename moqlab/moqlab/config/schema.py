@@ -1,26 +1,32 @@
 """Pydantic v2 schema for the moqlab topology config.
 
-A topology is a YAML file with four top-level node-bearing blocks (relays,
-publishers, subscribers, optional links) plus inheritable defaults. Every node
-id is unique across the whole topology — it becomes a Docker container name
-and the DNS label other nodes use to reach it.
+A topology is a YAML file with node-bearing blocks (relays, publishers,
+subscribers, routers) plus `links:` physical wiring and inheritable defaults.
+Every node id is unique across the whole topology — it becomes a Docker
+container name and the name other nodes use to reach it.
 
 Schema invariants enforced here:
-  - node ids globally unique across relays/publishers/subscribers
-  - upstream / connects_to references resolve to a known relay
+  - node ids globally unique across relays/publishers/subscribers/routers
+  - upstream / connects_to references resolve to a known relay (never a router)
   - all relay listen_port + admin_port values unique (host-port pool)
   - single upstream per relay, no cycles in the upstream chain
-  - links reference known topology edges, each undirected pair appears at most once
+  - links reference known nodes, each undirected pair appears at most once
+  - when links/routers are declared, every application edge (each
+    upstream / connects_to pair) must have a path through the link graph
+  - per-direction `aqm` only where the egress node is a router (endpoint
+    images ship an iproute2 too old for modern AQMs)
+  - every declared router appears in at least one link
   - generative mode rejected (v1 explicit only)
 
-The `links:` block is read by the Containernet backend (Phase 2) for tc/netem
-shaping. The Docker backend ignores it; that is by design, so the same config
-runs unchanged on either backend.
+`links:` and `routers:` describe physical wiring and are read by the
+Containernet backend only. The Docker backend (flat bridge, no forwarding
+nodes) ignores `links:` and refuses topologies that declare routers.
 """
 
 from __future__ import annotations
 
 import re
+from enum import Enum
 from pathlib import Path
 from typing import Literal
 
@@ -103,10 +109,8 @@ class SubscriberDefaults(_StrictBase):
         return self
 
 
-class Defaults(_StrictBase):
-    relay: RelayDefaults = Field(default_factory=RelayDefaults)
-    publisher: PublisherDefaults = Field(default_factory=PublisherDefaults)
-    subscriber: SubscriberDefaults = Field(default_factory=SubscriberDefaults)
+class RouterDefaults(_StrictBase):
+    image: str = "moqlab-router"
 
 
 class StartupConfig(_StrictBase):
@@ -150,6 +154,12 @@ class PublisherConfig(_StrictBase):
         return self
 
 
+class RouterConfig(_StrictBase):
+    """An IP-forwarding node that owns link queues (AQM/ECN); runs no MoQ binary."""
+
+    image: str | None = None
+
+
 class SubscriberConfig(_StrictBase):
     connects_to: str
     namespace: str
@@ -168,19 +178,79 @@ class SubscriberConfig(_StrictBase):
 # ── links (Containernet-only shaping) ──────────────────────────────────────
 
 
-class LinkSpec(_StrictBase):
-    """One undirected link between two node ids with optional tc/netem shaping.
+class AqmKind(str, Enum):
+    """AQM qdiscs moqlab can synthesize tc commands for (see orchestrator/shaping.py)."""
 
-    Read by the Containernet backend only. The Docker backend silently ignores
-    every link block so the same topology file works on either backend.
-    """
+    dualpi2 = "dualpi2"
 
-    from_: str = Field(alias="from")
-    to: str
+
+class DirectionSpec(_StrictBase):
+    """Shaping for one direction of a link: the egress qdisc chain on one interface."""
+
     bandwidth_mbps: float | None = Field(default=None, gt=0)
     delay_ms: float | None = Field(default=None, ge=0)
     jitter_ms: float | None = Field(default=None, ge=0)
     loss_pct: float | None = Field(default=None, ge=0, le=100)
+    aqm: AqmKind | None = None
+
+    @model_validator(mode="after")
+    def _check_jitter_requires_delay(self) -> "DirectionSpec":
+        if self.jitter_ms is not None and self.delay_ms is None:
+            raise ValueError(
+                "jitter_ms requires delay_ms (netem syntax: delay <ms> <jitter>)"
+            )
+        return self
+
+    def is_noop(self) -> bool:
+        return (
+            self.bandwidth_mbps is None
+            and self.delay_ms is None
+            and self.jitter_ms is None
+            and self.loss_pct is None
+            and self.aqm is None
+        )
+
+    def merged_over(self, base: "DirectionSpec") -> "DirectionSpec":
+        """This spec's explicitly-set fields laid over `base`.
+
+        Per-field, not per-block: a link that sets only `bandwidth_mbps` still
+        inherits `delay_ms` from the default. `model_fields_set` — not a
+        truthiness or None test — decides what "explicitly set" means, so
+        `delay_ms: 0` overrides a nonzero default and an explicit `aqm: null`
+        clears an inherited one.
+        """
+        merged = base.model_dump()
+        merged.update(self.model_dump(include=self.model_fields_set))
+        return DirectionSpec.model_validate(merged)
+
+
+class LinkDefaults(_StrictBase):
+    """Per-direction shaping inherited by every link that does not override it."""
+
+    forward: DirectionSpec = Field(default_factory=DirectionSpec)
+    reverse: DirectionSpec = Field(default_factory=DirectionSpec)
+
+
+class Defaults(_StrictBase):
+    relay: RelayDefaults = Field(default_factory=RelayDefaults)
+    publisher: PublisherDefaults = Field(default_factory=PublisherDefaults)
+    subscriber: SubscriberDefaults = Field(default_factory=SubscriberDefaults)
+    router: RouterDefaults = Field(default_factory=RouterDefaults)
+    link: LinkDefaults = Field(default_factory=LinkDefaults)
+
+
+class LinkSpec(_StrictBase):
+    """One link (veth pair) between two node ids with per-direction shaping.
+
+    `forward` shapes from→to traffic (egress qdisc chain on from's interface);
+    `reverse` shapes to→from traffic (egress qdisc chain on to's interface).
+    Read by the Containernet backend only.
+    """
+
+    from_: str = Field(alias="from")
+    to: str
+    forward: DirectionSpec = Field(default_factory=DirectionSpec)
+    reverse: DirectionSpec = Field(default_factory=DirectionSpec)
 
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
@@ -205,7 +275,23 @@ class TopologyConfig(_StrictBase):
     relays: dict[str, RelayConfig] = Field(default_factory=dict)
     publishers: dict[str, PublisherConfig] = Field(default_factory=dict)
     subscribers: dict[str, SubscriberConfig] = Field(default_factory=dict)
+    routers: dict[str, RouterConfig] = Field(default_factory=dict)
     links: list[LinkSpec] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _resolve_link_defaults(self) -> "TopologyConfig":
+        """Fold `defaults.link` into every link before any other check runs.
+
+        Done here rather than in an accessor so `link.forward` / `link.reverse`
+        are the effective specs for every consumer — the shaping backend, the
+        visualizer, and the aqm-egress rule in `_check` below, which must see a
+        default-supplied aqm to police it. Validators declared with mode="after"
+        run in definition order, so this precedes `_check`.
+        """
+        for link in self.links:
+            link.forward = link.forward.merged_over(self.defaults.link.forward)
+            link.reverse = link.reverse.merged_over(self.defaults.link.reverse)
+        return self
 
     @model_validator(mode="after")
     def _check(self) -> "TopologyConfig":
@@ -219,6 +305,7 @@ class TopologyConfig(_StrictBase):
             ("relay", self.relays),
             ("publisher", self.publishers),
             ("subscriber", self.subscribers),
+            ("router", self.routers),
         ):
             for nid in group:
                 if not _NODE_ID_RE.match(nid):
@@ -278,22 +365,11 @@ class TopologyConfig(_StrictBase):
                     f"subscriber {sid!r} connects_to {s.connects_to!r} is not a known relay"
                 )
 
-        topology_edges: set[tuple[str, str]] = set()
-
-        def _add_topology_edge(a: str, b: str) -> None:
-            topology_edges.add(tuple(sorted([a, b])))  # type: ignore[arg-type]
-
-        for rid, relay in self.relays.items():
-            if relay.upstream is not None:
-                _add_topology_edge(rid, relay.upstream)
-        for pid, publisher in self.publishers.items():
-            _add_topology_edge(pid, publisher.connects_to)
-        for sid, subscriber in self.subscribers.items():
-            _add_topology_edge(sid, subscriber.connects_to)
-
-        # Links: endpoints must be known nodes and real topology edges;
-        # each undirected pair appears once.
+        # Links are the physical wiring: endpoints must exist, each undirected
+        # pair appears once, and `aqm` may only sit on a router's egress
+        # because endpoint images ship an iproute2 too old for modern AQMs.
         seen_links: set[tuple[str, str]] = set()
+        linked_nodes: set[str] = set()
         for link in self.links:
             for endpoint in (link.from_, link.to):
                 if endpoint not in all_nodes:
@@ -305,12 +381,57 @@ class TopologyConfig(_StrictBase):
                 raise ValueError(
                     f"duplicate link between {key[0]!r} and {key[1]!r}"
                 )
-            if key not in topology_edges:
-                raise ValueError(
-                    f"link between {key[0]!r} and {key[1]!r} does not match a "
-                    "topology edge from upstream/connects_to"
-                )
             seen_links.add(key)
+            linked_nodes.update(key)
+            if link.forward.aqm is not None and link.from_ not in self.routers:
+                raise ValueError(
+                    f"link {link.from_!r}->{link.to!r}: forward.aqm requires "
+                    f"the egress node {link.from_!r} to be a router"
+                )
+            if link.reverse.aqm is not None and link.to not in self.routers:
+                raise ValueError(
+                    f"link {link.from_!r}->{link.to!r}: reverse.aqm requires "
+                    f"the egress node {link.to!r} to be a router"
+                )
+
+        for rid in self.routers:
+            if rid not in linked_nodes:
+                raise ValueError(f"router {rid!r} does not appear in any link")
+
+        # Every application edge (upstream / connects_to pair) must be
+        # realizable as a path through the link graph. Skipped when neither
+        # links nor routers are declared: Docker-backend configs need no
+        # wiring, and the Containernet backend separately refuses to run
+        # without links.
+        if self.links or self.routers:
+            app_edges: set[tuple[str, str]] = set()
+            for rid, relay in self.relays.items():
+                if relay.upstream is not None:
+                    app_edges.add(tuple(sorted([rid, relay.upstream])))  # type: ignore[arg-type]
+            for pid, publisher in self.publishers.items():
+                app_edges.add(tuple(sorted([pid, publisher.connects_to])))  # type: ignore[arg-type]
+            for sid, subscriber in self.subscribers.items():
+                app_edges.add(tuple(sorted([sid, subscriber.connects_to])))  # type: ignore[arg-type]
+
+            component: dict[str, str] = {nid: nid for nid in all_nodes}
+
+            def _root(nid: str) -> str:
+                while component[nid] != nid:
+                    component[nid] = component[component[nid]]
+                    nid = component[nid]
+                return nid
+
+            for link in self.links:
+                component[_root(link.from_)] = _root(link.to)
+
+            for a, b in sorted(app_edges):
+                if _root(a) != _root(b):
+                    raise ValueError(
+                        f"no path of links connects {a!r} and {b!r}; this "
+                        "topology declares links/routers, so every "
+                        "upstream/connects_to pair must be reachable through "
+                        "the link graph"
+                    )
 
         return self
 
@@ -355,6 +476,9 @@ class TopologyConfig(_StrictBase):
 
     def subscriber_log_level(self, sid: str) -> str:
         return self.subscribers[sid].log_level or self.defaults.subscriber.log_level
+
+    def router_image(self, rid: str) -> str:
+        return self.routers[rid].image or self.defaults.router.image
 
 
 def load_topology(path: str | Path) -> TopologyConfig:

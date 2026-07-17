@@ -14,7 +14,7 @@ from moqlab.runtime import topology_image_tags
 
 CheckStatus = Literal["ok", "warn", "fail"]
 
-_DEFAULT_IMAGE_TAGS = ("moqlab-relay", "moqlab-pub", "moqlab-sub")
+_DEFAULT_IMAGE_TAGS = ("moqlab-relay", "moqlab-pub", "moqlab-sub", "moqlab-router")
 
 
 @dataclass(frozen=True)
@@ -62,6 +62,7 @@ def doctor_checks(
     if backend.lower() == "containernet":
         checks.append(_containernet_import_check())
         checks.append(_containernet_privilege_check())
+        checks.append(_dualpi2_module_check())
     return checks
 
 
@@ -216,6 +217,35 @@ def _containernet_privilege_check() -> CheckResult:
         "ok",
         "root privileges available",
         category="Backend",
+    )
+
+
+def _dualpi2_module_check() -> CheckResult:
+    """Warn-only: required only when a topology uses `aqm: dualpi2`."""
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ["modinfo", "sch_dualpi2"], capture_output=True, text=True
+        )
+    except OSError as e:
+        return CheckResult(
+            "kernel dualpi2",
+            "warn",
+            _short_error(e),
+            "Could not run modinfo; topologies using `aqm: dualpi2` need sch_dualpi2.",
+            "Backend",
+        )
+    if result.returncode != 0:
+        return CheckResult(
+            "kernel dualpi2",
+            "warn",
+            "sch_dualpi2 kernel module not found",
+            "Topologies using `aqm: dualpi2` need a kernel that ships sch_dualpi2.",
+            "Backend",
+        )
+    return CheckResult(
+        "kernel dualpi2", "ok", "sch_dualpi2 module available", category="Backend"
     )
 
 

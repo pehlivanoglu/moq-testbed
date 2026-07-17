@@ -75,16 +75,29 @@ def topology_edges(topology: TopologyConfig) -> list[tuple[str, str]]:
     return ordered
 
 
+def all_node_ids(topology: TopologyConfig) -> list[str]:
+    """Every node id in declaration order: relays, routers, publishers, subscribers."""
+    return [
+        *topology.relays,
+        *topology.routers,
+        *topology.publishers,
+        *topology.subscribers,
+    ]
+
+
 def containernet_edge_interfaces(
     topology: TopologyConfig,
 ) -> list[ContainernetEdgeInterfaces]:
-    link_counter: dict[str, int] = {
-        **{rid: 0 for rid in topology.relays},
-        **{pid: 0 for pid in topology.publishers},
-        **{sid: 0 for sid in topology.subscribers},
-    }
+    """One veth pair per `links:` entry, in declaration order.
+
+    Direction is preserved (a = link.from_, b = link.to) so callers can map
+    `forward`/`reverse` shaping onto a_iface/b_iface. Interface names follow
+    Containernet's "<node>-eth<N>" scheme, N counting addLink calls per node.
+    """
+    link_counter: dict[str, int] = {nid: 0 for nid in all_node_ids(topology)}
     edges: list[ContainernetEdgeInterfaces] = []
-    for a, b in topology_edges(topology):
+    for link in topology.links:
+        a, b = link.from_, link.to
         a_iface = f"{a}-eth{link_counter[a]}"
         link_counter[a] += 1
         b_iface = f"{b}-eth{link_counter[b]}"
@@ -95,9 +108,28 @@ def containernet_edge_interfaces(
     return edges
 
 
+# Canonical per-node addresses live on lo so they are reachable over any
+# path; /24 pool → at most 254 nodes.
+_LOOPBACK_POOL_PREFIX = "10.99.0."
+
+
+def node_loopback_ips(topology: TopologyConfig) -> dict[str, str]:
+    """Canonical /32 loopback address per node, deterministic by declaration order."""
+    ordered = all_node_ids(topology)
+    if len(ordered) > 254:
+        raise OrchestratorError(
+            f"topology has {len(ordered)} nodes but the loopback pool "
+            f"{_LOOPBACK_POOL_PREFIX}0/24 only provides 254 addresses"
+        )
+    return {
+        nid: f"{_LOOPBACK_POOL_PREFIX}{i}" for i, nid in enumerate(ordered, start=1)
+    }
+
+
 def topology_image_tags(topology: TopologyConfig) -> set[str]:
     return {
         *(topology.relay_image(rid) for rid in topology.relays),
         *(topology.publisher_image(pid) for pid in topology.publishers),
         *(topology.subscriber_image(sid) for sid in topology.subscribers),
+        *(topology.router_image(rid) for rid in topology.routers),
     }

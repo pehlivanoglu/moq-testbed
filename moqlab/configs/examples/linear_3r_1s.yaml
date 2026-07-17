@@ -1,16 +1,19 @@
-# Three-relay linear chain with one publisher and one subscriber.
+# Three-relay linear chain with routers between the relay hops.
 #
-#   pub  ───►  relay-a  ◄───  relay-b  ◄───  relay-c  ◄───  sub
-#                                  (upstream chain)
+#   pub ──► relay-a ── rt-ab ── relay-b ── rt-bc ── relay-c ◄── sub
+#                            (upstream chain)
 #
-# pub publishes the date stream into relay-a; the chain caches/forwards it; sub
-# subscribes to it through relay-c.
+# pub publishes the date stream into relay-a; the chain caches/forwards it;
+# sub subscribes to it through relay-c. rt-ab and rt-bc are IP router
+# containers owning the inter-relay bottleneck queues (50 Mbps HTB + dualpi2
+# L4S AQM on their egress), while propagation delay sits on the endpoint
+# sides of each link.
 #
-# Bring it up on either backend:
-#   moqlab run -c moqlab/configs/examples/linear_3r_1s.yaml --backend docker
+# Bring it up:
 #   moqlab run -c moqlab/configs/examples/linear_3r_1s.yaml --backend containernet
 #
-# The `links:` block is read only by the Containernet backend.
+# `routers:` + `links:` describe physical wiring and are Containernet-only.
+# The Docker backend refuses topologies with routers.
 
 topology_mode: explicit
 
@@ -28,6 +31,8 @@ defaults:
     image: moqlab-sub
     insecure: true
     log_level: INFO
+  router:
+    image: moqlab-router
 
 startup:
   relay_warmup_s: 2.0
@@ -60,9 +65,35 @@ subscribers:
     namespace: moq-date
     track: date
 
-# Optional per-link shaping (Containernet backend only; Docker backend ignores).
+routers:
+  rt-ab: {}
+  rt-bc: {}
+
+# Per-direction shaping: `forward` is the egress qdisc on the `from` side,
+# `reverse` the egress qdisc on the `to` side. `aqm` is only valid where the
+# egress node is a router.
 links:
-  - { from: pub,     to: relay-a, bandwidth_mbps: 100, delay_ms: 5 }
-  - { from: relay-a, to: relay-b, bandwidth_mbps: 50,  delay_ms: 20 }
-  - { from: relay-b, to: relay-c, bandwidth_mbps: 50,  delay_ms: 20 }
-  - { from: relay-c, to: sub,     bandwidth_mbps: 20,  delay_ms: 69 }
+  - from: pub
+    to: relay-a
+    forward: { bandwidth_mbps: 100, delay_ms: 5 }
+    reverse: { delay_ms: 5 }
+  - from: relay-a
+    to: rt-ab
+    forward: { delay_ms: 10 }
+    reverse: { delay_ms: 10 }
+  - from: rt-ab
+    to: relay-b
+    forward: { bandwidth_mbps: 50, aqm: dualpi2 }   # bottleneck a→b
+    reverse: { delay_ms: 10 }
+  - from: relay-b
+    to: rt-bc
+    forward: { delay_ms: 10 }
+    reverse: { delay_ms: 10 }
+  - from: rt-bc
+    to: relay-c
+    forward: { bandwidth_mbps: 50, aqm: dualpi2 }   # bottleneck b→c
+    reverse: { delay_ms: 10 }
+  - from: relay-c
+    to: sub
+    forward: { bandwidth_mbps: 20, delay_ms: 30 }
+    reverse: { delay_ms: 30 }
