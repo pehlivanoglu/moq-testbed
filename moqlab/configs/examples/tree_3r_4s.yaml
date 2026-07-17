@@ -1,19 +1,19 @@
-# Three-relay tree topology with one publisher and four subscribers.
+# Three-relay tree behind one core router, with four subscribers.
 #
-#             ┌───►  r2  ◄───  s1
-#             │           ◄───  s2
-#   pub ───►  r1
-#             │           ◄───  s3
-#             └───►  r3  ◄───  s4
+#                       ┌── relay-2 ◄── sub-1, sub-2
+#   pub ──► relay-1 ── rt-core
+#                       └── relay-3 ◄── sub-3, sub-4
 #
-# pub publishes the date stream into r1; r2 and r3 both use r1 as their
-# upstream relay; subscribers attach to the leaf relays.
+# pub publishes the date stream into relay-1; relay-2 and relay-3 use relay-1
+# as their upstream and reach it through rt-core, a multi-interface IP router
+# container. rt-core owns the fan-out bottlenecks: its egress toward each
+# leaf relay runs a 50 Mbps HTB with a dualpi2 (L4S) AQM.
 #
-# Bring it up on either backend:
-#   moqlab run -c moqlab/configs/examples/tree_3r_4s.yaml --backend docker
+# Bring it up:
 #   moqlab run -c moqlab/configs/examples/tree_3r_4s.yaml --backend containernet
 #
-# The `links:` block is read only by the Containernet backend.
+# `routers:` + `links:` describe physical wiring and are Containernet-only.
+# The Docker backend refuses topologies with routers.
 
 topology_mode: explicit
 
@@ -31,6 +31,14 @@ defaults:
     image: moqlab-sub
     insecure: true
     log_level: INFO
+  router:
+    image: moqlab-router
+  # Every link inherits these per-direction; entries below state only what
+  # differs. Fields merge one at a time, so a link that sets `bandwidth_mbps`
+  # keeps the inherited `delay_ms`.
+  link:
+    forward: { delay_ms: 1 }
+    reverse: { delay_ms: 1 }
 
 startup:
   relay_warmup_s: 2.0
@@ -78,12 +86,46 @@ subscribers:
     namespace: moq-date
     track: date
 
-# Optional per-link shaping (Containernet backend only; Docker backend ignores).
+routers:
+  rt-core: {}
+
+# Per-direction shaping: `forward` is the egress qdisc on the `from` side,
+# `reverse` the egress qdisc on the `to` side. `aqm` is only valid where the
+# egress node is a router. Unstated fields come from `defaults.link` above.
 links:
-  - { from: pub, to: relay-1, bandwidth_mbps: 100, delay_ms: 1 }
-  - { from: relay-1,  to: relay-2, bandwidth_mbps: 50,  delay_ms: 1 }
-  - { from: relay-1,  to: relay-3, bandwidth_mbps: 50,  delay_ms: 1 }
-  - { from: relay-2,  to: sub-1, bandwidth_mbps: 20,  delay_ms: 1 }
-  - { from: relay-2,  to: sub-2, bandwidth_mbps: 20,  delay_ms: 1 }
-  - { from: relay-3,  to: sub-3, bandwidth_mbps: 20,  delay_ms: 1 }
-  - { from: relay-3,  to: sub-4, bandwidth_mbps: 20,  delay_ms: 1 }
+  - from: pub
+    to: relay-1
+    forward: { bandwidth_mbps: 100 }
+
+  - from: relay-1
+    to: rt-core
+
+  # Fan-out bottlenecks. `delay_ms: null` clears the inherited 1ms so the chain
+  # stays htb -> dualpi2 with no netem in between: netem would sit upstream of
+  # the AQM on the same interface, and dualpi2 would measure sojourn times
+  # through the delay line and mark on the wrong signal. Path delay belongs on
+  # the endpoint links. `null` (not 0) is what removes the qdisc — `delay_ms: 0`
+  # is still a delay and would insert `netem delay 0ms`.
+  - from: rt-core
+    to: relay-2
+    forward: { bandwidth_mbps: 50, delay_ms: null, aqm: dualpi2 }
+
+  - from: rt-core
+    to: relay-3
+    forward: { bandwidth_mbps: 50, delay_ms: null, aqm: dualpi2 }
+
+  - from: relay-2
+    to: sub-1
+    forward: { bandwidth_mbps: 20 }
+
+  - from: relay-2
+    to: sub-2
+    forward: { bandwidth_mbps: 20 }
+
+  - from: relay-3
+    to: sub-3
+    forward: { bandwidth_mbps: 20 }
+
+  - from: relay-3
+    to: sub-4
+    forward: { bandwidth_mbps: 20 }

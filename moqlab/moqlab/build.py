@@ -51,6 +51,7 @@ def docker_image_build_commands(root: Path | None = None) -> list[BuildCommand]:
         ("relay image", "moqlab/docker/Dockerfile.relay", "moqlab-relay"),
         ("publisher image", "moqlab/docker/Dockerfile.pub", "moqlab-pub"),
         ("subscriber image", "moqlab/docker/Dockerfile.sub", "moqlab-sub"),
+        ("router image", "moqlab/docker/Dockerfile.router", "moqlab-router"),
     ]
     return [
         BuildCommand(

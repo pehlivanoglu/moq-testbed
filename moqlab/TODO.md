@@ -30,14 +30,17 @@ cut from current versions, not bugs or oversights.
 - [ ] Finish factoring shared launch logic so publisher warmup and
       subscriber launch order live in one place. Relay ordering, topology
       edges, run ids, run dirs, and image tag collection are already shared.
-- [ ] Decide whether Containernet link shaping should be symmetric or
-      direction-aware. The current backend applies shaping to one side of each
-      edge to avoid doubling one-way delay.
-- [ ] Decide when to introduce explicit router/link-emulator nodes for ECN,
-      L4S, AQM, and underlay routing experiments. See `ROUTER.md`.
-- [ ] Decide whether every derived edge must have an explicit `links:` entry
-      for research reproducibility, or whether missing links may keep meaning
-      "unshaped/default".
+- [x] Decide whether Containernet link shaping should be symmetric or
+      direction-aware. Resolved 2026-06-12: links carry per-direction
+      `forward:`/`reverse:` blocks; each compiles to an egress qdisc chain on
+      the owning interface.
+- [x] Decide when to introduce explicit router/link-emulator nodes for ECN,
+      L4S, AQM, and underlay routing experiments. Resolved 2026-06-12:
+      `routers:` are first-class Docker hosts; see `ROUTER.md`.
+- [x] Decide whether every derived edge must have an explicit `links:` entry.
+      Resolved 2026-06-12: `links:` is the physical wiring source of truth on
+      the Containernet backend (which refuses configs without it); the schema
+      verifies every app edge has a path through the link graph.
 - [ ] First integration test under `tests/integration/` gated by
       `MOQLAB_INTEGRATION=1`: bring up `linear_3r_1s.yaml` on the Docker
       backend, assert every container reaches `running`, assert the subscriber
@@ -109,9 +112,10 @@ These become tractable once Phase 4 lands.
 - [ ] Should the future config use named `networks:` blocks instead of the
       current edge-list `links:` shape? Named networks may make scenario files
       much cleaner.
-- [ ] Should ECN/L4S/AQM scenario support require a router/link-emulator
-      backend mode, or can endpoint-side `tc` remain an acceptable fast path?
-      See `ROUTER.md`.
+- [x] Should ECN/L4S/AQM scenario support require a router/link-emulator
+      backend mode? Resolved 2026-06-12: AQMs only attach on router egress
+      (router image carries the modern tc); endpoint-side netem/HTB remains
+      available. See `ROUTER.md`.
 - [ ] Should publisher/subscriber definitions support a generic `flags: [...]`
       escape hatch for moxygen flags we have not first-classed? Useful for
       experiments; risk of becoming a junk drawer.
@@ -158,3 +162,9 @@ These become tractable once Phase 4 lands.
 - 2026-06-03: Wrapped Containernet `TCLink` setup to tune HTB `r2q` and avoid
   issuing invalid handle-zero qdisc deletes while preserving real tc failures
   in the console.
+- 2026-06-12: Replaced per-edge OVS switches + `TCLink` with explicit router
+  containers and direct veth links. Hard-broke the `links:` schema to
+  per-direction `forward:`/`reverse:` shaping with `aqm: dualpi2` support,
+  added per-node /32 loopbacks + static routes, a dedicated `moqlab-router`
+  image (pinned iproute2 build), and pure `shaping.py`/`routing.py` modules.
+  The Docker backend now refuses router topologies.

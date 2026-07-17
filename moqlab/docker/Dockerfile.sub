@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         liblzma5 \
         libstdc++6 \
         ca-certificates \
-        iputils-ping iproute2 \
+        iputils-ping iproute2 ethtool \
     && rm -rf /var/lib/apt/lists/*
 
 COPY .scratch/moxygen-install/bin/moqtextclient /usr/local/bin/moqtextclient

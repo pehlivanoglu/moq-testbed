@@ -1,17 +1,24 @@
 # moqlab — MoQ Multirelay Testbed Orchestrator
 
 `moqlab` takes a single YAML topology and brings it up as a graph of MoQ
-relays, publishers, and subscribers. Two backends share the same config:
+relays, publishers, subscribers, and IP routers. Two backends share the same
+config:
 
-- **`--backend containernet`** (default for `run`) — each node is a
-  Containernet Docker host attached to one or more shaped TCLinks via an OVS
-  bridge per edge. Foreground; drops you into the Mininet CLI shell. Exit to
+- **`--backend containernet`** (default for `run`) — every node (including
+  each router) is its own Containernet Docker host; every `links:` entry is a
+  direct host↔host veth pair (no switches). Routers forward IP and own the
+  link queues: per-direction shaping (HTB rate, netem delay/jitter/loss, and
+  L4S AQMs like `dualpi2`) is applied with explicit tc commands inside the
+  owning container. Foreground; drops you into the Mininet CLI shell. Exit to
   tear down.
 - **`--backend docker`** — each node is a Docker container on a
-  user-defined bridge network. Detached; `moqlab down` to tear down.
+  user-defined bridge network. Detached; `moqlab down` to tear down. Ignores
+  `links:`; refuses topologies that declare routers.
 
-No per-relay YAMLs. No hardcoded IPs. No `localhost`. The orchestrator wires
-everything by container DNS, so the same config runs on either backend.
+No per-relay YAMLs. No hardcoded IPs in configs. No `localhost`. The
+orchestrator wires everything by name (Docker DNS on the docker backend;
+generated `/etc/hosts` + static routes on containernet), so the same
+router-free config runs on either backend.
 
 ## Layout
 
@@ -35,13 +42,15 @@ moqlab/
 │   │   └── synth.py                ← topology → relay YAML + pub/sub argv
 │   └── orchestrator/
 │       ├── docker_backend.py       ← Docker backend
-│       └── containernet_backend.py ← Containernet backend
+│       ├── containernet_backend.py ← Containernet backend
+│       ├── shaping.py              ← DirectionSpec → tc qdisc command chains
+│       └── routing.py              ← BFS next hops → `ip route` commands
 ├── configs/
 │   └── examples/
-│       ├── linear_1r_1s.yaml      ← 1 relay + pub + sub + shaped links
-│       ├── linear_3r_1s.yaml      ← 3 relays + pub + sub + shaped links
-│       └── tree_3r_4s.yaml   ← 3-relay tree + 4 subscribers
-├── docker/                         ← Dockerfiles for the three node images
+│       ├── linear_1r_1s.yaml      ← 1 relay + pub + sub + 1 router (dualpi2 bottleneck)
+│       ├── linear_3r_1s.yaml      ← 3-relay chain with a router between relay hops
+│       └── tree_3r_4s.yaml        ← 3-relay tree behind one core router + 4 subscribers
+├── docker/                         ← Dockerfiles for the four node images
 │   └── README.md
 ├── visualizer/                      ← browser UI assets (HTML, CSS, JS)
 └── tests/unit/                     ← pytest, no Docker required
@@ -94,7 +103,9 @@ cd moqlab
 # missing, this runs the repository setup step first.
 python -m moqlab build moqx
 
-# Builds moqlab-relay, moqlab-pub, and moqlab-sub from the repo root context.
+# Builds moqlab-relay, moqlab-pub, moqlab-sub, and moqlab-router from the
+# repo root context. The router image compiles a pinned modern iproute2 so
+# its tc knows dualpi2; the host's tc version does not matter.
 python -m moqlab build images
 ```
 
@@ -156,24 +167,46 @@ publishers:
 subscribers:
   sub:     { connects_to: relay-c, namespace: moq-date, track: date }
 
-links:                       # Containernet only; Docker backend ignores
-  - { from: pub,     to: relay-a, bandwidth_mbps: 100, delay_ms:  5 }
-  - { from: relay-a, to: relay-b, bandwidth_mbps:  50, delay_ms: 20 }
-  - { from: relay-b, to: relay-c, bandwidth_mbps:  50, delay_ms: 20 }
-  - { from: relay-c, to: sub,     bandwidth_mbps:  20, delay_ms: 69 }
+routers:                     # Containernet only; Docker backend refuses
+  rt-ab: {}                  # image defaults to defaults.router.image (moqlab-router)
+  rt-bc: {}
+
+links:                       # Containernet only; physical wiring + shaping
+  - from: pub
+    to: relay-a
+    forward: { bandwidth_mbps: 100, delay_ms: 5 }   # egress on pub's iface
+    reverse: { delay_ms: 5 }                        # egress on relay-a's iface
+  - from: relay-a
+    to: rt-ab
+    forward: { delay_ms: 10 }
+    reverse: { delay_ms: 10 }
+  - from: rt-ab
+    to: relay-b
+    forward: { bandwidth_mbps: 50, aqm: dualpi2 }   # bottleneck on router egress
+    reverse: { delay_ms: 10 }
+  # ... rt-bc, relay-c, sub follow the same pattern
 ```
+
+Per direction (`forward` = from→to, `reverse` = to→from) you can set
+`bandwidth_mbps` (HTB rate), `delay_ms` / `jitter_ms` / `loss_pct` (netem),
+and `aqm` (currently `dualpi2`). The qdisc chains these compile to are
+documented in [ROUTER.md](ROUTER.md).
 
 Invariants the schema enforces:
 
 | Rule | Why |
 |---|---|
 | `topology_mode == "explicit"` | Generative mode is deferred. |
-| Node ids match `^[a-zA-Z0-9][a-zA-Z0-9_-]{0,62}$` and are globally unique | Used as Docker container name + DNS label. |
-| `upstream` and `connects_to` reference known relays | Catches typos before containers start. |
+| Node ids match `^[a-zA-Z0-9][a-zA-Z0-9_-]{0,62}$` and are globally unique (routers included) | Used as Docker container name + the name other nodes resolve. |
+| `upstream` and `connects_to` reference known relays (never routers) | Catches typos before containers start. |
 | Single upstream per relay, no cycles | v1 supports linear/tree only. |
 | Relay `listen_port` + `admin_port` unique across the topology | Avoids host-port collisions when publishing. |
 | Startup warmups are non-negative seconds | Keeps relay bind and publisher namespace timing config-driven. |
 | Each undirected link appears at most once | Prevents accidental double-shaping. |
+| When `links:`/`routers:` are declared, every `upstream`/`connects_to` pair must have a path through the link graph | A relay that cannot reach its upstream would only fail at run time. |
+| `aqm` only on directions whose egress node is a router | Endpoint images ship an iproute2 too old for modern AQMs; the router image carries its own. |
+| Every declared router appears in at least one link | An unwired router is a config bug. |
+| `jitter_ms` requires `delay_ms` | netem expresses jitter as a variation of delay. |
 | Unknown fields rejected | Surfaces typos as `ConfigError`. |
 
 ## How wiring works
@@ -186,14 +219,20 @@ Invariants the schema enforces:
   `startup.publisher_warmup_s`, then starts subscribers. Each container is
   named after its node id; URLs like `moqt://relay-a:9668/moq-relay` and
   `https://relay-c:9672/moq-relay` resolve via Docker DNS.
-- **Containernet backend**: builds one OVS bridge per topology edge and
-  attaches both endpoints with `TCLink` for shaping. Same DNS-by-name URLs.
-  After `net.start()`, it explicitly launches node binaries in the same
-  config-driven order and drops into `CLI(net)` after the node processes are
-  started. moqlab wraps Mininet's `TCLink` only to make tc setup deterministic:
-  it chooses an HTB `r2q` value that avoids large-quantum warnings for shaped
-  links and skips Mininet's invalid first-time delete when Linux reports a
-  root qdisc with handle `0:`. Other tc failures remain visible.
+- **Containernet backend**: requires explicit `links:` wiring. Each link is
+  one direct host↔host veth pair with its own /24 out of `10.20.0.0/16`
+  (.1 = `from` side, .2 = `to` side); no switches, no controller. Every node
+  also gets a canonical /32 on `lo` out of `10.99.0.0/24`; `/etc/hosts` on
+  every node maps all peer names to those /32s, and the backend installs
+  static /32 routes (BFS over the link graph) so the same name-based URLs
+  work across any number of router hops. Routers are plain Docker hosts with
+  `net.ipv4.ip_forward=1` (plus `rp_filter=0` and ICMP-redirect suppression)
+  that run no MoQ binary. After `net.start()` the backend assigns loopbacks,
+  disables NIC offloads on link interfaces (GSO/TSO/GRO would distort
+  shaping), installs routes, applies the per-direction tc chains from
+  `orchestrator/shaping.py` inside each owning container, sanity-pings every
+  application edge, then launches node binaries in the same config-driven
+  order and drops into `CLI(net)`.
 
 State of truth for the Docker backend is Docker labels
 (`moqlab.run_id=<id>`); `ls` / `down` re-derive from there, so deleting the
@@ -209,7 +248,7 @@ needs the four runtime deps installed (see "Running it").
 |---|---|---|
 | `python -m moqlab doctor [-c <config>] [--backend docker\|containernet]` | both | Check Python deps, Docker, required images, Containernet importability, privileges, and optional config readiness. |
 | `python -m moqlab build moqx` | n/a | Build moqx and prepare moxygen binaries used by images. |
-| `python -m moqlab build images` | n/a | Build `moqlab-relay`, `moqlab-pub`, and `moqlab-sub`. |
+| `python -m moqlab build images` | n/a | Build `moqlab-relay`, `moqlab-pub`, `moqlab-sub`, and `moqlab-router`. |
 | `python -m moqlab validate -c <config>` | both | Parse + validate, no side effects. |
 | `python -m moqlab run -c <config> [--backend docker\|containernet] [--run-id N] [--publish-ports] [--vis\|--visualize]` | both | Run topology. Defaults to `containernet`. With `--visualize`, also serves `http://127.0.0.1:8765/` showing a pannable/zoomable topology graph and link rates. Live per-link throughput is available for Containernet runs, where every topology edge has its own interface. Docker-backend runs still render the correct topology, but Docker's single bridge interface is not split per topology link. |
 | `python -m moqlab down --run-id <name>` | docker | Stop and remove containers + network. |
@@ -232,11 +271,13 @@ suite lives and which directory is the import root; the `moqlab/` package on
 that root is picked up automatically without any install step.
 
 Coverage: schema validation (uniqueness, upstream resolution, cycles, port
-collisions, link dedup, mode gating, log-level validation), relay YAML
-synthesis (DNS URLs, override inheritance, multi-relay file emission),
-publisher and subscriber argv synthesis (flag composition, optional flags,
-endpoint propagation), build command planning, cleanup helpers, startup warmup
-validation, and Containernet process launch order.
+collisions, link dedup, link-graph reachability, router/aqm placement rules,
+mode gating, log-level validation), tc qdisc chain synthesis, static-route
+computation, relay YAML synthesis (DNS URLs, override inheritance,
+multi-relay file emission), publisher and subscriber argv synthesis (flag
+composition, optional flags, endpoint propagation), build command planning,
+cleanup helpers, startup warmup validation, and Containernet build/configure/
+launch behavior (router sysctls, addressing, command ordering).
 
 Integration tests (require Docker + Containernet) are deferred — see
 [TODO.md](TODO.md).

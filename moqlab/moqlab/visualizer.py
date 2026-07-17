@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from collections import deque
 from dataclasses import dataclass
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -10,7 +11,7 @@ from pathlib import Path
 from typing import Callable
 from urllib.parse import urlparse
 
-from moqlab.config.schema import TopologyConfig, load_topology
+from moqlab.config.schema import DirectionSpec, TopologyConfig, load_topology
 from moqlab.runtime import (
     containernet_edge_interfaces,
     relay_depths,
@@ -43,9 +44,46 @@ class _EdgeCounterSample:
 CounterReader = Callable[[str, str], InterfaceCounters | None]
 
 
+def _direction_payload(spec: DirectionSpec) -> dict[str, object]:
+    return {
+        "bandwidth_mbps": spec.bandwidth_mbps,
+        "delay_ms": spec.delay_ms,
+        "jitter_ms": spec.jitter_ms,
+        "loss_pct": spec.loss_pct,
+        "aqm": spec.aqm.value if spec.aqm is not None else None,
+    }
+
+
+def _link_graph_levels(topology: TopologyConfig) -> dict[str, int]:
+    """BFS hop counts over the link graph, rooted at publishers (or relays).
+
+    Used to place routers and routed endpoints in left-to-right columns; nodes
+    in a disconnected component default to level 0.
+    """
+    adjacency: dict[str, set[str]] = {}
+    for link in topology.links:
+        adjacency.setdefault(link.from_, set()).add(link.to)
+        adjacency.setdefault(link.to, set()).add(link.from_)
+
+    sources = sorted(topology.publishers) or sorted(topology.relays)
+    levels = {nid: 0 for nid in sources}
+    queue = deque(sources)
+    while queue:
+        cur = queue.popleft()
+        for neighbor in sorted(adjacency.get(cur, ())):
+            if neighbor not in levels:
+                levels[neighbor] = levels[cur] + 1
+                queue.append(neighbor)
+    return levels
+
+
 def topology_snapshot(topology: TopologyConfig) -> dict[str, object]:
     nodes: list[dict[str, object]] = []
     depths = relay_depths(topology)
+    link_levels = _link_graph_levels(topology) if topology.links else {}
+
+    def _level(nid: str, fallback: int) -> int:
+        return link_levels.get(nid, fallback)
 
     for rid in relay_order(topology):
         relay = topology.relays[rid]
@@ -53,10 +91,18 @@ def topology_snapshot(topology: TopologyConfig) -> dict[str, object]:
             {
                 "id": rid,
                 "role": "relay",
-                "level": depths[rid] + 1,
+                "level": _level(rid, depths[rid] + 1),
                 "listen_port": relay.listen_port,
                 "admin_port": relay.admin_port,
                 "upstream": relay.upstream,
+            }
+        )
+    for rid in topology.routers:
+        nodes.append(
+            {
+                "id": rid,
+                "role": "router",
+                "level": _level(rid, 1),
             }
         )
     for pid, publisher in topology.publishers.items():
@@ -64,7 +110,7 @@ def topology_snapshot(topology: TopologyConfig) -> dict[str, object]:
             {
                 "id": pid,
                 "role": "publisher",
-                "level": depths[publisher.connects_to],
+                "level": _level(pid, depths[publisher.connects_to]),
                 "connects_to": publisher.connects_to,
                 "namespace": publisher.namespace,
             }
@@ -74,7 +120,7 @@ def topology_snapshot(topology: TopologyConfig) -> dict[str, object]:
             {
                 "id": sid,
                 "role": "subscriber",
-                "level": depths[subscriber.connects_to] + 2,
+                "level": _level(sid, depths[subscriber.connects_to] + 2),
                 "connects_to": subscriber.connects_to,
                 "namespace": subscriber.namespace,
                 "track": subscriber.track,
@@ -86,25 +132,37 @@ def topology_snapshot(topology: TopologyConfig) -> dict[str, object]:
         node["level"] = int(node["level"]) - min_level
 
     links: list[dict[str, object]] = []
-    for a, b in topology_edges(topology):
-        spec = topology.link_for(a, b)
-        links.append(
-            {
-                "id": f"{a}--{b}",
-                "source": a,
-                "target": b,
-                "bandwidth_mbps": spec.bandwidth_mbps if spec else None,
-                "delay_ms": spec.delay_ms if spec else None,
-                "jitter_ms": spec.jitter_ms if spec else None,
-                "loss_pct": spec.loss_pct if spec else None,
-            }
-        )
+    if topology.links:
+        for link in topology.links:
+            links.append(
+                {
+                    "id": f"{link.from_}--{link.to}",
+                    "source": link.from_,
+                    "target": link.to,
+                    "forward": _direction_payload(link.forward),
+                    "reverse": _direction_payload(link.reverse),
+                }
+            )
+    else:
+        # No physical wiring declared (Docker backend): show the application
+        # edges so the graph still renders.
+        for a, b in topology_edges(topology):
+            links.append(
+                {
+                    "id": f"{a}--{b}",
+                    "source": a,
+                    "target": b,
+                    "forward": None,
+                    "reverse": None,
+                }
+            )
 
     return {
         "nodes": nodes,
         "links": links,
         "summary": {
             "relays": len(topology.relays),
+            "routers": len(topology.routers),
             "publishers": len(topology.publishers),
             "subscribers": len(topology.subscribers),
             "links": len(links),

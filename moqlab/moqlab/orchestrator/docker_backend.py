@@ -14,7 +14,9 @@ synthesized relay YAMLs (mounted into the relay containers). It can be deleted
 without stranding containers — `ls`/`down` re-derive state from labels.
 
 The Docker backend silently ignores the `links:` block (no per-link shaping in
-plain Docker). Use the Containernet backend for tc/netem shaping.
+plain Docker) and refuses topologies that declare routers: flattening a
+topology whose bottlenecks live on router nodes would run fine but measure
+nothing. Use the Containernet backend for shaping and routed paths.
 """
 
 from __future__ import annotations
@@ -81,6 +83,13 @@ class DockerBackend:
         readiness_timeout_s: float = 10.0,
     ) -> RunRecord:
         topology = load_topology(config_path)
+        if topology.routers:
+            raise OrchestratorError(
+                "topology declares routers; the docker backend is a flat "
+                "bridge with no shaping or forwarding nodes, so running it "
+                "would silently drop the declared bottlenecks — use "
+                "`--backend containernet`, or remove the routers"
+            )
         run_id = run_id or default_run_id()
         validate_run_id(run_id)
 

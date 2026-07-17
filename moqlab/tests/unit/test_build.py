@@ -91,6 +91,15 @@ def test_docker_image_build_commands_use_repo_root_context(tmp_path: Path):
             "moqlab-sub",
             ".",
         ],
+        [
+            "docker",
+            "build",
+            "-f",
+            "moqlab/docker/Dockerfile.router",
+            "-t",
+            "moqlab-router",
+            ".",
+        ],
     ]
     assert all(command.cwd == root for command in commands)
 

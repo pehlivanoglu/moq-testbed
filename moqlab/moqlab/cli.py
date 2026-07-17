@@ -174,6 +174,7 @@ def validate(config: Path) -> None:
     click.echo(f"OK: {config}")
     click.echo(
         f"  relays={len(topology.relays)} "
+        f"routers={len(topology.routers)} "
         f"publishers={len(topology.publishers)} "
         f"subscribers={len(topology.subscribers)} "
         f"links={len(topology.links)}"
@@ -184,6 +185,8 @@ def validate(config: Path) -> None:
             f"  relay      {rid:14}  listen={r.listen_port}  "
             f"admin={r.admin_port}  upstream={up}"
         )
+    for rid in topology.routers:
+        click.echo(f"  router     {rid:14}  image={topology.router_image(rid)}")
     for pid, p in topology.publishers.items():
         click.echo(f"  publisher  {pid:14}  -> {p.connects_to}  ns={p.namespace}")
     for sid, s in topology.subscribers.items():
