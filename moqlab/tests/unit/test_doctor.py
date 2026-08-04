@@ -59,6 +59,64 @@ def test_doctor_docker_backend_skips_containernet_checks(monkeypatch: pytest.Mon
     assert "kernel dualpi2" not in {check.name for check in checks}
 
 
+def test_doctor_checks_media_toolchain_for_media_topology(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    config = tmp_path / "media.yaml"
+    config.write_text(
+        """\
+defaults:
+  relay:
+    tls: {insecure: false, generated: true}
+relays:
+  relay-a: {listen_port: 9668, admin_port: 9669}
+publishers:
+  pub:
+    kind: media
+    connects_to: relay-a
+    asset: testsvc
+    listen_port: 4443
+    fingerprint_port: 8081
+subscribers:
+  sub:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+"""
+    )
+    monkeypatch.setattr(
+        doctor, "_docker_daemon_check", lambda: CheckResult("docker daemon", "ok", "mocked")
+    )
+    monkeypatch.setattr(
+        doctor,
+        "_docker_images_check",
+        lambda image_tags: CheckResult("docker images", "ok", "mocked"),
+    )
+    monkeypatch.setattr(
+        doctor, "_openssl_check", lambda: CheckResult("openssl", "ok", "mocked")
+    )
+    monkeypatch.setattr(
+        doctor, "_buildkit_check", lambda: CheckResult("buildkit", "ok", "mocked")
+    )
+    monkeypatch.setattr(
+        doctor,
+        "_media_context_checks",
+        lambda root: [CheckResult("media contexts", "ok", str(root))],
+    )
+
+    checks = doctor_checks(
+        root=tmp_path,
+        config_path=config,
+        backend="docker",
+        include_build_artifacts=False,
+    )
+
+    assert {"openssl", "buildkit", "media contexts"} <= {
+        check.name for check in checks
+    }
+
+
 def test_doctor_containernet_backend_includes_dualpi2_check(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(doctor, "_docker_daemon_check", lambda: CheckResult("docker daemon", "ok", "mocked"))
     monkeypatch.setattr(doctor, "_docker_images_check", lambda image_tags: CheckResult("docker images", "ok", "mocked"))

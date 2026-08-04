@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from moqlab.exceptions import OrchestratorError
+from moqlab.config.schema import TopologyConfig
 from moqlab.orchestrator.docker_backend import (
     LABEL_NODE_ID,
     LABEL_ROLE,
@@ -135,3 +136,67 @@ def test_up_refuses_topologies_with_routers(tmp_path: Path):
 
     with pytest.raises(OrchestratorError, match="declares routers"):
         _backend(client, tmp_path).up(config_path=config)
+
+
+def test_headed_media_subscriber_maps_novnc_port():
+    topology = TopologyConfig.model_validate(
+        {
+            "defaults": {"relay": {"tls": {"insecure": False, "generated": True}}},
+            "relays": {"root": {"listen_port": 9668, "admin_port": 9669}},
+            "publishers": {
+                "pub": {
+                    "kind": "media", "connects_to": "root", "asset": "testsvc",
+                    "listen_port": 4443, "fingerprint_port": 8081,
+                }
+            },
+            "subscribers": {
+                "sub": {
+                    "kind": "media", "connects_to": "root", "namespace": "msf/clear",
+                    "track": "video/s2", "browser_mode": "headed", "ui_port": 7901,
+                }
+            },
+        }
+    )
+    backend = DockerBackend.__new__(DockerBackend)
+    captured = {}
+    backend._run_container = lambda **kwargs: captured.update(kwargs) or "container"
+
+    result = backend._run_subscriber(topology, "sub", _FakeNetwork("n", "n", "r"), {}, True)
+
+    assert result == "container"
+    assert captured["image"] == "moqlab-media-sub"
+    assert captured["ports"] == {"7900/tcp": 7901}
+    assert "--video-track=video/s2" in captured["command"]
+
+
+def test_x11_media_subscriber_mounts_host_display(monkeypatch):
+    topology = TopologyConfig.model_validate(
+        {
+            "defaults": {"relay": {"tls": {"insecure": False, "generated": True}}},
+            "relays": {"root": {"listen_port": 9668, "admin_port": 9669}},
+            "publishers": {
+                "pub": {
+                    "kind": "media", "connects_to": "root", "asset": "testsvc",
+                    "listen_port": 4443, "fingerprint_port": 8081,
+                }
+            },
+            "subscribers": {
+                "sub": {
+                    "kind": "media", "connects_to": "root", "namespace": "msf/clear",
+                    "track": "video/s2", "browser_mode": "x11",
+                }
+            },
+        }
+    )
+    monkeypatch.setenv("DISPLAY", ":7")
+    backend = DockerBackend.__new__(DockerBackend)
+    captured = {}
+    backend._run_container = lambda **kwargs: captured.update(kwargs) or "container"
+
+    backend._run_subscriber(topology, "sub", _FakeNetwork("n", "n", "r"), {}, False)
+
+    assert captured["environment"] == {"DISPLAY": ":7"}
+    assert captured["volumes"] == {
+        "/tmp/.X11-unix": {"bind": "/tmp/.X11-unix", "mode": "rw"}
+    }
+    assert captured["ports"] is None

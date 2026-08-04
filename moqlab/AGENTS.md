@@ -38,13 +38,14 @@ ergonomics. This is research infrastructure, not a demo script.
 
 - **Schema** (`moqlab/config/schema.py`) - Pydantic v2 topology model:
   `defaults`, `startup`, `relays`, `publishers`, `subscribers`, `routers`,
-  and `links` (per-direction `forward`/`reverse` shaping incl. `aqm`). It is
+  and `links` (per-direction `forward`/`reverse` shaping incl. `aqm`). Text
+  nodes remain the default; media nodes model `mlmpub` and Chromium WARP
+  Player playback. It is
   strict (`extra="forbid"`) and validates node ids, relay references, port
   collisions, cycles, duplicate links, link-graph reachability of every
   app edge, aqm-on-router-egress, and orphan routers.
 - **Synthesis** (`moqlab/config/synth.py`) - turns topology config into
-  per-relay moqx YAML files and argv lists for `moqdateserver` and
-  `moqtextclient`.
+  per-relay moqx YAML files and argv lists for text or media binaries.
 - **Docker backend** (`moqlab/orchestrator/docker_backend.py`) - creates one
   bridge network and one detached container per node. Docker labels are the
   state of truth.
@@ -69,7 +70,10 @@ ergonomics. This is research infrastructure, not a demo script.
   Containernet launch ordering plus visualizer snapshot/rate helpers. They do
   not require Docker, Containernet, or root.
 
-Not implemented yet: multiple upstreams per relay, generative topologies,
+Media support is clear LOC AV1 spatial-SVC only: one origin per relay tree,
+configured namespace/track, headless, noVNC, or direct-X11 Chromium, and strict
+decoded frame readiness. Not implemented yet: ABR, temporal SVC, DRM/audio selection,
+multiple upstreams per relay, generative topologies,
 scenario runner, observability, JSONL collector, Prometheus/Grafana, QLOG
 archive, TLS CA per run, full `experiments/run_*/` archive layout, replay,
 and analysis helpers. Track all of these in [TODO.md](TODO.md).
@@ -196,7 +200,7 @@ Implemented invariants:
 - Unknown fields are rejected.
 
 Future target config work may introduce named `networks`, relay `upstreams`,
-browser subscribers, scenarios, and generative topology mode. Do not start
+scenarios, and generative topology mode. Do not start
 that migration without discussion. See [ROUTER.md](ROUTER.md) for the
 implemented router/shaping design.
 
@@ -278,8 +282,8 @@ Containernet specifics that matter in this repo:
 - Build preparation is separate from running topologies:
   `python -m moqlab build moqx` prepares binaries and
   `python -m moqlab build images` builds local node images.
-- Images must not contain secrets. TLS material will eventually be injected at
-  runtime from the run directory.
+- Images must not contain secrets. Generated media TLS is injected at runtime
+  from the run directory and shared only by that run's relays/origin.
 - Image defaults are local-development defaults; topology config can override
   image names per role or per node.
 - Future production-style Dockerfiles should pin base images by full digest
@@ -336,8 +340,7 @@ Required invariants:
   Containernet, root, or network access.
 - Do not import `docker`, `mininet`, or `containernet` at test-module import
   time unless the test is explicitly gated as integration-only.
-- Integration tests are deferred. When added, put them under
-  `tests/integration/` and gate them with an environment variable such as
+- Integration tests live under `tests/integration/` and are gated with
   `MOQLAB_INTEGRATION=1`.
 
 ## When To Ask First

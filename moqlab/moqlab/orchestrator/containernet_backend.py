@@ -27,12 +27,14 @@ from __future__ import annotations
 
 import ipaddress
 import logging
+import os
 import shutil
 import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from moqlab.certs import TLS_MOUNT, generate_run_tls
 from moqlab.config.schema import TopologyConfig, load_topology
 from moqlab.config.synth import (
     synthesize_publisher_command,
@@ -63,6 +65,8 @@ _RELAY_BINARY = "/usr/local/bin/moqx"
 _RELAY_CONFIG_PATH = "/etc/moqx/relay.yaml"
 _PUB_BINARY = "/usr/local/bin/moqdateserver"
 _SUB_BINARY = "/usr/local/bin/moqtextclient"
+_MEDIA_PUB_BINARY = "/usr/local/bin/mlmpub"
+_MEDIA_SUB_BINARY = "/usr/local/bin/moqlab-media-sub"
 
 # We carve one /24 out of this /16 per topology link. Avoid Containernet's
 # default 10.0.0.0/8 pool so our explicit subnets don't collide with anything
@@ -169,6 +173,7 @@ class ContainernetBackend:
             )
         run_dir.mkdir(parents=True)
         shutil.copyfile(config_path, run_dir / "topology.yaml")
+        generate_run_tls(topology, run_dir)
         relay_yaml_paths = synthesize_relay_configs(topology, run_dir / "configs")
 
         # Containernet names every Docker host `mn.<id>`. Stale copies from a
@@ -255,10 +260,13 @@ class ContainernetBackend:
 
         for rid in relay_order(topology):
             cfg = relay_yaml_paths[rid].resolve()
+            volumes = [f"{cfg}:/etc/moqx/relay.yaml:ro"]
+            if topology.relay_tls(rid).generated:
+                volumes.append(f"{(record.run_dir / 'tls').resolve()}:{TLS_MOUNT}:ro")
             nodes[rid] = net.addDocker(
                 rid,
                 dimage=topology.relay_image(rid),
-                volumes=[f"{cfg}:/etc/moqx/relay.yaml:ro"],
+                volumes=volumes,
                 sysctls=dict(_ENDPOINT_SYSCTLS),
             )
             record.relays.append(rid)
@@ -277,18 +285,41 @@ class ContainernetBackend:
         # spawn the binary explicitly in `_launch_node_binaries` after
         # net.start(). Routers intentionally run nothing.
         for pid in topology.publishers:
+            volumes = []
+            if topology.publishers[pid].kind == "media":
+                volumes.append(f"{(record.run_dir / 'tls').resolve()}:{TLS_MOUNT}:ro")
             nodes[pid] = net.addDocker(
                 pid,
                 dimage=topology.publisher_image(pid),
+                volumes=volumes,
                 sysctls=dict(_ENDPOINT_SYSCTLS),
             )
             record.publishers.append(pid)
 
         for sid in topology.subscribers:
+            subscriber = topology.subscribers[sid]
+            port_kwargs = {}
+            if subscriber.kind == "media" and subscriber.browser_mode == "headed":
+                port_kwargs = {
+                    "ports": [7900],
+                    "port_bindings": {7900: subscriber.ui_port},
+                }
+            if subscriber.kind == "media" and subscriber.browser_mode == "x11":
+                display = os.environ.get("DISPLAY")
+                if not display:
+                    raise OrchestratorError(
+                        "x11 media subscriber requires DISPLAY; run sudo with "
+                        "`--preserve-env=DISPLAY`"
+                    )
+                port_kwargs = {
+                    "volumes": ["/tmp/.X11-unix:/tmp/.X11-unix:rw"],
+                    "environment": {"DISPLAY": display},
+                }
             nodes[sid] = net.addDocker(
                 sid,
                 dimage=topology.subscriber_image(sid),
                 sysctls=dict(_ENDPOINT_SYSCTLS),
+                **port_kwargs,
             )
             record.subscribers.append(sid)
 
@@ -387,7 +418,7 @@ class ContainernetBackend:
             out = net.get(src).cmd(f"ping -c1 -W2 {record.loopback_ips[dst]}")
             if "not found" in out:
                 _log.warning("%s has no ping binary; skipping sanity pings", src)
-                return
+                continue
             if " 0% packet loss" not in out:
                 _log.warning("sanity ping %s -> %s failed:\n%s", src, dst, out)
 
@@ -411,8 +442,26 @@ class ContainernetBackend:
         stdout/stderr go to `/tmp/<node>.log` inside each container; tail
         from the Mininet CLI with `<node> tail -f /tmp/<node>.log`.
         """
-        # Order relays so origins (no upstream) boot first, mirroring how the
-        # Docker backend does it.
+        media_publishers = [
+            pid for pid in record.publishers if topology.publishers[pid].kind == "media"
+        ]
+        text_publishers = [
+            pid for pid in record.publishers if topology.publishers[pid].kind == "text"
+        ]
+
+        for pid in media_publishers:
+            argv = synthesize_publisher_command(topology, pid)
+            cmd_line = " ".join([_MEDIA_PUB_BINARY] + _shell_quote_argv(argv))
+            info(f"*** launching media publisher {pid}: {cmd_line}\n")
+            net.get(pid).cmd(f"{cmd_line} > /tmp/{pid}.log 2>&1 &")
+
+        if media_publishers:
+            _sleep_if_configured(
+                topology.startup.publisher_warmup_s,
+                "for media origins to bind listeners",
+                info,
+            )
+
         for rid in relay_order(topology):
             cmd_line = f"{_RELAY_BINARY} --config {_RELAY_CONFIG_PATH}"
             info(f"*** launching relay {rid}: {cmd_line}\n")
@@ -424,13 +473,13 @@ class ContainernetBackend:
             info,
         )
 
-        for pid in record.publishers:
+        for pid in text_publishers:
             argv = synthesize_publisher_command(topology, pid)
             cmd_line = " ".join([_PUB_BINARY] + _shell_quote_argv(argv))
             info(f"*** launching publisher {pid}: {cmd_line}\n")
             net.get(pid).cmd(f"{cmd_line} > /tmp/{pid}.log 2>&1 &")
 
-        if record.publishers and record.subscribers:
+        if text_publishers and record.subscribers:
             _sleep_if_configured(
                 topology.startup.publisher_warmup_s,
                 "for publishers to announce namespaces",
@@ -439,9 +488,20 @@ class ContainernetBackend:
 
         for sid in record.subscribers:
             argv = synthesize_subscriber_command(topology, sid)
-            cmd_line = " ".join([_SUB_BINARY] + _shell_quote_argv(argv))
+            binary = (
+                _MEDIA_SUB_BINARY
+                if topology.subscribers[sid].kind == "media"
+                else _SUB_BINARY
+            )
+            cmd_line = " ".join([binary] + _shell_quote_argv(argv))
             info(f"*** launching subscriber {sid}: {cmd_line}\n")
             net.get(sid).cmd(f"{cmd_line} > /tmp/{sid}.log 2>&1 &")
+
+        for sid in record.subscribers:
+            if topology.subscribers[sid].kind == "media":
+                _await_containernet_media_ready(
+                    net.get(sid), sid, topology.startup.media_ready_timeout_s, info
+                )
 
 
 def _shell_quote_argv(argv: list[str]) -> list[str]:
@@ -456,6 +516,49 @@ def _sleep_if_configured(seconds: float, reason: str, info) -> None:
         return
     info(f"*** waiting {seconds:g}s {reason}\n")
     time.sleep(seconds)
+
+
+def _await_containernet_media_ready(node, node_id: str, timeout_s: float, info) -> None:
+    info(f"*** waiting up to {timeout_s:g}s for media subscriber {node_id}\n")
+    # Runner owns configured deadline. Give it time to persist failure JSON.
+    deadline = time.monotonic() + timeout_s + 2
+    while time.monotonic() < deadline:
+        ready = node.cmd(
+            "test -f /tmp/moqlab-media-ready.json && echo __MOQLAB_READY__"
+        )
+        if "__MOQLAB_READY__" in ready:
+            return
+        failed = node.cmd(
+            "test -f /tmp/moqlab-media-failure.json && echo __MOQLAB_FAILED__"
+        )
+        if "__MOQLAB_FAILED__" in failed:
+            detail = node.cmd("cat /tmp/moqlab-media-failure.json").strip()
+            raise OrchestratorError(
+                f"media subscriber {node_id!r} failed readiness: {detail}\n"
+                f"{_containernet_media_logs(node, node_id)}"
+            )
+        time.sleep(0.25)
+    raise OrchestratorError(
+        f"media subscriber {node_id!r} was not ready within {timeout_s:g}s\n"
+        f"{_containernet_media_logs(node, node_id)}"
+    )
+
+
+def _containernet_media_logs(node, node_id: str) -> str:
+    sections = []
+    for path in (
+        f"/tmp/{node_id}.log",
+        "/tmp/chromium.log",
+        "/tmp/x11vnc.log",
+        "/tmp/novnc.log",
+    ):
+        output = node.cmd(f"tail -n 80 {path} 2>/dev/null").strip()
+        if output:
+            sections.append(f"{path}:\n{output}")
+    network = node.cmd("ip -brief address; ip route; ps -ef").strip()
+    if network:
+        sections.append(f"network/process state:\n{network}")
+    return "\n".join(sections) or "subscriber produced no diagnostic logs"
 
 
 def _modprobe_aqm_modules(topology: TopologyConfig) -> None:

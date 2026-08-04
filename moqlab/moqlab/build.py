@@ -63,6 +63,57 @@ def docker_image_build_commands(root: Path | None = None) -> list[BuildCommand]:
     ]
 
 
+def media_image_build_commands(
+    root: Path | None = None,
+    publisher_context: Path | None = None,
+    player_context: Path | None = None,
+) -> list[BuildCommand]:
+    """Plan media images using dirty local sibling repositories as contexts."""
+    root = root or repo_root()
+    publisher_context = publisher_context or root.parent / "moqlivemock-svc"
+    player_context = player_context or root.parent / "warp-player-svc"
+    for label, context, marker in (
+        ("publisher", publisher_context, "go.mod"),
+        ("player", player_context, "package.json"),
+    ):
+        if not context.is_dir() or not (context / marker).is_file():
+            raise OrchestratorError(
+                f"media {label} source context is invalid: {context} (missing {marker})"
+            )
+    return [
+        BuildCommand(
+            label="build media publisher image",
+            argv=[
+                "docker",
+                "build",
+                "--build-context",
+                f"mlmpub={publisher_context.resolve()}",
+                "-f",
+                "moqlab/docker/Dockerfile.media-pub",
+                "-t",
+                "moqlab-media-pub",
+                ".",
+            ],
+            cwd=root,
+        ),
+        BuildCommand(
+            label="build media subscriber image",
+            argv=[
+                "docker",
+                "build",
+                "--build-context",
+                f"player={player_context.resolve()}",
+                "-f",
+                "moqlab/docker/Dockerfile.media-sub",
+                "-t",
+                "moqlab-media-sub",
+                ".",
+            ],
+            cwd=root,
+        ),
+    ]
+
+
 def run_build_command(command: BuildCommand) -> None:
     try:
         subprocess.run(command.argv, cwd=command.cwd, check=True)

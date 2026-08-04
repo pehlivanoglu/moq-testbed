@@ -10,6 +10,7 @@ import click
 
 from moqlab.build import (
     docker_image_build_commands,
+    media_image_build_commands,
     moqx_build_commands,
     run_build_command,
 )
@@ -77,6 +78,38 @@ def build_moqx() -> None:
 def build_images() -> None:
     try:
         commands = docker_image_build_commands()
+        for command in commands:
+            click.echo(f"==> {command.label}")
+            click.echo(f"    {' '.join(command.argv)}")
+            run_build_command(command)
+    except MoqlabError as e:
+        raise click.ClickException(str(e)) from e
+
+
+@build.command(
+    "media-images",
+    help="Build AV1-SVC publisher/player images from local source repositories.",
+)
+@click.option(
+    "--publisher-context",
+    type=click.Path(file_okay=False, path_type=Path),
+    envvar="MOQLAB_MEDIA_PUBLISHER_CONTEXT",
+    default=None,
+)
+@click.option(
+    "--player-context",
+    type=click.Path(file_okay=False, path_type=Path),
+    envvar="MOQLAB_MEDIA_PLAYER_CONTEXT",
+    default=None,
+)
+def build_media_images(
+    publisher_context: Path | None, player_context: Path | None
+) -> None:
+    try:
+        commands = media_image_build_commands(
+            publisher_context=publisher_context,
+            player_context=player_context,
+        )
         for command in commands:
             click.echo(f"==> {command.label}")
             click.echo(f"    {' '.join(command.argv)}")
@@ -188,9 +221,13 @@ def validate(config: Path) -> None:
     for rid in topology.routers:
         click.echo(f"  router     {rid:14}  image={topology.router_image(rid)}")
     for pid, p in topology.publishers.items():
-        click.echo(f"  publisher  {pid:14}  -> {p.connects_to}  ns={p.namespace}")
+        detail = f"asset={p.asset}" if p.kind == "media" else f"ns={p.namespace}"
+        click.echo(f"  publisher  {pid:14}  -> {p.connects_to}  kind={p.kind}  {detail}")
     for sid, s in topology.subscribers.items():
-        click.echo(f"  subscriber {sid:14}  -> {s.connects_to}  ns={s.namespace}  track={s.track}")
+        click.echo(
+            f"  subscriber {sid:14}  -> {s.connects_to}  kind={s.kind}  "
+            f"ns={s.namespace}  track={s.track}"
+        )
 
 
 def _run_options(default_backend: str):

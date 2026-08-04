@@ -20,6 +20,11 @@ orchestrator wires everything by name (Docker DNS on the docker backend;
 generated `/etc/hosts` + static routes on containernet), so the same
 router-free config runs on either backend.
 
+Publisher/subscriber nodes default to the existing text tools. `kind: media`
+selects `mlmpub` and a Chromium-driven WARP Player for clear LOC AV1 spatial
+SVC. Readiness requires the configured resolution, non-black pixels, and
+changing decoded frame hashes.
+
 ## Layout
 
 ```
@@ -107,6 +112,9 @@ python -m moqlab build moqx
 # repo root context. The router image compiles a pinned modern iproute2 so
 # its tc knows dualpi2; the host's tc version does not matter.
 python -m moqlab build images
+
+# Builds mlmpub and WARP Player images from dirty local sibling repos.
+python -m moqlab build media-images
 ```
 
 ## Quick start
@@ -209,15 +217,78 @@ Invariants the schema enforces:
 | `jitter_ms` requires `delay_ms` | netem expresses jitter as a variation of delay. |
 | Unknown fields rejected | Surfaces typos as `ConfigError`. |
 
+### AV1-SVC media nodes
+
+See [`media_svc_headless.yaml`](configs/examples/media_svc_headless.yaml),
+[`media_svc_headed_3r.yaml`](configs/examples/media_svc_headed_3r.yaml), and
+[`media_svc_x11.yaml`](configs/examples/media_svc_x11.yaml). Media
+topologies generate one ECDSA P-256 certificate per run and mount it into all
+relays plus the media origin. The root relay pulls `mlmpub`; Chromium trusts
+the same certificate through the publisher's `/fingerprint` endpoint.
+Relay-to-relay hops remain encrypted but currently use insecure upstream
+verification because moqx does not yet implement `upstream.tls.ca_cert`.
+
+```yaml
+defaults:
+  relay:
+    tls: { insecure: false, generated: true }
+  publisher: { media_image: moqlab-media-pub }
+  subscriber: { media_image: moqlab-media-sub }
+
+startup:
+  media_ready_timeout_s: 30
+
+publishers:
+  pub:
+    kind: media
+    connects_to: relay-a
+    asset: testsvc
+    listen_port: 4443
+    fingerprint_port: 8081
+
+subscribers:
+  sub:
+    kind: media
+    connects_to: relay-c
+    namespace: msf/clear
+    track: video/s2
+    browser_mode: headless
+    minimal_buffer_ms: 200
+    target_latency_ms: 300
+```
+
+`browser_mode: headed` requires a unique `ui_port`. Docker also requires
+`--publish-ports`. The visualizer links headed nodes to
+`http://127.0.0.1:<ui_port>/vnc.html`; autoplay remains active while noVNC
+permits manual `s0/s1/s2` changes.
+
+`browser_mode: x11` opens Chromium directly on host X display. It forbids
+`ui_port`; backend mounts `/tmp/.X11-unix` and forwards `DISPLAY`. Grant only
+root local-display access, preserve `DISPLAY` through sudo, then revoke access:
+
+```bash
+xhost +SI:localuser:root
+sudo --preserve-env=DISPLAY ../../../containernet/venv/bin/python3 -m moqlab run \
+  -c configs/examples/media_svc_x11.yaml --backend containernet --visualize
+xhost -SI:localuser:root
+```
+
+Current scope is clear LOC AV1 spatial-only SVC, one temporal layer, manual
+quality selection, and one media origin per relay tree. Namespace selection
+comes from YAML because current relays do not replay earlier announcements.
+The automation runner uses the player's catalog-subscription mode; it does not
+depend on a joining `FETCH` being proxied by the relay.
+There is no ABR, DRM, audio selection, or temporal SVC.
+
 ## How wiring works
 
 `moqlab run` synthesizes one moqx YAML per relay into
 `<runs_dir>/<run_id>/configs/<relay>.yaml`, then:
 
-- **Docker backend**: creates bridge network `moqlab_<run_id>`. Starts relays
-  upstream-first, waits `startup.relay_warmup_s`, starts publishers, waits
-  `startup.publisher_warmup_s`, then starts subscribers. Each container is
-  named after its node id; URLs like `moqt://relay-a:9668/moq-relay` and
+- **Docker backend**: creates bridge network `moqlab_<run_id>`. Starts media
+  origins first, relays root-first, text publishers, then subscribers. The
+  configured warmups separate those phases. Each container is named after its
+  node id; URLs like `moqt://relay-a:9668/moq-relay` and
   `https://relay-c:9672/moq-relay` resolve via Docker DNS.
 - **Containernet backend**: requires explicit `links:` wiring. Each link is
   one direct host↔host veth pair with its own /24 out of `10.20.0.0/16`
@@ -249,6 +320,7 @@ needs the four runtime deps installed (see "Running it").
 | `python -m moqlab doctor [-c <config>] [--backend docker\|containernet]` | both | Check Python deps, Docker, required images, Containernet importability, privileges, and optional config readiness. |
 | `python -m moqlab build moqx` | n/a | Build moqx and prepare moxygen binaries used by images. |
 | `python -m moqlab build images` | n/a | Build `moqlab-relay`, `moqlab-pub`, `moqlab-sub`, and `moqlab-router`. |
+| `python -m moqlab build media-images [--publisher-context PATH] [--player-context PATH]` | n/a | Build `moqlab-media-pub` and `moqlab-media-sub` from local contexts. Environment equivalents: `MOQLAB_MEDIA_PUBLISHER_CONTEXT` and `MOQLAB_MEDIA_PLAYER_CONTEXT`. |
 | `python -m moqlab validate -c <config>` | both | Parse + validate, no side effects. |
 | `python -m moqlab run -c <config> [--backend docker\|containernet] [--run-id N] [--publish-ports] [--vis\|--visualize]` | both | Run topology. Defaults to `containernet`. With `--visualize`, also serves `http://127.0.0.1:8765/` showing a pannable/zoomable topology graph and link rates. Live per-link throughput is available for Containernet runs, where every topology edge has its own interface. Docker-backend runs still render the correct topology, but Docker's single bridge interface is not split per topology link. |
 | `python -m moqlab down --run-id <name>` | docker | Stop and remove containers + network. |
@@ -279,5 +351,8 @@ composition, optional flags, endpoint propagation), build command planning,
 cleanup helpers, startup warmup validation, and Containernet build/configure/
 launch behavior (router sysctls, addressing, command ordering).
 
-Integration tests (require Docker + Containernet) are deferred — see
-[TODO.md](TODO.md).
+The media Docker acceptance is gated and expects prebuilt media images:
+
+```bash
+MOQLAB_INTEGRATION=1 .venv/bin/python -m pytest -q tests/integration/test_media_svc.py
+```

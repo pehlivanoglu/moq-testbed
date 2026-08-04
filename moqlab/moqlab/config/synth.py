@@ -17,6 +17,7 @@ from typing import Any
 
 import yaml
 
+from moqlab.certs import TLS_CERT, TLS_KEY
 from moqlab.config.schema import (
     CacheConfig,
     TlsConfig,
@@ -26,7 +27,10 @@ from moqlab.config.schema import (
 
 def _tls_to_yaml(tls: TlsConfig) -> dict[str, Any]:
     out: dict[str, Any] = {"insecure": tls.insecure}
-    if tls.cert_file:
+    if tls.generated:
+        out["cert_file"] = TLS_CERT
+        out["key_file"] = TLS_KEY
+    elif tls.cert_file:
         out["cert_file"] = tls.cert_file
     if tls.key_file:
         out["key_file"] = tls.key_file
@@ -57,17 +61,37 @@ def synthesize_relay_yaml(topology: TopologyConfig, relay_id: str) -> dict[str, 
     cache = topology.relay_cache(relay_id)
 
     service: dict[str, Any] = {
-        "match": [{"authority": {"any": True}, "path": {"prefix": "/"}}],
+        "match": [{"authority": {"any": True}, "path": {"exact": endpoint}}],
         "cache": _cache_to_yaml(cache),
     }
 
-    if r.upstream is not None:
+    media_origin = next(
+        (
+            (pid, publisher)
+            for pid, publisher in topology.publishers.items()
+            if publisher.kind == "media" and publisher.connects_to == relay_id
+        ),
+        None,
+    )
+    if media_origin is not None:
+        pid, publisher = media_origin
+        service["upstream"] = {
+            "url": f"moqt://{pid}:{publisher.listen_port}/moq",
+            "tls": {"insecure": True},
+        }
+    elif r.upstream is not None:
         u_endpoint = topology.relay_endpoint(r.upstream)
         u_tls = topology.relay_tls(r.upstream)
         u_port = topology.relays[r.upstream].listen_port
+        upstream_tls = _tls_to_yaml(u_tls)
+        if u_tls.generated:
+            # moqx currently ignores upstream.tls.ca_cert. Keep the hop
+            # encrypted, but disable upstream verification for generated
+            # self-signed run certificates.
+            upstream_tls = {"insecure": True}
         service["upstream"] = {
             "url": f"moqt://{r.upstream}:{u_port}{u_endpoint}",
-            "tls": _tls_to_yaml(u_tls),
+            "tls": upstream_tls,
         }
 
     return {
@@ -128,6 +152,16 @@ def synthesize_publisher_command(
         raise KeyError(f"unknown publisher id: {publisher_id}")
     p = topology.publishers[publisher_id]
 
+    if p.kind == "media":
+        return [
+            "-addr", f"0.0.0.0:{p.listen_port}",
+            "-asset", f"/opt/moqlivemock/assets/{p.asset}",
+            "-cert", TLS_CERT,
+            "-key", TLS_KEY,
+            "-sideport", str(p.fingerprint_port),
+            "-qlog", f"/tmp/{publisher_id}.qlog",
+        ]
+
     argv = [
         f"--ns={p.namespace}",
         f"--relay_url={_relay_client_url(topology, p.connects_to)}",
@@ -147,6 +181,21 @@ def synthesize_subscriber_command(
     if subscriber_id not in topology.subscribers:
         raise KeyError(f"unknown subscriber id: {subscriber_id}")
     s = topology.subscribers[subscriber_id]
+
+    if s.kind == "media":
+        media_publisher = topology.media_publisher_for_relay(s.connects_to)
+        return [
+            f"--server-url={_relay_client_url(topology, s.connects_to)}",
+            "--fingerprint-url="
+            f"http://{media_publisher[0]}:"
+            f"{media_publisher[1].fingerprint_port}/fingerprint",
+            f"--namespace={s.namespace}",
+            f"--video-track={s.track}",
+            f"--browser-mode={s.browser_mode}",
+            f"--minimal-buffer-ms={s.minimal_buffer_ms}",
+            f"--target-latency-ms={s.target_latency_ms}",
+            f"--ready-timeout-s={topology.startup.media_ready_timeout_s:g}",
+        ]
 
     argv = [
         f"--connect_url={_relay_client_url(topology, s.connects_to)}",

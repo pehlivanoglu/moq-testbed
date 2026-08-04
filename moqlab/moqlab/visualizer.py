@@ -112,7 +112,9 @@ def topology_snapshot(topology: TopologyConfig) -> dict[str, object]:
                 "role": "publisher",
                 "level": _level(pid, depths[publisher.connects_to]),
                 "connects_to": publisher.connects_to,
+                "kind": publisher.kind,
                 "namespace": publisher.namespace,
+                "asset": publisher.asset,
             }
         )
     for sid, subscriber in topology.subscribers.items():
@@ -122,8 +124,15 @@ def topology_snapshot(topology: TopologyConfig) -> dict[str, object]:
                 "role": "subscriber",
                 "level": _level(sid, depths[subscriber.connects_to] + 2),
                 "connects_to": subscriber.connects_to,
+                "kind": subscriber.kind,
                 "namespace": subscriber.namespace,
                 "track": subscriber.track,
+                "browser_mode": subscriber.browser_mode,
+                "ui_url": (
+                    f"http://127.0.0.1:{subscriber.ui_port}/vnc.html"
+                    if subscriber.kind == "media" and subscriber.browser_mode == "headed"
+                    else None
+                ),
             }
         )
 

@@ -148,6 +148,117 @@ def test_subscriber_must_target_known_relay():
         TopologyConfig.model_validate(raw)
 
 
+def _media_topology(**subscriber_overrides) -> dict:
+    subscriber = {
+        "kind": "media",
+        "connects_to": "relay-b",
+        "namespace": "msf/clear",
+        "track": "video/s2",
+        **subscriber_overrides,
+    }
+    return {
+        "defaults": {"relay": {"tls": {"insecure": False, "generated": True}}},
+        "relays": _minimal_relays(),
+        "publishers": {
+            "pub": {
+                "kind": "media",
+                "connects_to": "relay-a",
+                "asset": "testsvc",
+                "listen_port": 4443,
+                "fingerprint_port": 8081,
+            }
+        },
+        "subscribers": {"sub": subscriber},
+    }
+
+
+def test_media_defaults_and_images_validate():
+    topology = TopologyConfig.model_validate(_media_topology())
+    assert topology.publishers["pub"].kind == "media"
+    assert topology.publisher_image("pub") == "moqlab-media-pub"
+    assert topology.subscribers["sub"].browser_mode == "headless"
+    assert topology.subscriber_image("sub") == "moqlab-media-sub"
+    assert topology.startup.media_ready_timeout_s == 30
+
+
+@pytest.mark.parametrize("asset", ["../testsvc", "a/b", "bad asset", ""])
+def test_media_publisher_rejects_unsafe_asset(asset):
+    raw = _media_topology()
+    raw["publishers"]["pub"]["asset"] = asset
+    with pytest.raises(Exception, match="safe file name"):
+        TopologyConfig.model_validate(raw)
+
+
+def test_media_requires_generated_tls_on_every_relay():
+    raw = _media_topology()
+    raw["relays"]["relay-b"]["tls"] = {"insecure": True}
+    with pytest.raises(Exception, match="generated TLS"):
+        TopologyConfig.model_validate(raw)
+
+
+def test_media_publisher_must_attach_to_root():
+    raw = _media_topology()
+    raw["publishers"]["pub"]["connects_to"] = "relay-b"
+    with pytest.raises(Exception, match="root relay"):
+        TopologyConfig.model_validate(raw)
+
+
+def test_media_allows_only_one_origin_per_relay_tree():
+    raw = _media_topology()
+    raw["publishers"]["pub2"] = {
+        "kind": "media",
+        "connects_to": "relay-a",
+        "asset": "testsvc",
+        "listen_port": 4444,
+        "fingerprint_port": 8082,
+    }
+    with pytest.raises(Exception, match="one media publisher"):
+        TopologyConfig.model_validate(raw)
+
+
+def test_media_subscriber_must_share_origin_tree():
+    raw = _media_topology()
+    raw["relays"]["isolated"] = {
+        "listen_port": 9672,
+        "admin_port": 9673,
+        "tls": {"insecure": False, "generated": True},
+    }
+    raw["subscribers"]["sub"]["connects_to"] = "isolated"
+    with pytest.raises(Exception, match="publisher tree"):
+        TopologyConfig.model_validate(raw)
+
+
+def test_headed_media_requires_ui_port_and_headless_forbids_it():
+    with pytest.raises(Exception, match="requires ui_port"):
+        TopologyConfig.model_validate(_media_topology(browser_mode="headed"))
+    with pytest.raises(Exception, match="forbids ui_port"):
+        TopologyConfig.model_validate(_media_topology(ui_port=7900))
+
+
+def test_x11_media_forbids_ui_port():
+    topology = TopologyConfig.model_validate(_media_topology(browser_mode="x11"))
+    assert topology.subscribers["sub"].browser_mode == "x11"
+    with pytest.raises(Exception, match="x11 media subscriber forbids ui_port"):
+        TopologyConfig.model_validate(_media_topology(browser_mode="x11", ui_port=7900))
+
+
+def test_headed_media_ui_ports_must_be_unique():
+    raw = _media_topology(browser_mode="headed", ui_port=7900)
+    raw["subscribers"]["sub2"] = {
+        **raw["subscribers"]["sub"],
+        "connects_to": "relay-a",
+    }
+    with pytest.raises(Exception, match="ui_port values must be unique"):
+        TopologyConfig.model_validate(raw)
+
+
+def test_media_buffer_target_must_exceed_minimum():
+    with pytest.raises(Exception, match="must exceed"):
+        TopologyConfig.model_validate(
+            _media_topology(minimal_buffer_ms=300, target_latency_ms=300)
+        )
+
+
 # ── links ──────────────────────────────────────────────────────────────────
 
 
