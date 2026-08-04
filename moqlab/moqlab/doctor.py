@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import shutil
+import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -58,6 +60,13 @@ def doctor_checks(
             checks.append(CheckResult("config", "ok", str(config_path), category="Topology"))
 
     checks.append(_docker_images_check(_image_tags(topology)))
+
+    if topology is not None and _has_media(topology):
+        checks.extend([
+            _openssl_check(),
+            _buildkit_check(),
+            *_media_context_checks(root),
+        ])
 
     if backend.lower() == "containernet":
         checks.append(_containernet_import_check())
@@ -180,11 +189,17 @@ def _docker_images_check(image_tags: set[str]) -> CheckResult:
             "required images are present",
             category="Build",
         )
+    media_missing = any(tag.startswith("moqlab-media-") for tag in missing)
     return CheckResult(
         "docker images",
         "fail",
         "missing " + ", ".join(missing),
-        "Run `python -m moqlab build images`.",
+        (
+            "Run `python -m moqlab build media-images` and "
+            "`python -m moqlab build images`."
+            if media_missing
+            else "Run `python -m moqlab build images`."
+        ),
         "Build",
     )
 
@@ -253,6 +268,78 @@ def _image_tags(topology: TopologyConfig | None) -> set[str]:
     if topology is None:
         return set(_DEFAULT_IMAGE_TAGS)
     return topology_image_tags(topology)
+
+
+def _has_media(topology: TopologyConfig) -> bool:
+    return any(p.kind == "media" for p in topology.publishers.values()) or any(
+        s.kind == "media" for s in topology.subscribers.values()
+    )
+
+
+def _openssl_check() -> CheckResult:
+    path = shutil.which("openssl")
+    if path:
+        return CheckResult("openssl", "ok", path, category="Media")
+    return CheckResult(
+        "openssl", "fail", "not found", "Install OpenSSL for per-run certificates.", "Media"
+    )
+
+
+def _buildkit_check() -> CheckResult:
+    try:
+        result = subprocess.run(
+            ["docker", "buildx", "version"], capture_output=True, text=True
+        )
+    except OSError as e:
+        return CheckResult(
+            "buildkit", "fail", _short_error(e), "Install Docker Buildx.", "Media"
+        )
+    if result.returncode == 0:
+        return CheckResult("buildkit", "ok", "Docker Buildx available", category="Media")
+    return CheckResult(
+        "buildkit",
+        "fail",
+        (result.stderr or result.stdout).strip()[:240],
+        "Enable BuildKit / install Docker Buildx.",
+        "Media",
+    )
+
+
+def _media_context_checks(root: Path) -> list[CheckResult]:
+    contexts = (
+        (
+            "media publisher source",
+            Path(
+                os.getenv(
+                    "MOQLAB_MEDIA_PUBLISHER_CONTEXT",
+                    root.parent / "moqlivemock-svc",
+                )
+            ),
+            "go.mod",
+        ),
+        (
+            "media player source",
+            Path(
+                os.getenv(
+                    "MOQLAB_MEDIA_PLAYER_CONTEXT",
+                    root.parent / "warp-player-svc",
+                )
+            ),
+            "package.json",
+        ),
+    )
+    return [
+        CheckResult(name, "ok", str(path), category="Media")
+        if (path / marker).is_file()
+        else CheckResult(
+            name,
+            "fail",
+            f"invalid context {path}",
+            f"Set the matching MOQLAB_MEDIA_*_CONTEXT variable; expected {marker}.",
+            "Media",
+        )
+        for name, path, marker in contexts
+    ]
 
 
 def _short_error(error: Exception) -> str:

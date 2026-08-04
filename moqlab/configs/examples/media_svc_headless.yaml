@@ -1,0 +1,33 @@
+topology_mode: explicit
+
+defaults:
+  relay:
+    tls: { insecure: false, generated: true }
+
+startup:
+  media_ready_timeout_s: 30
+
+relays:
+  relay-a: { listen_port: 9668, admin_port: 9669 }
+
+publishers:
+  pub:
+    kind: media
+    connects_to: relay-a
+    asset: testsvc
+    listen_port: 4443
+    fingerprint_port: 8081
+
+subscribers:
+  sub:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+    browser_mode: headless
+    minimal_buffer_ms: 200
+    target_latency_ms: 300
+
+links:
+  - { from: pub, to: relay-a }
+  - { from: relay-a, to: sub }

@@ -6,7 +6,11 @@ from pathlib import Path
 
 import pytest
 
-from moqlab.build import docker_image_build_commands, moqx_build_commands
+from moqlab.build import (
+    docker_image_build_commands,
+    media_image_build_commands,
+    moqx_build_commands,
+)
 from moqlab.exceptions import OrchestratorError
 
 
@@ -109,3 +113,22 @@ def test_docker_image_build_requires_binary_artifacts(tmp_path: Path):
 
     with pytest.raises(OrchestratorError, match="build moqx"):
         docker_image_build_commands(root)
+
+
+def test_media_image_build_uses_named_local_contexts(tmp_path: Path):
+    root = tmp_path / "moq-testbed"
+    publisher = tmp_path / "publisher"
+    player = tmp_path / "player"
+    _write_file(publisher / "go.mod")
+    _write_file(player / "package.json")
+
+    commands = media_image_build_commands(root, publisher, player)
+
+    assert commands[0].argv[2:4] == ["--build-context", f"mlmpub={publisher.resolve()}"]
+    assert "moqlab/docker/Dockerfile.media-pub" in commands[0].argv
+    assert commands[1].argv[2:4] == ["--build-context", f"player={player.resolve()}"]
+
+
+def test_media_image_build_rejects_missing_context(tmp_path: Path):
+    with pytest.raises(OrchestratorError, match="publisher source context"):
+        media_image_build_commands(tmp_path, tmp_path / "missing", tmp_path / "also-missing")

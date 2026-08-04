@@ -17,6 +17,7 @@ from moqlab.exceptions import OrchestratorError
 from moqlab.orchestrator.containernet_backend import (
     ContainernetBackend,
     ContainernetRunRecord,
+    _await_containernet_media_ready,
     _write_etc_hosts_via_docker,
 )
 from moqlab.runtime import node_loopback_ips
@@ -29,6 +30,13 @@ class _FakeNode:
 
     def cmd(self, command: str) -> str:
         self._calls.append((self.node_id, command))
+        return ""
+
+
+class _ReadyNode:
+    def cmd(self, command: str) -> str:
+        if "__MOQLAB_READY__" in command:
+            return "background PTY output\r\n__MOQLAB_READY__\r\n"
         return ""
 
 
@@ -109,6 +117,10 @@ def _record_for(topology: TopologyConfig) -> ContainernetRunRecord:
     return record
 
 
+def test_media_readiness_accepts_marker_amid_pty_output():
+    _await_containernet_media_ready(_ReadyNode(), "sub", 0, lambda _: None)
+
+
 def test_launches_relays_before_pub_sub(monkeypatch):
     topology = _topology()
     fake_net = _FakeNet(["relay-a", "relay-b", "relay-c", "pub", "sub"])
@@ -136,6 +148,82 @@ def test_launches_relays_before_pub_sub(monkeypatch):
     )
     assert fake_net.calls[3][1].startswith("/usr/local/bin/moqdateserver")
     assert fake_net.calls[4][1].startswith("/usr/local/bin/moqtextclient")
+
+
+def test_launches_media_origin_before_relays_and_browser(monkeypatch):
+    topology = TopologyConfig.model_validate(
+        {
+            "defaults": {"relay": {"tls": {"insecure": False, "generated": True}}},
+            "startup": {"relay_warmup_s": 0, "publisher_warmup_s": 0},
+            "relays": {"root": {"listen_port": 9668, "admin_port": 9669}},
+            "publishers": {
+                "pub": {
+                    "kind": "media", "connects_to": "root", "asset": "testsvc",
+                    "listen_port": 4443, "fingerprint_port": 8081,
+                }
+            },
+            "subscribers": {
+                "sub": {
+                    "kind": "media", "connects_to": "root", "namespace": "msf/clear",
+                    "track": "video/s2",
+                }
+            },
+        }
+    )
+    net = _FakeNet(["pub", "root", "sub"])
+    record = ContainernetRunRecord(
+        run_id="run-test", run_dir=Path("/tmp/run-test"),
+        relays=["root"], publishers=["pub"], subscribers=["sub"],
+    )
+    ready = []
+    monkeypatch.setattr(
+        "moqlab.orchestrator.containernet_backend._await_containernet_media_ready",
+        lambda _node, node_id, _timeout, _info: ready.append(node_id),
+    )
+
+    ContainernetBackend._launch_node_binaries(net, topology, record, lambda _: None)
+
+    assert [node for node, _ in net.calls] == ["pub", "root", "sub"]
+    assert net.calls[0][1].startswith("/usr/local/bin/mlmpub")
+    assert net.calls[2][1].startswith("/usr/local/bin/moqlab-media-sub")
+    assert ready == ["sub"]
+
+
+def test_x11_media_subscriber_mounts_host_display(monkeypatch):
+    topology = TopologyConfig.model_validate(
+        {
+            "defaults": {"relay": {"tls": {"insecure": False, "generated": True}}},
+            "relays": {"root": {"listen_port": 9668, "admin_port": 9669}},
+            "publishers": {
+                "pub": {
+                    "kind": "media", "connects_to": "root", "asset": "testsvc",
+                    "listen_port": 4443, "fingerprint_port": 8081,
+                }
+            },
+            "subscribers": {
+                "sub": {
+                    "kind": "media", "connects_to": "root", "namespace": "msf/clear",
+                    "track": "video/s2", "browser_mode": "x11",
+                }
+            },
+            "links": [
+                {"from": "pub", "to": "root"},
+                {"from": "root", "to": "sub"},
+            ],
+        }
+    )
+    monkeypatch.setenv("DISPLAY", ":7")
+    net = _FakeBuildNet()
+    record = ContainernetRunRecord(run_id="run-test", run_dir=Path("/tmp/run-test"))
+
+    ContainernetBackend()._build(
+        net, topology, {"root": Path("/tmp/root.yaml")}, record, lambda _: None
+    )
+
+    assert net.docker_nodes["sub"]["environment"] == {"DISPLAY": ":7"}
+    assert net.docker_nodes["sub"]["volumes"] == [
+        "/tmp/.X11-unix:/tmp/.X11-unix:rw"
+    ]
 
 
 def test_up_refuses_topology_without_links(tmp_path):

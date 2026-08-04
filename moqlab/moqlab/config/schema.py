@@ -39,6 +39,7 @@ _NODE_ID_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,62}$")
 _MIN_PORT = 1024
 _MAX_PORT = 65535
 _VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR"}
+_SAFE_ASSET_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$")
 
 
 class _StrictBase(BaseModel):
@@ -52,13 +53,19 @@ class _StrictBase(BaseModel):
 
 class TlsConfig(_StrictBase):
     insecure: bool = True
+    generated: bool = False
     cert_file: str | None = None
     key_file: str | None = None
     ca_cert: str | None = None
 
     @model_validator(mode="after")
     def _check_cert_pair(self) -> "TlsConfig":
-        if not self.insecure and not (self.cert_file and self.key_file):
+        if self.generated:
+            if self.insecure:
+                raise ValueError("tls.generated=true requires insecure=false")
+            if self.cert_file or self.key_file:
+                raise ValueError("generated TLS cannot set cert_file or key_file")
+        elif not self.insecure and not (self.cert_file and self.key_file):
             raise ValueError("tls.insecure=false requires cert_file and key_file")
         return self
 
@@ -87,6 +94,7 @@ class RelayDefaults(_StrictBase):
 
 class PublisherDefaults(_StrictBase):
     image: str = "moqlab-pub"
+    media_image: str = "moqlab-media-pub"
     insecure: bool = True
     log_level: str = "INFO"
 
@@ -99,6 +107,7 @@ class PublisherDefaults(_StrictBase):
 
 class SubscriberDefaults(_StrictBase):
     image: str = "moqlab-sub"
+    media_image: str = "moqlab-media-sub"
     insecure: bool = True
     log_level: str = "INFO"
 
@@ -116,6 +125,7 @@ class RouterDefaults(_StrictBase):
 class StartupConfig(_StrictBase):
     relay_warmup_s: float = Field(default=2.0, ge=0)
     publisher_warmup_s: float = Field(default=1.0, ge=0)
+    media_ready_timeout_s: float = Field(default=30.0, gt=0)
 
 
 # ── nodes ──────────────────────────────────────────────────────────────────
@@ -140,9 +150,13 @@ class RelayConfig(_StrictBase):
 
 
 class PublisherConfig(_StrictBase):
+    kind: Literal["text", "media"] = "text"
     connects_to: str
-    namespace: str
+    namespace: str | None = None
     port: int | None = Field(default=None, ge=_MIN_PORT, le=_MAX_PORT)
+    asset: str | None = None
+    listen_port: int | None = Field(default=None, ge=_MIN_PORT, le=_MAX_PORT)
+    fingerprint_port: int | None = Field(default=None, ge=_MIN_PORT, le=_MAX_PORT)
     image: str | None = None
     insecure: bool | None = None
     log_level: str | None = None
@@ -151,6 +165,24 @@ class PublisherConfig(_StrictBase):
     def _check(self) -> "PublisherConfig":
         if self.log_level is not None and self.log_level not in _VALID_LOG_LEVELS:
             raise ValueError(f"log_level must be one of {sorted(_VALID_LOG_LEVELS)}")
+        if self.kind == "text":
+            if not self.namespace:
+                raise ValueError("text publisher requires namespace")
+            if (
+                self.asset is not None
+                or self.listen_port is not None
+                or self.fingerprint_port is not None
+            ):
+                raise ValueError("text publisher cannot set media fields")
+        else:
+            if not self.asset or not _SAFE_ASSET_RE.fullmatch(self.asset):
+                raise ValueError("media publisher asset must be a safe file name")
+            if self.listen_port is None or self.fingerprint_port is None:
+                raise ValueError("media publisher requires listen_port and fingerprint_port")
+            if self.listen_port == self.fingerprint_port:
+                raise ValueError("listen_port and fingerprint_port must differ")
+            if self.namespace is not None or self.port is not None:
+                raise ValueError("media publisher cannot set text fields")
         return self
 
 
@@ -161,17 +193,41 @@ class RouterConfig(_StrictBase):
 
 
 class SubscriberConfig(_StrictBase):
+    kind: Literal["text", "media"] = "text"
     connects_to: str
     namespace: str
     track: str
     image: str | None = None
     insecure: bool | None = None
     log_level: str | None = None
+    browser_mode: Literal["headless", "headed", "x11"] | None = None
+    ui_port: int | None = Field(default=None, ge=_MIN_PORT, le=_MAX_PORT)
+    minimal_buffer_ms: int | None = Field(default=None, ge=0)
+    target_latency_ms: int | None = Field(default=None, gt=0)
 
     @model_validator(mode="after")
     def _check(self) -> "SubscriberConfig":
         if self.log_level is not None and self.log_level not in _VALID_LOG_LEVELS:
             raise ValueError(f"log_level must be one of {sorted(_VALID_LOG_LEVELS)}")
+        if self.kind == "text":
+            if any(value is not None for value in (
+                self.browser_mode, self.ui_port, self.minimal_buffer_ms, self.target_latency_ms
+            )):
+                raise ValueError("text subscriber cannot set media fields")
+        else:
+            self.browser_mode = self.browser_mode or "headless"
+            self.minimal_buffer_ms = (
+                200 if self.minimal_buffer_ms is None else self.minimal_buffer_ms
+            )
+            self.target_latency_ms = (
+                300 if self.target_latency_ms is None else self.target_latency_ms
+            )
+            if self.browser_mode == "headed" and self.ui_port is None:
+                raise ValueError("headed media subscriber requires ui_port")
+            if self.browser_mode != "headed" and self.ui_port is not None:
+                raise ValueError(f"{self.browser_mode} media subscriber forbids ui_port")
+            if self.target_latency_ms <= self.minimal_buffer_ms:
+                raise ValueError("target_latency_ms must exceed minimal_buffer_ms")
         return self
 
 
@@ -365,6 +421,53 @@ class TopologyConfig(_StrictBase):
                     f"subscriber {sid!r} connects_to {s.connects_to!r} is not a known relay"
                 )
 
+        media_publishers = {
+            pid: publisher
+            for pid, publisher in self.publishers.items()
+            if publisher.kind == "media"
+        }
+        media_subscribers = {
+            sid: subscriber
+            for sid, subscriber in self.subscribers.items()
+            if subscriber.kind == "media"
+        }
+        if media_subscribers and not media_publishers:
+            raise ValueError("media subscriber requires a media publisher")
+        if media_publishers or media_subscribers:
+            for rid in self.relays:
+                if not self.relay_tls(rid).generated:
+                    raise ValueError(
+                        f"media topology requires generated TLS on relay {rid!r}"
+                    )
+
+            def _relay_root(rid: str) -> str:
+                while self.relays[rid].upstream is not None:
+                    rid = self.relays[rid].upstream  # type: ignore[assignment]
+                return rid
+
+            origins_by_root: dict[str, str] = {}
+            for media_pid, media_publisher in media_publishers.items():
+                media_root = media_publisher.connects_to
+                if self.relays[media_root].upstream is not None:
+                    raise ValueError(
+                        f"media publisher {media_pid!r} must attach to a root relay"
+                    )
+                if media_root in origins_by_root:
+                    raise ValueError("v1 supports one media publisher per relay tree")
+                origins_by_root[media_root] = media_pid
+            for sid, subscriber in media_subscribers.items():
+                if _relay_root(subscriber.connects_to) not in origins_by_root:
+                    raise ValueError(
+                        f"media subscriber {sid!r} is not in the media publisher tree"
+                    )
+            ui_ports = [
+                subscriber.ui_port
+                for subscriber in media_subscribers.values()
+                if subscriber.ui_port is not None
+            ]
+            if len(ui_ports) != len(set(ui_ports)):
+                raise ValueError("headed media subscriber ui_port values must be unique")
+
         # Links are the physical wiring: endpoints must exist, each undirected
         # pair appears once, and `aqm` may only sit on a router's egress
         # because endpoint images ship an iproute2 too old for modern AQMs.
@@ -458,7 +561,13 @@ class TopologyConfig(_StrictBase):
         return self.relays[rid].cache or self.defaults.relay.cache
 
     def publisher_image(self, pid: str) -> str:
-        return self.publishers[pid].image or self.defaults.publisher.image
+        publisher = self.publishers[pid]
+        default = (
+            self.defaults.publisher.media_image
+            if publisher.kind == "media"
+            else self.defaults.publisher.image
+        )
+        return publisher.image or default
 
     def publisher_insecure(self, pid: str) -> bool:
         p = self.publishers[pid]
@@ -468,7 +577,13 @@ class TopologyConfig(_StrictBase):
         return self.publishers[pid].log_level or self.defaults.publisher.log_level
 
     def subscriber_image(self, sid: str) -> str:
-        return self.subscribers[sid].image or self.defaults.subscriber.image
+        subscriber = self.subscribers[sid]
+        default = (
+            self.defaults.subscriber.media_image
+            if subscriber.kind == "media"
+            else self.defaults.subscriber.image
+        )
+        return subscriber.image or default
 
     def subscriber_insecure(self, sid: str) -> bool:
         s = self.subscribers[sid]
@@ -479,6 +594,18 @@ class TopologyConfig(_StrictBase):
 
     def router_image(self, rid: str) -> str:
         return self.routers[rid].image or self.defaults.router.image
+
+    def relay_root(self, rid: str) -> str:
+        while self.relays[rid].upstream is not None:
+            rid = self.relays[rid].upstream  # type: ignore[assignment]
+        return rid
+
+    def media_publisher_for_relay(self, rid: str) -> tuple[str, PublisherConfig]:
+        root = self.relay_root(rid)
+        for pid, publisher in self.publishers.items():
+            if publisher.kind == "media" and publisher.connects_to == root:
+                return pid, publisher
+        raise KeyError(f"no media publisher for relay {rid!r}")
 
 
 def load_topology(path: str | Path) -> TopologyConfig:

@@ -156,3 +156,56 @@ def test_subscriber_command_uses_per_relay_endpoint_override():
     )
     argv = synthesize_subscriber_command(t, "s")
     assert "--connect_url=https://r:9668/custom" in argv
+
+
+def _media_topology() -> TopologyConfig:
+    return TopologyConfig.model_validate(
+        {
+            "defaults": {"relay": {"tls": {"insecure": False, "generated": True}}},
+            "relays": {
+                "root": {"listen_port": 9668, "admin_port": 9669},
+                "leaf": {"listen_port": 9670, "admin_port": 9671, "upstream": "root"},
+            },
+            "publishers": {
+                "origin": {
+                    "kind": "media", "connects_to": "root", "asset": "testsvc",
+                    "listen_port": 4443, "fingerprint_port": 8081,
+                }
+            },
+            "subscribers": {
+                "viewer": {
+                    "kind": "media", "connects_to": "leaf", "namespace": "msf/clear",
+                    "track": "video/s2", "minimal_buffer_ms": 200,
+                    "target_latency_ms": 300,
+                }
+            },
+        }
+    )
+
+
+def test_media_root_pulls_origin_and_uses_exact_endpoint():
+    topology = _media_topology()
+    root = synthesize_relay_yaml(topology, "root")
+    assert root["services"]["default"]["match"][0]["path"] == {"exact": "/moq-relay"}
+    assert root["services"]["default"]["upstream"] == {
+        "url": "moqt://origin:4443/moq", "tls": {"insecure": True}
+    }
+    assert root["listeners"][0]["tls"]["cert_file"] == "/run/moqlab/tls/cert.pem"
+
+
+def test_media_leaf_uses_generated_tls_compatible_upstream():
+    leaf = synthesize_relay_yaml(_media_topology(), "leaf")
+    assert leaf["services"]["default"]["upstream"]["tls"] == {"insecure": True}
+
+
+def test_media_commands_include_asset_namespace_track_and_buffers():
+    topology = _media_topology()
+    publisher = synthesize_publisher_command(topology, "origin")
+    assert publisher[:4] == ["-addr", "0.0.0.0:4443", "-asset", "/opt/moqlivemock/assets/testsvc"]
+    assert ["-sideport", "8081"] == publisher[8:10]
+    subscriber = synthesize_subscriber_command(topology, "viewer")
+    assert "--server-url=https://leaf:9670/moq-relay" in subscriber
+    assert "--fingerprint-url=http://origin:8081/fingerprint" in subscriber
+    assert "--namespace=msf/clear" in subscriber
+    assert "--video-track=video/s2" in subscriber
+    assert "--browser-mode=headless" in subscriber

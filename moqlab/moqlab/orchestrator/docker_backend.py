@@ -22,6 +22,7 @@ nothing. Use the Containernet backend for shaping and routed paths.
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import time
 from dataclasses import dataclass, field
@@ -32,6 +33,7 @@ from docker.errors import APIError, ImageNotFound, NotFound
 from docker.models.containers import Container
 from docker.models.networks import Network
 
+from moqlab.certs import TLS_MOUNT, generate_run_tls
 from moqlab.config.schema import TopologyConfig, load_topology
 from moqlab.config.synth import (
     synthesize_publisher_command,
@@ -83,6 +85,12 @@ class DockerBackend:
         readiness_timeout_s: float = 10.0,
     ) -> RunRecord:
         topology = load_topology(config_path)
+        headed = any(
+            s.kind == "media" and s.browser_mode == "headed"
+            for s in topology.subscribers.values()
+        )
+        if headed and not publish_ports:
+            raise OrchestratorError("headed media subscribers require --publish-ports")
         if topology.routers:
             raise OrchestratorError(
                 "topology declares routers; the docker backend is a flat "
@@ -101,6 +109,7 @@ class DockerBackend:
         run_dir = self._run_dir(run_id)
         run_dir.mkdir(parents=True, exist_ok=False)
         shutil.copyfile(config_path, run_dir / "topology.yaml")
+        tls_dir = generate_run_tls(topology, run_dir)
         relay_yaml_paths = synthesize_relay_configs(topology, run_dir / "configs")
 
         common_labels = {LABEL_RUN_ID: run_id}
@@ -111,7 +120,23 @@ class DockerBackend:
         subscribers: dict[str, str] = {}
 
         try:
-            # Phase 1: relays, upstream-first so each one's upstream is up.
+            # Media origins serve upstream relays, so they must bind first.
+            for pid, publisher in topology.publishers.items():
+                if publisher.kind != "media":
+                    continue
+                container = self._run_publisher(
+                    topology, pid, network, common_labels, tls_dir
+                )
+                publishers[pid] = container.id
+                self._await_running(container, readiness_timeout_s)
+
+            if publishers:
+                self._sleep_if_configured(
+                    topology.startup.publisher_warmup_s,
+                    "for media origins to bind listeners",
+                )
+
+            # Relays run root-first so each one's upstream is ready.
             for rid in relay_order(topology):
                 container = self._run_relay(
                     topology=topology,
@@ -120,6 +145,7 @@ class DockerBackend:
                     network=network,
                     publish_ports=publish_ports,
                     labels=common_labels,
+                    tls_dir=tls_dir,
                 )
                 relays[rid] = container.id
                 self._await_running(container, readiness_timeout_s)
@@ -129,20 +155,25 @@ class DockerBackend:
                 "after launching relays",
             )
 
-            # Phase 2: publishers, then subscribers. The configured publisher
+            # Text publishers, then all subscribers. The configured publisher
             # warmup lets PUBLISH_NAMESPACE reach relays before the first
             # subscriber asks for that namespace.
-            for pid in topology.publishers:
+            text_publishers = []
+            for pid, publisher in topology.publishers.items():
+                if publisher.kind != "text":
+                    continue
                 container = self._run_publisher(
                     topology=topology,
                     publisher_id=pid,
                     network=network,
                     labels=common_labels,
+                    tls_dir=tls_dir,
                 )
                 publishers[pid] = container.id
+                text_publishers.append(pid)
                 self._await_running(container, readiness_timeout_s)
 
-            if publishers and topology.subscribers:
+            if text_publishers and topology.subscribers:
                 self._sleep_if_configured(
                     topology.startup.publisher_warmup_s,
                     "after launching publishers",
@@ -154,9 +185,14 @@ class DockerBackend:
                     subscriber_id=sid,
                     network=network,
                     labels=common_labels,
+                    publish_ports=publish_ports,
                 )
                 subscribers[sid] = container.id
                 self._await_running(container, readiness_timeout_s)
+                if topology.subscribers[sid].kind == "media":
+                    self._await_media_ready(
+                        container, topology.startup.media_ready_timeout_s
+                    )
         except Exception:
             self._teardown(run_id, swallow=True)
             raise
@@ -257,6 +293,7 @@ class DockerBackend:
         network: Network,
         publish_ports: bool,
         labels: dict[str, str],
+        tls_dir: Path | None,
     ) -> Container:
         relay = topology.relays[relay_id]
         image = topology.relay_image(relay_id)
@@ -274,17 +311,20 @@ class DockerBackend:
             LABEL_NODE_ID: relay_id,
         }
 
+        volumes = {
+            str(config_path.resolve()): {
+                "bind": "/etc/moqx/relay.yaml",
+                "mode": "ro",
+            }
+        }
+        if tls_dir is not None:
+            volumes[str(tls_dir.resolve())] = {"bind": TLS_MOUNT, "mode": "ro"}
         return self._run_container(
             image=image,
             name=relay_id,
             network=network,
             labels=merged_labels,
-            volumes={
-                str(config_path.resolve()): {
-                    "bind": "/etc/moqx/relay.yaml",
-                    "mode": "ro",
-                }
-            },
+            volumes=volumes,
             ports=ports,
         )
 
@@ -294,6 +334,7 @@ class DockerBackend:
         publisher_id: str,
         network: Network,
         labels: dict[str, str],
+        tls_dir: Path | None,
     ) -> Container:
         image = topology.publisher_image(publisher_id)
         argv = synthesize_publisher_command(topology, publisher_id)
@@ -302,12 +343,16 @@ class DockerBackend:
             LABEL_ROLE: "publisher",
             LABEL_NODE_ID: publisher_id,
         }
+        volumes = None
+        if topology.publishers[publisher_id].kind == "media" and tls_dir is not None:
+            volumes = {str(tls_dir.resolve()): {"bind": TLS_MOUNT, "mode": "ro"}}
         return self._run_container(
             image=image,
             name=publisher_id,
             network=network,
             labels=merged_labels,
             command=argv,
+            volumes=volumes,
         )
 
     def _run_subscriber(
@@ -316,6 +361,7 @@ class DockerBackend:
         subscriber_id: str,
         network: Network,
         labels: dict[str, str],
+        publish_ports: bool,
     ) -> Container:
         image = topology.subscriber_image(subscriber_id)
         argv = synthesize_subscriber_command(topology, subscriber_id)
@@ -324,12 +370,30 @@ class DockerBackend:
             LABEL_ROLE: "subscriber",
             LABEL_NODE_ID: subscriber_id,
         }
+        subscriber = topology.subscribers[subscriber_id]
+        ports = None
+        volumes = None
+        environment = None
+        if subscriber.kind == "media" and subscriber.browser_mode == "headed" and publish_ports:
+            ports = {"7900/tcp": subscriber.ui_port}
+        if subscriber.kind == "media" and subscriber.browser_mode == "x11":
+            display = os.environ.get("DISPLAY")
+            if not display:
+                raise OrchestratorError(
+                    "x11 media subscriber requires DISPLAY; run sudo with "
+                    "`--preserve-env=DISPLAY`"
+                )
+            volumes = {"/tmp/.X11-unix": {"bind": "/tmp/.X11-unix", "mode": "rw"}}
+            environment = {"DISPLAY": display}
         return self._run_container(
             image=image,
             name=subscriber_id,
             network=network,
             labels=merged_labels,
             command=argv,
+            ports=ports,
+            volumes=volumes,
+            environment=environment,
         )
 
     def _run_container(
@@ -341,6 +405,7 @@ class DockerBackend:
         labels: dict[str, str],
         volumes: dict | None = None,
         ports: dict | None = None,
+        environment: dict[str, str] | None = None,
         command: list[str] | None = None,
     ) -> Container:
         try:
@@ -353,6 +418,7 @@ class DockerBackend:
                 labels=labels,
                 volumes=volumes,
                 ports=ports,
+                environment=environment,
                 command=command,
                 restart_policy={"Name": "no"},
             )
@@ -389,6 +455,57 @@ class DockerBackend:
         raise OrchestratorError(
             f"container {container.name!r} did not become running within {timeout_s}s"
         )
+
+    def _await_media_ready(self, container: Container, timeout_s: float) -> None:
+        # The runner owns the configured deadline; allow it time to persist
+        # its failure JSON before the orchestrator diagnoses the container.
+        deadline = time.monotonic() + timeout_s + 2
+        while time.monotonic() < deadline:
+            container.reload()
+            if container.status in {"exited", "dead"}:
+                logs = container.logs(tail=100).decode("utf-8", errors="replace")
+                raise OrchestratorError(
+                    f"media subscriber {container.name!r} failed readiness; "
+                    f"last logs:\n{logs}\n{self._run_log_tails(container)}"
+                )
+            if container.exec_run(["test", "-f", "/tmp/moqlab-media-ready.json"]).exit_code == 0:
+                return
+            if container.exec_run(["test", "-f", "/tmp/moqlab-media-failure.json"]).exit_code == 0:
+                failure = container.exec_run(["cat", "/tmp/moqlab-media-failure.json"]).output
+                if isinstance(failure, bytes):
+                    failure = failure.decode("utf-8", errors="replace")
+                raise OrchestratorError(
+                    f"media subscriber {container.name!r} failed readiness: {failure}"
+                )
+            time.sleep(0.25)
+        logs = container.logs(tail=100).decode("utf-8", errors="replace")
+        internal_logs = []
+        for path in ("/tmp/chromium.log", "/tmp/x11vnc.log", "/tmp/novnc.log"):
+            result = container.exec_run(["cat", path])
+            if result.exit_code == 0 and result.output:
+                output = result.output
+                if isinstance(output, bytes):
+                    output = output.decode("utf-8", errors="replace")
+                internal_logs.append(f"{path}:\n{output}")
+        diagnostic = "\n".join(internal_logs)
+        raise OrchestratorError(
+            f"media subscriber {container.name!r} was not ready within "
+            f"{timeout_s:g}s; last logs:\n{logs}\n{diagnostic}"
+        )
+
+    def _run_log_tails(self, container: Container) -> str:
+        run_id = container.labels.get(LABEL_RUN_ID)
+        if not run_id:
+            return ""
+        tails = []
+        for peer in self._containers_for(run_id):
+            if peer.id == container.id:
+                continue
+            output = peer.logs(tail=100)
+            if isinstance(output, bytes):
+                output = output.decode("utf-8", errors="replace")
+            tails.append(f"{peer.name}:\n{output}")
+        return "\n".join(tails)
 
     @staticmethod
     def _sleep_if_configured(seconds: float, reason: str) -> None:

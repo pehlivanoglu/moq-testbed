@@ -130,6 +130,33 @@ def test_topology_snapshot_places_router_between_endpoints():
     assert aqm_link["forward"]["aqm"] == "dualpi2"
 
 
+def test_media_snapshot_includes_browser_mode_and_novnc_link():
+    topology = TopologyConfig.model_validate(
+        {
+            "defaults": {"relay": {"tls": {"insecure": False, "generated": True}}},
+            "relays": {"root": {"listen_port": 9668, "admin_port": 9669}},
+            "publishers": {
+                "pub": {
+                    "kind": "media", "connects_to": "root", "asset": "testsvc",
+                    "listen_port": 4443, "fingerprint_port": 8081,
+                }
+            },
+            "subscribers": {
+                "sub": {
+                    "kind": "media", "connects_to": "root", "namespace": "msf/clear",
+                    "track": "video/s2", "browser_mode": "headed", "ui_port": 7900,
+                }
+            },
+        }
+    )
+
+    snapshot = topology_snapshot(topology)
+    sub = next(node for node in snapshot["nodes"] if node["id"] == "sub")
+    assert sub["kind"] == "media"
+    assert sub["browser_mode"] == "headed"
+    assert sub["ui_url"] == "http://127.0.0.1:7900/vnc.html"
+
+
 def test_throughput_sampler_reports_unavailable_when_counters_missing():
     sampler = ThroughputSampler(_topology(), counter_reader=lambda _node, _iface: None)
 

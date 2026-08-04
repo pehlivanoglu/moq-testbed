@@ -41,7 +41,7 @@ cut from current versions, not bugs or oversights.
       Resolved 2026-06-12: `links:` is the physical wiring source of truth on
       the Containernet backend (which refuses configs without it); the schema
       verifies every app edge has a path through the link graph.
-- [ ] First integration test under `tests/integration/` gated by
+- [ ] Add the first text integration test under `tests/integration/` gated by
       `MOQLAB_INTEGRATION=1`: bring up `linear_3r_1s.yaml` on the Docker
       backend, assert every container reaches `running`, assert the subscriber
       receives at least one date object, then `down`.
@@ -93,8 +93,8 @@ These become tractable once Phase 4 lands.
 - [ ] Abort publishable runs if moqlab/moqx/moxygen git state is dirty, with
       an explicit development override only after discussion.
 - [ ] Record full Docker image digests in run metadata.
-- [ ] TLS CA per run (`certs.py`); inject into every container; remove
-      `tls.insecure: true` from production-style examples.
+- [ ] Replace the implemented shared per-run self-signed media certificate
+      with a CA/leaf hierarchy if production-style trust becomes necessary.
 - [ ] Extend `moqlab run` into a full experiment command that can combine
       topology startup, scenario execution, archiving, and teardown.
 - [ ] Replay (`moqlab replay`) and post-experiment analysis
@@ -122,10 +122,17 @@ These become tractable once Phase 4 lands.
 - [ ] If a future field requires fixed addressing beyond the backend's
       internal per-link subnets, decide whether to keep DNS-by-name or expose
       IPs from the schema. Strong preference: never expose IPs in the schema.
-- [ ] Should browser subscribers be modeled as a first-class subscriber type,
-      or added only when TLS and Playwright automation are ready?
+- [x] Browser subscribers are first-class `kind: media` nodes using Chromium
+      CDP automation and generated per-run TLS; no Playwright dependency.
 
 ## History Notes
+
+- 2026-08-03: Added clear LOC AV1 spatial-SVC media nodes, generated shared
+  TLS, local-context image builds, headless/headed Chromium readiness, noVNC,
+  and a gated Docker acceptance test.
+
+- 2026-08-04: Added direct host-X11 Chromium mode for local Containernet and
+  Docker inspection without Xvfb/noVNC.
 
 - 2026-05-28: Landed first `moqlab/` Python package slice with topology
   schema/synthesis and Docker backend.

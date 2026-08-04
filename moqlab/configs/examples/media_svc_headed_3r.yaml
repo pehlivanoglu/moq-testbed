@@ -1,0 +1,41 @@
+topology_mode: explicit
+
+defaults:
+  relay:
+    tls: { insecure: false, generated: true }
+  link:
+    forward: { delay_ms: 5 }
+    reverse: { delay_ms: 5 }
+
+startup:
+  media_ready_timeout_s: 30
+
+relays:
+  relay-a: { listen_port: 9668, admin_port: 9669 }
+  relay-b: { listen_port: 9670, admin_port: 9671, upstream: relay-a }
+  relay-c: { listen_port: 9672, admin_port: 9673, upstream: relay-b }
+
+publishers:
+  pub:
+    kind: media
+    connects_to: relay-a
+    asset: testsvc
+    listen_port: 4443
+    fingerprint_port: 8081
+
+subscribers:
+  sub:
+    kind: media
+    connects_to: relay-c
+    namespace: msf/clear
+    track: video/s2
+    browser_mode: headed
+    ui_port: 7900
+    minimal_buffer_ms: 200
+    target_latency_ms: 300
+
+links:
+  - { from: pub, to: relay-a }
+  - { from: relay-a, to: relay-b }
+  - { from: relay-b, to: relay-c }
+  - { from: relay-c, to: sub }
