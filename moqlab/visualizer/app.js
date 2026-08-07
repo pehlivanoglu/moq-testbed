@@ -112,11 +112,6 @@ function draw(data) {
     const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
     group.setAttribute("class", `node ${node.role}`);
     group.setAttribute("transform", `translate(${p.x}, ${p.y})`);
-    if (node.ui_url) {
-      group.style.cursor = "pointer";
-      group.addEventListener("click", () => window.open(node.ui_url, "_blank", "noopener"));
-    }
-
     const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
     circle.setAttribute("r", "34");
     group.append(circle);
@@ -130,7 +125,7 @@ function draw(data) {
     role.setAttribute("class", "role");
     role.setAttribute("y", "70");
     role.textContent = node.kind === "media"
-      ? `${node.role} · ${node.browser_mode || "media"}`
+      ? `${node.role} · ${node.media_client === "native" ? "native" : node.browser_mode}`
       : node.role;
     group.append(role);
 

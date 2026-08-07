@@ -127,12 +127,18 @@ These become tractable once Phase 4 lands.
 
 ## History Notes
 
+- 2026-08-06: Added per-subscriber `media_client: chrome|native`, inheritable
+  native defaults for large topologies, lightweight `mlmsub` image and launch
+  paths, dependency-chain subscription, first-media readiness, and legal
+  deterministic veth names for long subscriber ids. Mixed startup launches all
+  subscribers before readiness and delays the one-shot catalog by two seconds.
+
 - 2026-08-03: Added clear LOC AV1 spatial-SVC media nodes, generated shared
-  TLS, local-context image builds, headless/headed Chromium readiness, noVNC,
-  and a gated Docker acceptance test.
+  TLS, local-context image builds, Chromium readiness, and a gated Docker
+  acceptance test.
 
 - 2026-08-04: Added direct host-X11 Chromium mode for local Containernet and
-  Docker inspection without Xvfb/noVNC.
+  Docker inspection.
 
 - 2026-05-28: Landed first `moqlab/` Python package slice with topology
   schema/synthesis and Docker backend.

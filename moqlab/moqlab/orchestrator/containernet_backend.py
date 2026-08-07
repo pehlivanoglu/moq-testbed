@@ -67,6 +67,7 @@ _PUB_BINARY = "/usr/local/bin/moqdateserver"
 _SUB_BINARY = "/usr/local/bin/moqtextclient"
 _MEDIA_PUB_BINARY = "/usr/local/bin/mlmpub"
 _MEDIA_SUB_BINARY = "/usr/local/bin/moqlab-media-sub"
+_NATIVE_MEDIA_SUB_BINARY = "/usr/local/bin/mlmsub"
 
 # We carve one /24 out of this /16 per topology link. Avoid Containernet's
 # default 10.0.0.0/8 pool so our explicit subnets don't collide with anything
@@ -298,20 +299,19 @@ class ContainernetBackend:
 
         for sid in topology.subscribers:
             subscriber = topology.subscribers[sid]
-            port_kwargs = {}
-            if subscriber.kind == "media" and subscriber.browser_mode == "headed":
-                port_kwargs = {
-                    "ports": [7900],
-                    "port_bindings": {7900: subscriber.ui_port},
-                }
-            if subscriber.kind == "media" and subscriber.browser_mode == "x11":
+            extra_kwargs = {}
+            chrome = (
+                subscriber.kind == "media"
+                and topology.subscriber_media_client(sid) == "chrome"
+            )
+            if chrome and subscriber.browser_mode == "x11":
                 display = os.environ.get("DISPLAY")
                 if not display:
                     raise OrchestratorError(
                         "x11 media subscriber requires DISPLAY; run sudo with "
                         "`--preserve-env=DISPLAY`"
                     )
-                port_kwargs = {
+                extra_kwargs = {
                     "volumes": ["/tmp/.X11-unix:/tmp/.X11-unix:rw"],
                     "environment": {"DISPLAY": display},
                 }
@@ -319,7 +319,7 @@ class ContainernetBackend:
                 sid,
                 dimage=topology.subscriber_image(sid),
                 sysctls=dict(_ENDPOINT_SYSCTLS),
-                **port_kwargs,
+                **extra_kwargs,
             )
             record.subscribers.append(sid)
 
@@ -335,6 +335,8 @@ class ContainernetBackend:
             net.addLink(
                 nodes[edge.a],
                 nodes[edge.b],
+                intfName1=edge.a_iface,
+                intfName2=edge.b_iface,
                 params1={"ip": a_ip},
                 params2={"ip": b_ip},
             )
@@ -488,20 +490,28 @@ class ContainernetBackend:
 
         for sid in record.subscribers:
             argv = synthesize_subscriber_command(topology, sid)
-            binary = (
-                _MEDIA_SUB_BINARY
-                if topology.subscribers[sid].kind == "media"
-                else _SUB_BINARY
-            )
+            subscriber = topology.subscribers[sid]
+            if subscriber.kind == "text":
+                binary = _SUB_BINARY
+            elif topology.subscriber_media_client(sid) == "native":
+                binary = _NATIVE_MEDIA_SUB_BINARY
+            else:
+                binary = _MEDIA_SUB_BINARY
             cmd_line = " ".join([binary] + _shell_quote_argv(argv))
             info(f"*** launching subscriber {sid}: {cmd_line}\n")
             net.get(sid).cmd(f"{cmd_line} > /tmp/{sid}.log 2>&1 &")
 
         for sid in record.subscribers:
             if topology.subscribers[sid].kind == "media":
-                _await_containernet_media_ready(
-                    net.get(sid), sid, topology.startup.media_ready_timeout_s, info
-                )
+                if topology.subscriber_media_client(sid) == "chrome":
+                    _await_containernet_media_ready(
+                        net.get(sid), sid, topology.startup.media_ready_timeout_s, info
+                    )
+                else:
+                    _await_containernet_native_media_ready(
+                        net.get(sid), sid, topology.subscribers[sid].track,
+                        topology.startup.media_ready_timeout_s, info
+                    )
 
 
 def _shell_quote_argv(argv: list[str]) -> list[str]:
@@ -544,13 +554,32 @@ def _await_containernet_media_ready(node, node_id: str, timeout_s: float, info) 
     )
 
 
+def _await_containernet_native_media_ready(
+    node, node_id: str, track: str, timeout_s: float, info
+) -> None:
+    import shlex
+
+    info(f"*** waiting up to {timeout_s:g}s for native media subscriber {node_id}\n")
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        ready = node.cmd(
+            f"grep -F 'msg=\"group start\"' /tmp/{node_id}.log 2>/dev/null | "
+            f"grep -F -- {shlex.quote(track)} && echo __MOQLAB_READY__"
+        )
+        if "__MOQLAB_READY__" in ready:
+            return
+        time.sleep(0.25)
+    raise OrchestratorError(
+        f"native media subscriber {node_id!r} received no media within {timeout_s:g}s\n"
+        f"{_containernet_media_logs(node, node_id)}"
+    )
+
+
 def _containernet_media_logs(node, node_id: str) -> str:
     sections = []
     for path in (
         f"/tmp/{node_id}.log",
         "/tmp/chromium.log",
-        "/tmp/x11vnc.log",
-        "/tmp/novnc.log",
     ):
         output = node.cmd(f"tail -n 80 {path} 2>/dev/null").strip()
         if output:

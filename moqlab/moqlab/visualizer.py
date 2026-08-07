@@ -127,12 +127,12 @@ def topology_snapshot(topology: TopologyConfig) -> dict[str, object]:
                 "kind": subscriber.kind,
                 "namespace": subscriber.namespace,
                 "track": subscriber.track,
-                "browser_mode": subscriber.browser_mode,
-                "ui_url": (
-                    f"http://127.0.0.1:{subscriber.ui_port}/vnc.html"
-                    if subscriber.kind == "media" and subscriber.browser_mode == "headed"
+                "media_client": (
+                    topology.subscriber_media_client(sid)
+                    if subscriber.kind == "media"
                     else None
                 ),
+                "browser_mode": subscriber.browser_mode,
             }
         )
 

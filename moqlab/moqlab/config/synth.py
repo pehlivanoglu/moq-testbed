@@ -60,8 +60,17 @@ def synthesize_relay_yaml(topology: TopologyConfig, relay_id: str) -> dict[str, 
     tls = topology.relay_tls(relay_id)
     cache = topology.relay_cache(relay_id)
 
+    matches = [{"authority": {"any": True}, "path": {"exact": endpoint}}]
+    if endpoint != "/" and any(
+        subscriber.kind == "media"
+        and topology.subscriber_media_client(sid) == "native"
+        and subscriber.connects_to == relay_id
+        for sid, subscriber in topology.subscribers.items()
+    ):
+        matches.append({"authority": {"any": True}, "path": {"exact": "/"}})
+
     service: dict[str, Any] = {
-        "match": [{"authority": {"any": True}, "path": {"exact": endpoint}}],
+        "match": matches,
         "cache": _cache_to_yaml(cache),
     }
 
@@ -140,6 +149,10 @@ def _relay_client_url(topology: TopologyConfig, relay_id: str) -> str:
     return f"https://{relay_id}:{r.listen_port}{endpoint}"
 
 
+def _relay_native_client_address(topology: TopologyConfig, relay_id: str) -> str:
+    return f"{relay_id}:{topology.relays[relay_id].listen_port}"
+
+
 def synthesize_publisher_command(
     topology: TopologyConfig, publisher_id: str
 ) -> list[str]:
@@ -159,6 +172,7 @@ def synthesize_publisher_command(
             "-cert", TLS_CERT,
             "-key", TLS_KEY,
             "-sideport", str(p.fingerprint_port),
+            "-catalog-delay", "2s",
             "-qlog", f"/tmp/{publisher_id}.qlog",
         ]
 
@@ -183,6 +197,17 @@ def synthesize_subscriber_command(
     s = topology.subscribers[subscriber_id]
 
     if s.kind == "media":
+        if topology.subscriber_media_client(subscriber_id) == "native":
+            return [
+                "-addr", _relay_native_client_address(topology, s.connects_to),
+                "-draft", "16",
+                "-namespace", s.namespace,
+                "-videoname", s.track,
+                "-catalog-mode", "subscribe",
+                "-subscribe-dependencies",
+                "-loglevel", topology.subscriber_log_level(subscriber_id).lower(),
+                "-qlog", f"/tmp/{subscriber_id}.qlog",
+            ]
         media_publisher = topology.media_publisher_for_relay(s.connects_to)
         return [
             f"--server-url={_relay_client_url(topology, s.connects_to)}",

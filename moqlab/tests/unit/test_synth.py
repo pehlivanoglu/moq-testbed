@@ -203,9 +203,36 @@ def test_media_commands_include_asset_namespace_track_and_buffers():
     publisher = synthesize_publisher_command(topology, "origin")
     assert publisher[:4] == ["-addr", "0.0.0.0:4443", "-asset", "/opt/moqlivemock/assets/testsvc"]
     assert ["-sideport", "8081"] == publisher[8:10]
+    assert ["-catalog-delay", "2s"] == publisher[10:12]
     subscriber = synthesize_subscriber_command(topology, "viewer")
     assert "--server-url=https://leaf:9670/moq-relay" in subscriber
     assert "--fingerprint-url=http://origin:8081/fingerprint" in subscriber
     assert "--namespace=msf/clear" in subscriber
     assert "--video-track=video/s2" in subscriber
     assert "--browser-mode=headless" in subscriber
+
+
+def test_native_media_subscriber_command_uses_mlmsub_flags():
+    topology = _media_topology()
+    subscriber = topology.subscribers["viewer"]
+    subscriber.media_client = "native"
+    subscriber.browser_mode = None
+    subscriber.minimal_buffer_ms = None
+    subscriber.target_latency_ms = None
+
+    argv = synthesize_subscriber_command(topology, "viewer")
+
+    assert argv == [
+        "-addr", "leaf:9670",
+        "-draft", "16",
+        "-namespace", "msf/clear",
+        "-videoname", "video/s2",
+        "-catalog-mode", "subscribe",
+        "-subscribe-dependencies",
+        "-loglevel", "info",
+        "-qlog", "/tmp/viewer.qlog",
+    ]
+    leaf = synthesize_relay_yaml(topology, "leaf")
+    assert {"authority": {"any": True}, "path": {"exact": "/"}} in (
+        leaf["services"]["default"]["match"]
+    )

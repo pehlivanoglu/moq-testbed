@@ -127,6 +127,8 @@ def test_media_image_build_uses_named_local_contexts(tmp_path: Path):
     assert commands[0].argv[2:4] == ["--build-context", f"mlmpub={publisher.resolve()}"]
     assert "moqlab/docker/Dockerfile.media-pub" in commands[0].argv
     assert commands[1].argv[2:4] == ["--build-context", f"player={player.resolve()}"]
+    assert commands[2].argv[2:4] == ["--build-context", f"mlmpub={publisher.resolve()}"]
+    assert "moqlab/docker/Dockerfile.media-native-sub" in commands[2].argv
 
 
 def test_media_image_build_rejects_missing_context(tmp_path: Path):

@@ -115,6 +115,33 @@ def test_containernet_edge_interfaces_follow_link_declaration_order(tmp_path: Pa
     ]
 
 
+def test_containernet_edge_interfaces_shorten_long_node_ids(tmp_path: Path):
+    config = tmp_path / "topology.yaml"
+    config.write_text(
+        "\n".join(
+            [
+                "relays:",
+                "  relay-a: { listen_port: 9668, admin_port: 9669 }",
+                "subscribers:",
+                "  chrome-headless: { connects_to: relay-a, namespace: x, track: t }",
+                "  chrome-x11: { connects_to: relay-a, namespace: x, track: t }",
+                "links:",
+                "  - { from: relay-a, to: chrome-headless }",
+                "  - { from: relay-a, to: chrome-x11 }",
+            ]
+        )
+    )
+    topology = load_topology(config)
+
+    first = containernet_edge_interfaces(topology)
+    second = containernet_edge_interfaces(topology)
+    names = [edge.b_iface for edge in first]
+
+    assert all(len(name) <= 15 for name in names)
+    assert names[0] != names[1]
+    assert names == [edge.b_iface for edge in second]
+
+
 def test_node_loopback_ips_deterministic_declaration_order(tmp_path: Path):
     topology = _routed_topology(tmp_path)
 

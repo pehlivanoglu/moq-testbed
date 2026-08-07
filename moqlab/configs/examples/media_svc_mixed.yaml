@@ -1,0 +1,48 @@
+topology_mode: explicit
+
+defaults:
+  relay:
+    tls: { insecure: false, generated: true }
+  subscriber:
+    media_client: native
+
+startup:
+  media_ready_timeout_s: 30
+
+relays:
+  relay-a: { listen_port: 9668, admin_port: 9669 }
+
+publishers:
+  pub:
+    kind: media
+    connects_to: relay-a
+    asset: testsvc
+    listen_port: 4443
+    fingerprint_port: 8081
+
+subscribers:
+  load-1:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  chrome-headless:
+    kind: media
+    media_client: chrome
+    browser_mode: headless
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  chrome-x11:
+    kind: media
+    media_client: chrome
+    browser_mode: x11
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+
+links:
+  - { from: pub, to: relay-a }
+  - { from: relay-a, to: load-1 }
+  - { from: relay-a, to: chrome-headless }
+  - { from: relay-a, to: chrome-x11 }

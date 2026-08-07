@@ -138,37 +138,6 @@ def test_up_refuses_topologies_with_routers(tmp_path: Path):
         _backend(client, tmp_path).up(config_path=config)
 
 
-def test_headed_media_subscriber_maps_novnc_port():
-    topology = TopologyConfig.model_validate(
-        {
-            "defaults": {"relay": {"tls": {"insecure": False, "generated": True}}},
-            "relays": {"root": {"listen_port": 9668, "admin_port": 9669}},
-            "publishers": {
-                "pub": {
-                    "kind": "media", "connects_to": "root", "asset": "testsvc",
-                    "listen_port": 4443, "fingerprint_port": 8081,
-                }
-            },
-            "subscribers": {
-                "sub": {
-                    "kind": "media", "connects_to": "root", "namespace": "msf/clear",
-                    "track": "video/s2", "browser_mode": "headed", "ui_port": 7901,
-                }
-            },
-        }
-    )
-    backend = DockerBackend.__new__(DockerBackend)
-    captured = {}
-    backend._run_container = lambda **kwargs: captured.update(kwargs) or "container"
-
-    result = backend._run_subscriber(topology, "sub", _FakeNetwork("n", "n", "r"), {}, True)
-
-    assert result == "container"
-    assert captured["image"] == "moqlab-media-sub"
-    assert captured["ports"] == {"7900/tcp": 7901}
-    assert "--video-track=video/s2" in captured["command"]
-
-
 def test_x11_media_subscriber_mounts_host_display(monkeypatch):
     topology = TopologyConfig.model_validate(
         {
@@ -193,10 +162,44 @@ def test_x11_media_subscriber_mounts_host_display(monkeypatch):
     captured = {}
     backend._run_container = lambda **kwargs: captured.update(kwargs) or "container"
 
-    backend._run_subscriber(topology, "sub", _FakeNetwork("n", "n", "r"), {}, False)
+    backend._run_subscriber(topology, "sub", _FakeNetwork("n", "n", "r"), {})
 
     assert captured["environment"] == {"DISPLAY": ":7"}
     assert captured["volumes"] == {
         "/tmp/.X11-unix": {"bind": "/tmp/.X11-unix", "mode": "rw"}
     }
-    assert captured["ports"] is None
+    assert "ports" not in captured
+
+
+def test_native_media_subscriber_uses_lightweight_image_without_browser_plumbing():
+    topology = TopologyConfig.model_validate(
+        {
+            "defaults": {
+                "relay": {"tls": {"insecure": False, "generated": True}},
+                "subscriber": {"media_client": "native"},
+            },
+            "relays": {"root": {"listen_port": 9668, "admin_port": 9669}},
+            "publishers": {
+                "pub": {
+                    "kind": "media", "connects_to": "root", "asset": "testsvc",
+                    "listen_port": 4443, "fingerprint_port": 8081,
+                }
+            },
+            "subscribers": {
+                "sub": {
+                    "kind": "media", "connects_to": "root",
+                    "namespace": "msf/clear", "track": "video/s2",
+                }
+            },
+        }
+    )
+    backend = DockerBackend.__new__(DockerBackend)
+    captured = {}
+    backend._run_container = lambda **kwargs: captured.update(kwargs) or "container"
+
+    backend._run_subscriber(topology, "sub", _FakeNetwork("n", "n", "r"), {})
+
+    assert captured["image"] == "moqlab-media-native-sub"
+    assert captured["command"][0:4] == ["-addr", "root:9668", "-draft", "16"]
+    assert "ports" not in captured
+    assert captured["volumes"] is None
