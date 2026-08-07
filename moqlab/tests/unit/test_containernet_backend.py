@@ -18,6 +18,7 @@ from moqlab.orchestrator.containernet_backend import (
     ContainernetBackend,
     ContainernetRunRecord,
     _await_containernet_media_ready,
+    _await_containernet_native_media_ready,
     _write_etc_hosts_via_docker,
 )
 from moqlab.runtime import node_loopback_ips
@@ -40,6 +41,13 @@ class _ReadyNode:
         return ""
 
 
+class _NativeReadyNode:
+    def cmd(self, command: str) -> str:
+        if "group start" in command:
+            return '__MOQLAB_READY__\n'
+        return ""
+
+
 class _FakeNet:
     def __init__(self, node_ids: list[str]) -> None:
         self.calls: list[tuple[str, str]] = []
@@ -53,6 +61,7 @@ class _FakeBuildNet:
     def __init__(self) -> None:
         self.docker_nodes: dict[str, dict] = {}
         self.links: list[tuple[str, str, dict, dict]] = []
+        self.link_options: list[dict] = []
 
     def addDocker(self, node_id: str, **kwargs):
         self.docker_nodes[node_id] = kwargs
@@ -60,6 +69,7 @@ class _FakeBuildNet:
 
     def addLink(self, a, b, params1=None, params2=None, **kwargs):
         self.links.append((a, b, params1 or {}, params2 or {}))
+        self.link_options.append(kwargs)
 
 
 def _topology() -> TopologyConfig:
@@ -119,6 +129,12 @@ def _record_for(topology: TopologyConfig) -> ContainernetRunRecord:
 
 def test_media_readiness_accepts_marker_amid_pty_output():
     _await_containernet_media_ready(_ReadyNode(), "sub", 0, lambda _: None)
+
+
+def test_native_media_readiness_accepts_first_group_log():
+    _await_containernet_native_media_ready(
+        _NativeReadyNode(), "sub", "video/s2", 0.01, lambda _: None
+    )
 
 
 def test_launches_relays_before_pub_sub(monkeypatch):
@@ -186,6 +202,47 @@ def test_launches_media_origin_before_relays_and_browser(monkeypatch):
     assert [node for node, _ in net.calls] == ["pub", "root", "sub"]
     assert net.calls[0][1].startswith("/usr/local/bin/mlmpub")
     assert net.calls[2][1].startswith("/usr/local/bin/moqlab-media-sub")
+    assert ready == ["sub"]
+
+
+def test_launches_native_media_subscriber_without_browser_runner(monkeypatch):
+    topology = TopologyConfig.model_validate(
+        {
+            "defaults": {
+                "relay": {"tls": {"insecure": False, "generated": True}},
+                "subscriber": {"media_client": "native"},
+            },
+            "startup": {"relay_warmup_s": 0, "publisher_warmup_s": 0},
+            "relays": {"root": {"listen_port": 9668, "admin_port": 9669}},
+            "publishers": {
+                "pub": {
+                    "kind": "media", "connects_to": "root", "asset": "testsvc",
+                    "listen_port": 4443, "fingerprint_port": 8081,
+                }
+            },
+            "subscribers": {
+                "sub": {
+                    "kind": "media", "connects_to": "root",
+                    "namespace": "msf/clear", "track": "video/s2",
+                }
+            },
+        }
+    )
+    net = _FakeNet(["pub", "root", "sub"])
+    record = ContainernetRunRecord(
+        run_id="run-test", run_dir=Path("/tmp/run-test"),
+        relays=["root"], publishers=["pub"], subscribers=["sub"],
+    )
+    ready = []
+    monkeypatch.setattr(
+        "moqlab.orchestrator.containernet_backend._await_containernet_native_media_ready",
+        lambda _node, node_id, _track, _timeout, _info: ready.append(node_id),
+    )
+
+    ContainernetBackend._launch_node_binaries(net, topology, record, lambda _: None)
+
+    assert net.calls[2][1].startswith("/usr/local/bin/mlmsub")
+    assert "-subscribe-dependencies" in net.calls[2][1]
     assert ready == ["sub"]
 
 
@@ -270,6 +327,11 @@ def test_build_adds_routers_with_forwarding_sysctls_and_direct_links():
         ("pub", "relay-a"),
         ("relay-a", "rt-1"),
         ("rt-1", "sub"),
+    ]
+    assert net.link_options == [
+        {"intfName1": "pub-eth0", "intfName2": "relay-a-eth0"},
+        {"intfName1": "relay-a-eth1", "intfName2": "rt-1-eth0"},
+        {"intfName1": "rt-1-eth1", "intfName2": "sub-eth0"},
     ]
     assert net.links[0][2] == {"ip": "10.20.0.1/24"}
     assert net.links[0][3] == {"ip": "10.20.0.2/24"}

@@ -18,15 +18,7 @@ node /opt/moqlab/static-server.mjs &
 pids="$pids $!"
 
 display_args=""
-if [ "$mode" = headed ]; then
-  Xvfb :99 -screen 0 1440x900x24 -nolisten tcp &
-  pids="$pids $!"
-  export DISPLAY=:99
-  x11vnc -display :99 -forever -shared -nopw -rfbport 5900 >/tmp/x11vnc.log 2>&1 &
-  pids="$pids $!"
-  websockify --web=/usr/share/novnc 7900 localhost:5900 >/tmp/novnc.log 2>&1 &
-  pids="$pids $!"
-elif [ "$mode" = x11 ]; then
+if [ "$mode" = x11 ]; then
   if [ -z "${DISPLAY:-}" ] || [ ! -d /tmp/.X11-unix ]; then
     echo "x11 mode requires DISPLAY and /tmp/.X11-unix" >&2
     exit 1

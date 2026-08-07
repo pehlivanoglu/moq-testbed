@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import re
 import time
 from dataclasses import dataclass
@@ -91,21 +92,30 @@ def containernet_edge_interfaces(
     """One veth pair per `links:` entry, in declaration order.
 
     Direction is preserved (a = link.from_, b = link.to) so callers can map
-    `forward`/`reverse` shaping onto a_iface/b_iface. Interface names follow
-    Containernet's "<node>-eth<N>" scheme, N counting addLink calls per node.
+    `forward`/`reverse` shaping onto a_iface/b_iface. Short node ids use
+    Containernet's "<node>-eth<N>" scheme. Long ids get stable hashed names
+    fitting Linux's 15-byte interface-name limit.
     """
     link_counter: dict[str, int] = {nid: 0 for nid in all_node_ids(topology)}
     edges: list[ContainernetEdgeInterfaces] = []
     for link in topology.links:
         a, b = link.from_, link.to
-        a_iface = f"{a}-eth{link_counter[a]}"
+        a_iface = _containernet_interface_name(a, link_counter[a])
         link_counter[a] += 1
-        b_iface = f"{b}-eth{link_counter[b]}"
+        b_iface = _containernet_interface_name(b, link_counter[b])
         link_counter[b] += 1
         edges.append(
             ContainernetEdgeInterfaces(a=a, b=b, a_iface=a_iface, b_iface=b_iface)
         )
     return edges
+
+
+def _containernet_interface_name(node_id: str, index: int) -> str:
+    natural = f"{node_id}-eth{index}"
+    if len(natural) <= 15:
+        return natural
+    digest = hashlib.blake2s(node_id.encode(), digest_size=3).hexdigest()
+    return f"{node_id[:4]}-{digest}e{index}"
 
 
 # Canonical per-node addresses live on lo so they are reachable over any

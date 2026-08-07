@@ -20,10 +20,11 @@ orchestrator wires everything by name (Docker DNS on the docker backend;
 generated `/etc/hosts` + static routes on containernet), so the same
 router-free config runs on either backend.
 
-Publisher/subscriber nodes default to the existing text tools. `kind: media`
-selects `mlmpub` and a Chromium-driven WARP Player for clear LOC AV1 spatial
-SVC. Readiness requires the configured resolution, non-black pixels, and
-changing decoded frame hashes.
+Publisher/subscriber nodes default to existing text tools. `kind: media`
+selects `mlmpub` plus either Chromium-driven WARP Player or native `mlmsub`
+for clear LOC AV1 spatial SVC. Chrome readiness requires configured resolution,
+non-black pixels, and changing decoded frame hashes; native readiness requires
+first media on selected track.
 
 ## Layout
 
@@ -158,7 +159,9 @@ defaults:
                 tls: { insecure: true },
                 cache: { enabled: false, max_tracks: 100, max_groups_per_track: 3 } }
   publisher:  { image: moqlab-pub,   insecure: true, log_level: INFO }
-  subscriber: { image: moqlab-sub,   insecure: true, log_level: INFO }
+  subscriber: { image: moqlab-sub, media_image: moqlab-media-sub,
+                native_media_image: moqlab-media-native-sub,
+                media_client: chrome, insecure: true, log_level: INFO }
 
 startup:
   relay_warmup_s: 2.0
@@ -220,8 +223,9 @@ Invariants the schema enforces:
 ### AV1-SVC media nodes
 
 See [`media_svc_headless.yaml`](configs/examples/media_svc_headless.yaml),
-[`media_svc_headed_3r.yaml`](configs/examples/media_svc_headed_3r.yaml), and
-[`media_svc_x11.yaml`](configs/examples/media_svc_x11.yaml). Media
+[`media_svc_x11.yaml`](configs/examples/media_svc_x11.yaml). Mixed native and
+Chrome subscribers are shown in
+[`media_svc_mixed.yaml`](configs/examples/media_svc_mixed.yaml). Media
 topologies generate one ECDSA P-256 certificate per run and mount it into all
 relays plus the media origin. The root relay pulls `mlmpub`; Chromium trusts
 the same certificate through the publisher's `/fingerprint` endpoint.
@@ -233,7 +237,10 @@ defaults:
   relay:
     tls: { insecure: false, generated: true }
   publisher: { media_image: moqlab-media-pub }
-  subscriber: { media_image: moqlab-media-sub }
+  subscriber:
+    media_image: moqlab-media-sub
+    native_media_image: moqlab-media-native-sub
+    media_client: native
 
 startup:
   media_ready_timeout_s: 30
@@ -249,6 +256,7 @@ publishers:
 subscribers:
   sub:
     kind: media
+    media_client: chrome
     connects_to: relay-c
     namespace: msf/clear
     track: video/s2
@@ -257,14 +265,22 @@ subscribers:
     target_latency_ms: 300
 ```
 
-`browser_mode: headed` requires a unique `ui_port`. Docker also requires
-`--publish-ports`. The visualizer links headed nodes to
-`http://127.0.0.1:<ui_port>/vnc.html`; autoplay remains active while noVNC
-permits manual `s0/s1/s2` changes.
+`media_client: chrome` launches WARP Player in Chromium. `browser_mode`
+selects `headless` or `x11`; buffer settings apply only to Chrome.
+`media_client: native` launches lightweight `mlmsub` over raw MoQT/QUIC,
+subscribes to configured track plus its catalog dependency chain, discards
+payloads, and becomes ready after receiving its first media group. For large topologies, set
+`defaults.subscriber.media_client: native`, then override only subscribers
+that need Chrome. Schema default remains `chrome` so existing configs keep
+their behavior.
 
-`browser_mode: x11` opens Chromium directly on host X display. It forbids
-`ui_port`; backend mounts `/tmp/.X11-unix` and forwards `DISPLAY`. Grant only
-root local-display access, preserve `DISPLAY` through sudo, then revoke access:
+Moqlab starts all subscriber containers before checking media readiness, then
+delays the publisher's one-shot catalog by two seconds. Mixed clients behind a
+shared relay can all attach before that catalog is forwarded.
+
+`browser_mode: x11` opens Chromium directly on host X display. Backend mounts
+`/tmp/.X11-unix` and forwards `DISPLAY`. Grant only root
+local-display access, preserve `DISPLAY` through sudo, then revoke access:
 
 ```bash
 xhost +SI:localuser:root
@@ -292,7 +308,8 @@ There is no ABR, DRM, audio selection, or temporal SVC.
   `https://relay-c:9672/moq-relay` resolve via Docker DNS.
 - **Containernet backend**: requires explicit `links:` wiring. Each link is
   one direct host↔host veth pair with its own /24 out of `10.20.0.0/16`
-  (.1 = `from` side, .2 = `to` side); no switches, no controller. Every node
+  (.1 = `from` side, .2 = `to` side); no switches, no controller. Long node
+  ids get stable shortened veth names within Linux's 15-byte limit. Every node
   also gets a canonical /32 on `lo` out of `10.99.0.0/24`; `/etc/hosts` on
   every node maps all peer names to those /32s, and the backend installs
   static /32 routes (BFS over the link graph) so the same name-based URLs
@@ -320,7 +337,7 @@ needs the four runtime deps installed (see "Running it").
 | `python -m moqlab doctor [-c <config>] [--backend docker\|containernet]` | both | Check Python deps, Docker, required images, Containernet importability, privileges, and optional config readiness. |
 | `python -m moqlab build moqx` | n/a | Build moqx and prepare moxygen binaries used by images. |
 | `python -m moqlab build images` | n/a | Build `moqlab-relay`, `moqlab-pub`, `moqlab-sub`, and `moqlab-router`. |
-| `python -m moqlab build media-images [--publisher-context PATH] [--player-context PATH]` | n/a | Build `moqlab-media-pub` and `moqlab-media-sub` from local contexts. Environment equivalents: `MOQLAB_MEDIA_PUBLISHER_CONTEXT` and `MOQLAB_MEDIA_PLAYER_CONTEXT`. |
+| `python -m moqlab build media-images [--publisher-context PATH] [--player-context PATH]` | n/a | Build `moqlab-media-pub`, `moqlab-media-sub`, and `moqlab-media-native-sub` from local contexts. Environment equivalents: `MOQLAB_MEDIA_PUBLISHER_CONTEXT` and `MOQLAB_MEDIA_PLAYER_CONTEXT`. |
 | `python -m moqlab validate -c <config>` | both | Parse + validate, no side effects. |
 | `python -m moqlab run -c <config> [--backend docker\|containernet] [--run-id N] [--publish-ports] [--vis\|--visualize]` | both | Run topology. Defaults to `containernet`. With `--visualize`, also serves `http://127.0.0.1:8765/` showing a pannable/zoomable topology graph and link rates. Live per-link throughput is available for Containernet runs, where every topology edge has its own interface. Docker-backend runs still render the correct topology, but Docker's single bridge interface is not split per topology link. |
 | `python -m moqlab down --run-id <name>` | docker | Stop and remove containers + network. |

@@ -108,6 +108,8 @@ class PublisherDefaults(_StrictBase):
 class SubscriberDefaults(_StrictBase):
     image: str = "moqlab-sub"
     media_image: str = "moqlab-media-sub"
+    native_media_image: str = "moqlab-media-native-sub"
+    media_client: Literal["chrome", "native"] = "chrome"
     insecure: bool = True
     log_level: str = "INFO"
 
@@ -200,8 +202,8 @@ class SubscriberConfig(_StrictBase):
     image: str | None = None
     insecure: bool | None = None
     log_level: str | None = None
-    browser_mode: Literal["headless", "headed", "x11"] | None = None
-    ui_port: int | None = Field(default=None, ge=_MIN_PORT, le=_MAX_PORT)
+    media_client: Literal["chrome", "native"] | None = None
+    browser_mode: Literal["headless", "x11"] | None = None
     minimal_buffer_ms: int | None = Field(default=None, ge=0)
     target_latency_ms: int | None = Field(default=None, gt=0)
 
@@ -211,23 +213,10 @@ class SubscriberConfig(_StrictBase):
             raise ValueError(f"log_level must be one of {sorted(_VALID_LOG_LEVELS)}")
         if self.kind == "text":
             if any(value is not None for value in (
-                self.browser_mode, self.ui_port, self.minimal_buffer_ms, self.target_latency_ms
+                self.media_client, self.browser_mode,
+                self.minimal_buffer_ms, self.target_latency_ms,
             )):
                 raise ValueError("text subscriber cannot set media fields")
-        else:
-            self.browser_mode = self.browser_mode or "headless"
-            self.minimal_buffer_ms = (
-                200 if self.minimal_buffer_ms is None else self.minimal_buffer_ms
-            )
-            self.target_latency_ms = (
-                300 if self.target_latency_ms is None else self.target_latency_ms
-            )
-            if self.browser_mode == "headed" and self.ui_port is None:
-                raise ValueError("headed media subscriber requires ui_port")
-            if self.browser_mode != "headed" and self.ui_port is not None:
-                raise ValueError(f"{self.browser_mode} media subscriber forbids ui_port")
-            if self.target_latency_ms <= self.minimal_buffer_ms:
-                raise ValueError("target_latency_ms must exceed minimal_buffer_ms")
         return self
 
 
@@ -434,6 +423,32 @@ class TopologyConfig(_StrictBase):
         if media_subscribers and not media_publishers:
             raise ValueError("media subscriber requires a media publisher")
         if media_publishers or media_subscribers:
+            for sid, subscriber in media_subscribers.items():
+                client = self.subscriber_media_client(sid)
+                if client == "native":
+                    if any(value is not None for value in (
+                        subscriber.browser_mode,
+                        subscriber.minimal_buffer_ms,
+                        subscriber.target_latency_ms,
+                    )):
+                        raise ValueError(
+                            "native media subscriber cannot set browser fields"
+                        )
+                    continue
+                subscriber.browser_mode = subscriber.browser_mode or "headless"
+                subscriber.minimal_buffer_ms = (
+                    200
+                    if subscriber.minimal_buffer_ms is None
+                    else subscriber.minimal_buffer_ms
+                )
+                subscriber.target_latency_ms = (
+                    300
+                    if subscriber.target_latency_ms is None
+                    else subscriber.target_latency_ms
+                )
+                if subscriber.target_latency_ms <= subscriber.minimal_buffer_ms:
+                    raise ValueError("target_latency_ms must exceed minimal_buffer_ms")
+
             for rid in self.relays:
                 if not self.relay_tls(rid).generated:
                     raise ValueError(
@@ -460,14 +475,6 @@ class TopologyConfig(_StrictBase):
                     raise ValueError(
                         f"media subscriber {sid!r} is not in the media publisher tree"
                     )
-            ui_ports = [
-                subscriber.ui_port
-                for subscriber in media_subscribers.values()
-                if subscriber.ui_port is not None
-            ]
-            if len(ui_ports) != len(set(ui_ports)):
-                raise ValueError("headed media subscriber ui_port values must be unique")
-
         # Links are the physical wiring: endpoints must exist, each undirected
         # pair appears once, and `aqm` may only sit on a router's egress
         # because endpoint images ship an iproute2 too old for modern AQMs.
@@ -578,12 +585,19 @@ class TopologyConfig(_StrictBase):
 
     def subscriber_image(self, sid: str) -> str:
         subscriber = self.subscribers[sid]
-        default = (
-            self.defaults.subscriber.media_image
-            if subscriber.kind == "media"
-            else self.defaults.subscriber.image
-        )
+        if subscriber.kind == "media":
+            default = (
+                self.defaults.subscriber.native_media_image
+                if self.subscriber_media_client(sid) == "native"
+                else self.defaults.subscriber.media_image
+            )
+        else:
+            default = self.defaults.subscriber.image
         return subscriber.image or default
+
+    def subscriber_media_client(self, sid: str) -> Literal["chrome", "native"]:
+        subscriber = self.subscribers[sid]
+        return subscriber.media_client or self.defaults.subscriber.media_client
 
     def subscriber_insecure(self, sid: str) -> bool:
         s = self.subscribers[sid]

@@ -85,12 +85,6 @@ class DockerBackend:
         readiness_timeout_s: float = 10.0,
     ) -> RunRecord:
         topology = load_topology(config_path)
-        headed = any(
-            s.kind == "media" and s.browser_mode == "headed"
-            for s in topology.subscribers.values()
-        )
-        if headed and not publish_ports:
-            raise OrchestratorError("headed media subscribers require --publish-ports")
         if topology.routers:
             raise OrchestratorError(
                 "topology declares routers; the docker backend is a flat "
@@ -179,20 +173,33 @@ class DockerBackend:
                     "after launching publishers",
                 )
 
+            subscriber_containers: dict[str, Container] = {}
             for sid in topology.subscribers:
                 container = self._run_subscriber(
                     topology=topology,
                     subscriber_id=sid,
                     network=network,
                     labels=common_labels,
-                    publish_ports=publish_ports,
                 )
                 subscribers[sid] = container.id
+                subscriber_containers[sid] = container
                 self._await_running(container, readiness_timeout_s)
+
+            # Start the full load before waiting on individual media clients.
+            # This lets every browser catch one of the publisher's initial
+            # catalog copies instead of serializing startup behind readiness.
+            for sid, container in subscriber_containers.items():
                 if topology.subscribers[sid].kind == "media":
-                    self._await_media_ready(
-                        container, topology.startup.media_ready_timeout_s
-                    )
+                    if topology.subscriber_media_client(sid) == "chrome":
+                        self._await_media_ready(
+                            container, topology.startup.media_ready_timeout_s
+                        )
+                    else:
+                        self._await_native_media_ready(
+                            container,
+                            topology.startup.media_ready_timeout_s,
+                            topology.subscribers[sid].track,
+                        )
         except Exception:
             self._teardown(run_id, swallow=True)
             raise
@@ -361,7 +368,6 @@ class DockerBackend:
         subscriber_id: str,
         network: Network,
         labels: dict[str, str],
-        publish_ports: bool,
     ) -> Container:
         image = topology.subscriber_image(subscriber_id)
         argv = synthesize_subscriber_command(topology, subscriber_id)
@@ -371,12 +377,13 @@ class DockerBackend:
             LABEL_NODE_ID: subscriber_id,
         }
         subscriber = topology.subscribers[subscriber_id]
-        ports = None
         volumes = None
         environment = None
-        if subscriber.kind == "media" and subscriber.browser_mode == "headed" and publish_ports:
-            ports = {"7900/tcp": subscriber.ui_port}
-        if subscriber.kind == "media" and subscriber.browser_mode == "x11":
+        chrome = (
+            subscriber.kind == "media"
+            and topology.subscriber_media_client(subscriber_id) == "chrome"
+        )
+        if chrome and subscriber.browser_mode == "x11":
             display = os.environ.get("DISPLAY")
             if not display:
                 raise OrchestratorError(
@@ -391,7 +398,6 @@ class DockerBackend:
             network=network,
             labels=merged_labels,
             command=argv,
-            ports=ports,
             volumes=volumes,
             environment=environment,
         )
@@ -480,7 +486,7 @@ class DockerBackend:
             time.sleep(0.25)
         logs = container.logs(tail=100).decode("utf-8", errors="replace")
         internal_logs = []
-        for path in ("/tmp/chromium.log", "/tmp/x11vnc.log", "/tmp/novnc.log"):
+        for path in ("/tmp/chromium.log",):
             result = container.exec_run(["cat", path])
             if result.exit_code == 0 and result.output:
                 output = result.output
@@ -491,6 +497,29 @@ class DockerBackend:
         raise OrchestratorError(
             f"media subscriber {container.name!r} was not ready within "
             f"{timeout_s:g}s; last logs:\n{logs}\n{diagnostic}"
+        )
+
+    def _await_native_media_ready(
+        self, container: Container, timeout_s: float, track: str
+    ) -> None:
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            container.reload()
+            logs = container.logs(tail=100).decode("utf-8", errors="replace")
+            if 'msg="group start"' in logs and (
+                f"track={track}" in logs or f'track="{track}"' in logs
+            ):
+                return
+            if container.status in {"exited", "dead"}:
+                raise OrchestratorError(
+                    f"native media subscriber {container.name!r} exited before "
+                    f"receiving media; last logs:\n{logs}"
+                )
+            time.sleep(0.25)
+        logs = container.logs(tail=100).decode("utf-8", errors="replace")
+        raise OrchestratorError(
+            f"native media subscriber {container.name!r} received no media within "
+            f"{timeout_s:g}s; last logs:\n{logs}"
         )
 
     def _run_log_tails(self, container: Container) -> str:

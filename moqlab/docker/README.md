@@ -13,6 +13,7 @@ defined in YAML under [../configs/](../configs/) and brought up with
 | `Dockerfile.router` | `moqlab-router` | none (IP forwarding + tc only) | Every `routers:` entry |
 | `Dockerfile.media-pub` | `moqlab-media-pub` | `/usr/local/bin/mlmpub` | Media publishers |
 | `Dockerfile.media-sub` | `moqlab-media-sub` | Chromium + WARP Player runner | Media subscribers |
+| `Dockerfile.media-native-sub` | `moqlab-media-native-sub` | `/usr/local/bin/mlmsub` | Native media subscribers |
 
 The router image runs no MoQ binary. It exists to own link queues: it builds
 a pinned modern iproute2 from source (multi-stage) because distro tc is too
@@ -46,10 +47,10 @@ without requiring manual path juggling.
 
 `build media-images` uses BuildKit named contexts instead of cloning or
 vendoring. Its defaults are sibling `moqlivemock-svc` and `warp-player-svc`
-repositories. The subscriber runtime starts a Node static server, Chromium,
-and the CDP readiness runner. Headed mode additionally starts Xvfb, x11vnc,
-and noVNC. X11 mode uses host display socket directly. No process manager is
-used.
+repositories. Native subscriber image builds `mlmsub` from `moqlivemock-svc`.
+Chrome subscriber runtime starts a Node static server, Chromium,
+and the CDP readiness runner. X11 mode uses host display socket directly. No
+process manager is used.
 
 Image tags can be overridden per topology via `defaults.relay.image` /
 `defaults.publisher.image` / `defaults.subscriber.image` /

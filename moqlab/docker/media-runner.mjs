@@ -20,7 +20,9 @@ async function connectCdp() {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {
-      const page = await endpoint(`/json/new?${encodeURIComponent("http://127.0.0.1:8080/")}`, { method: "PUT" });
+      const pages = await endpoint("/json/list");
+      const page = pages.find(({ type }) => type === "page");
+      if (!page?.webSocketDebuggerUrl) throw new Error("Chromium page target not ready");
       const socket = new WebSocket(page.webSocketDebuggerUrl);
       await new Promise((resolve, reject) => {
         socket.onopen = resolve;

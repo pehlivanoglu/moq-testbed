@@ -9,12 +9,11 @@ RUN npm run build
 FROM node:22-bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
       chromium ethtool fonts-liberation fonts-noto-color-emoji iproute2 \
-      iputils-ping novnc websockify x11vnc xvfb \
+      iputils-ping \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /src/dist /opt/warp-player
 COPY moqlab/docker/media-sub-entrypoint.sh /usr/local/bin/moqlab-media-sub
 COPY moqlab/docker/media-static-server.mjs /opt/moqlab/static-server.mjs
 COPY moqlab/docker/media-runner.mjs /opt/moqlab/runner.mjs
 RUN chmod +x /usr/local/bin/moqlab-media-sub
-EXPOSE 7900
 ENTRYPOINT ["/usr/local/bin/moqlab-media-sub"]

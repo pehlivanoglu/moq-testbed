@@ -111,6 +111,21 @@ def media_image_build_commands(
             ],
             cwd=root,
         ),
+        BuildCommand(
+            label="build native media subscriber image",
+            argv=[
+                "docker",
+                "build",
+                "--build-context",
+                f"mlmpub={publisher_context.resolve()}",
+                "-f",
+                "moqlab/docker/Dockerfile.media-native-sub",
+                "-t",
+                "moqlab-media-native-sub",
+                ".",
+            ],
+            cwd=root,
+        ),
     ]
 
 

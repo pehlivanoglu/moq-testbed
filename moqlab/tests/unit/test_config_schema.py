@@ -181,6 +181,31 @@ def test_media_defaults_and_images_validate():
     assert topology.startup.media_ready_timeout_s == 30
 
 
+def test_media_client_inherits_native_default_and_allows_chrome_override():
+    raw = _media_topology()
+    raw["defaults"]["subscriber"] = {"media_client": "native"}
+    raw["subscribers"]["chrome"] = {
+        **raw["subscribers"]["sub"],
+        "media_client": "chrome",
+    }
+
+    topology = TopologyConfig.model_validate(raw)
+
+    assert topology.subscriber_media_client("sub") == "native"
+    assert topology.subscriber_image("sub") == "moqlab-media-native-sub"
+    assert topology.subscribers["sub"].browser_mode is None
+    assert topology.subscriber_media_client("chrome") == "chrome"
+    assert topology.subscriber_image("chrome") == "moqlab-media-sub"
+    assert topology.subscribers["chrome"].browser_mode == "headless"
+
+
+def test_native_media_subscriber_forbids_browser_fields():
+    with pytest.raises(Exception, match="cannot set browser fields"):
+        TopologyConfig.model_validate(
+            _media_topology(media_client="native", browser_mode="headless")
+        )
+
+
 @pytest.mark.parametrize("asset", ["../testsvc", "a/b", "bad asset", ""])
 def test_media_publisher_rejects_unsafe_asset(asset):
     raw = _media_topology()
@@ -228,28 +253,13 @@ def test_media_subscriber_must_share_origin_tree():
         TopologyConfig.model_validate(raw)
 
 
-def test_headed_media_requires_ui_port_and_headless_forbids_it():
-    with pytest.raises(Exception, match="requires ui_port"):
-        TopologyConfig.model_validate(_media_topology(browser_mode="headed"))
-    with pytest.raises(Exception, match="forbids ui_port"):
-        TopologyConfig.model_validate(_media_topology(ui_port=7900))
-
-
-def test_x11_media_forbids_ui_port():
+def test_browser_modes_are_headless_or_x11():
     topology = TopologyConfig.model_validate(_media_topology(browser_mode="x11"))
     assert topology.subscribers["sub"].browser_mode == "x11"
-    with pytest.raises(Exception, match="x11 media subscriber forbids ui_port"):
-        TopologyConfig.model_validate(_media_topology(browser_mode="x11", ui_port=7900))
-
-
-def test_headed_media_ui_ports_must_be_unique():
-    raw = _media_topology(browser_mode="headed", ui_port=7900)
-    raw["subscribers"]["sub2"] = {
-        **raw["subscribers"]["sub"],
-        "connects_to": "relay-a",
-    }
-    with pytest.raises(Exception, match="ui_port values must be unique"):
-        TopologyConfig.model_validate(raw)
+    with pytest.raises(Exception):
+        TopologyConfig.model_validate(_media_topology(browser_mode="invalid"))
+    with pytest.raises(Exception):
+        TopologyConfig.model_validate(_media_topology(legacy_field=1))
 
 
 def test_media_buffer_target_must_exceed_minimum():

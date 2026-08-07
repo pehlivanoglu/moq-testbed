@@ -1,0 +1,12 @@
+# syntax=docker/dockerfile:1.7
+FROM golang:1.25-bookworm AS build
+WORKDIR /src
+COPY --from=mlmpub . .
+RUN CGO_ENABLED=0 go build -trimpath -o /out/mlmsub ./cmd/mlmsub
+
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates ethtool iproute2 iputils-ping \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=build /out/mlmsub /usr/local/bin/mlmsub
+ENTRYPOINT ["/usr/local/bin/mlmsub"]

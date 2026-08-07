@@ -88,7 +88,7 @@ def build_images() -> None:
 
 @build.command(
     "media-images",
-    help="Build AV1-SVC publisher/player images from local source repositories.",
+    help="Build AV1-SVC publisher, Chrome, and native subscriber images.",
 )
 @click.option(
     "--publisher-context",
@@ -224,9 +224,14 @@ def validate(config: Path) -> None:
         detail = f"asset={p.asset}" if p.kind == "media" else f"ns={p.namespace}"
         click.echo(f"  publisher  {pid:14}  -> {p.connects_to}  kind={p.kind}  {detail}")
     for sid, s in topology.subscribers.items():
+        media = (
+            f"  client={topology.subscriber_media_client(sid)}"
+            if s.kind == "media"
+            else ""
+        )
         click.echo(
             f"  subscriber {sid:14}  -> {s.connects_to}  kind={s.kind}  "
-            f"ns={s.namespace}  track={s.track}"
+            f"ns={s.namespace}  track={s.track}{media}"
         )
 
 

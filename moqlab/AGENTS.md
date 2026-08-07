@@ -39,8 +39,8 @@ ergonomics. This is research infrastructure, not a demo script.
 - **Schema** (`moqlab/config/schema.py`) - Pydantic v2 topology model:
   `defaults`, `startup`, `relays`, `publishers`, `subscribers`, `routers`,
   and `links` (per-direction `forward`/`reverse` shaping incl. `aqm`). Text
-  nodes remain the default; media nodes model `mlmpub` and Chromium WARP
-  Player playback. It is
+  nodes remain the default; media nodes model `mlmpub`, Chromium WARP Player,
+  and native `mlmsub` subscribers. It is
   strict (`extra="forbid"`) and validates node ids, relay references, port
   collisions, cycles, duplicate links, link-graph reachability of every
   app edge, aqm-on-router-egress, and orphan routers.
@@ -71,8 +71,10 @@ ergonomics. This is research infrastructure, not a demo script.
   not require Docker, Containernet, or root.
 
 Media support is clear LOC AV1 spatial-SVC only: one origin per relay tree,
-configured namespace/track, headless, noVNC, or direct-X11 Chromium, and strict
-decoded frame readiness. Not implemented yet: ABR, temporal SVC, DRM/audio selection,
+configured namespace/track, headless or direct-X11 Chromium with strict
+decoded frame readiness, plus lightweight native `mlmsub` subscribers with
+dependency-chain subscription and first-media readiness. Not implemented yet:
+ABR, temporal SVC, DRM/audio selection,
 multiple upstreams per relay, generative topologies,
 scenario runner, observability, JSONL collector, Prometheus/Grafana, QLOG
 archive, TLS CA per run, full `experiments/run_*/` archive layout, replay,
@@ -142,6 +144,9 @@ defaults:
     log_level: INFO
   subscriber:
     image: moqlab-sub
+    media_image: moqlab-media-sub
+    native_media_image: moqlab-media-native-sub
+    media_client: chrome
     insecure: true
     log_level: INFO
 
