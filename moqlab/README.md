@@ -26,6 +26,9 @@ for clear LOC AV1 spatial SVC. Chrome readiness requires configured resolution,
 non-black pixels, and changing decoded frame hashes; native readiness requires
 first media on selected track.
 
+See [PLAYBACK_METRICS.md](PLAYBACK_METRICS.md) for native playback simulation,
+the shared live metrics contract, and the Containernet visualizer data flow.
+
 ## Layout
 
 ```
@@ -35,6 +38,7 @@ moqlab/
 ├── pytest.ini                      ← pytest config (testpaths, addopts)
 ├── conftest.py                     ← empty; marks the pytest rootdir
 ├── README.md                       ← you are here
+├── PLAYBACK_METRICS.md             ← playback simulation + live metrics report
 ├── AGENTS.md                       ← guide for AI agents touching this package
 ├── TODO.md                         ← deferred / future work
 ├── moqlab/                         ← package source (PEP 420 namespace pkg, no __init__.py)
@@ -55,7 +59,9 @@ moqlab/
 │   └── examples/
 │       ├── linear_1r_1s.yaml      ← 1 relay + pub + sub + 1 router (dualpi2 bottleneck)
 │       ├── linear_3r_1s.yaml      ← 3-relay chain with a router between relay hops
-│       └── tree_3r_4s.yaml        ← 3-relay tree behind one core router + 4 subscribers
+│       ├── tree_3r_4s.yaml        ← 3-relay tree behind one core router + 4 subscribers
+│       ├── media_svc_metrics.yaml ← headless Chrome + simulated native subscriber
+│       └── 100subs.yaml           ← 100 simulated native subscribers on one relay
 ├── docker/                         ← Dockerfiles for the four node images
 │   └── README.md
 ├── visualizer/                      ← browser UI assets (HTML, CSS, JS)
@@ -225,7 +231,9 @@ Invariants the schema enforces:
 See [`media_svc_headless.yaml`](configs/examples/media_svc_headless.yaml),
 [`media_svc_x11.yaml`](configs/examples/media_svc_x11.yaml). Mixed native and
 Chrome subscribers are shown in
-[`media_svc_mixed.yaml`](configs/examples/media_svc_mixed.yaml). Media
+[`media_svc_mixed.yaml`](configs/examples/media_svc_mixed.yaml); a headless
+Chrome plus simulated-native metrics setup with lightly shaped subscriber paths is in
+[`media_svc_metrics.yaml`](configs/examples/media_svc_metrics.yaml). Media
 topologies generate one ECDSA P-256 certificate per run and mount it into all
 relays plus the media origin. The root relay pulls `mlmpub`; Chromium trusts
 the same certificate through the publisher's `/fingerprint` endpoint.
@@ -241,6 +249,7 @@ defaults:
     media_image: moqlab-media-sub
     native_media_image: moqlab-media-native-sub
     media_client: native
+    native_playback: simulate
 
 startup:
   media_ready_timeout_s: 30
@@ -266,13 +275,26 @@ subscribers:
 ```
 
 `media_client: chrome` launches WARP Player in Chromium. `browser_mode`
-selects `headless` or `x11`; buffer settings apply only to Chrome.
+selects `headless` or `x11`.
 `media_client: native` launches lightweight `mlmsub` over raw MoQT/QUIC,
-subscribes to configured track plus its catalog dependency chain, discards
-payloads, and becomes ready after receiving its first media group. For large topologies, set
-`defaults.subscriber.media_client: native`, then override only subscribers
-that need Chrome. Schema default remains `chrome` so existing configs keep
+subscribes to the configured track plus its catalog dependency chain, and
+becomes ready after receiving its first media group. `native_playback` defaults
+to `receive`; `simulate` models AV1-SVC decode-chain validity, buffering,
+presentation, stalls, and safe layer switches without decoding pixels. Buffer
+settings apply to Chrome and simulated native playback. For large topologies,
+set `defaults.subscriber.media_client: native` and
+`defaults.subscriber.native_playback: simulate`, then override only subscribers
+that need Chrome. [`100subs.yaml`](configs/examples/100subs.yaml) shows 100
+simulated native subscribers connected to one relay. Schema default remains
+`chrome`, and native playback defaults to `receive`, so existing configs keep
 their behavior.
+
+Every media subscriber publishes live metrics inside its container at
+`/tmp/moqlab-player-metrics.json`. With `--visualize`, click a subscriber node
+to inspect its state, quality, latency, bitrates, buffer, playback rate, and
+stalls. The visualizer reads only the selected node once per second. Detailed
+definitions and AV1-SVC switching rules are in
+[PLAYBACK_METRICS.md](PLAYBACK_METRICS.md).
 
 Moqlab starts all subscriber containers before checking media readiness, then
 delays the publisher's one-shot catalog by two seconds. Mixed clients behind a
@@ -289,12 +311,13 @@ sudo --preserve-env=DISPLAY ../../../containernet/venv/bin/python3 -m moqlab run
 xhost -SI:localuser:root
 ```
 
-Current scope is clear LOC AV1 spatial-only SVC, one temporal layer, manual
+Current scope is clear LOC AV1 spatial-only SVC, one temporal layer,
+decode-availability switching in simulated native clients, manual Chrome
 quality selection, and one media origin per relay tree. Namespace selection
 comes from YAML because current relays do not replay earlier announcements.
 The automation runner uses the player's catalog-subscription mode; it does not
 depend on a joining `FETCH` being proxied by the relay.
-There is no ABR, DRM, audio selection, or temporal SVC.
+There is no bandwidth-estimation ABR, DRM, audio selection, or temporal SVC.
 
 ## How wiring works
 

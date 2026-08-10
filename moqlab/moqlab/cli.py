@@ -324,7 +324,7 @@ def _run_topology(
     except MoqlabError as e:
         raise click.ClickException(str(e)) from e
 
-    visualizer = _start_visualizer(config) if visualize else None
+    visualizer = _start_visualizer(config, backend) if visualize else None
     if backend == "docker":
         _up_docker(
             ctx,
@@ -364,6 +364,8 @@ def _up_docker(
     click.echo(f"run_id:   {record.run_id}")
     click.echo(f"network:  {record.network_name}")
     click.echo(f"run_dir:  {record.run_dir}")
+    if visualizer is not None:
+        visualizer.register_subscriber_containers(record.subscribers)
     if record.relays:
         click.echo("relays:")
         for rid, cid in record.relays.items():
@@ -400,12 +402,13 @@ def _up_containernet(
     click.echo(f"\ntorn down: run_id={record.run_id} (run dir kept at {record.run_dir})")
 
 
-def _start_visualizer(config: Path) -> VisualizerHTTPServer:
+def _start_visualizer(config: Path, backend: str) -> VisualizerHTTPServer:
     try:
         server = make_server(
             config_path=config,
             host=_VIS_HOST,
             port=_VIS_PORT,
+            backend=backend,
         )
     except MoqlabError as e:
         raise click.ClickException(str(e)) from e

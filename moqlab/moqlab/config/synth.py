@@ -198,7 +198,7 @@ def synthesize_subscriber_command(
 
     if s.kind == "media":
         if topology.subscriber_media_client(subscriber_id) == "native":
-            return [
+            argv = [
                 "-addr", _relay_native_client_address(topology, s.connects_to),
                 "-draft", "16",
                 "-namespace", s.namespace,
@@ -207,7 +207,15 @@ def synthesize_subscriber_command(
                 "-subscribe-dependencies",
                 "-loglevel", topology.subscriber_log_level(subscriber_id).lower(),
                 "-qlog", f"/tmp/{subscriber_id}.qlog",
+                "-metrics-path", "/tmp/moqlab-player-metrics.json",
             ]
+            if topology.subscriber_native_playback(subscriber_id) == "simulate":
+                argv.extend([
+                    "-simulate-playback",
+                    "-minimal-buffer-ms", str(s.minimal_buffer_ms),
+                    "-target-latency-ms", str(s.target_latency_ms),
+                ])
+            return argv
         media_publisher = topology.media_publisher_for_relay(s.connects_to)
         return [
             f"--server-url={_relay_client_url(topology, s.connects_to)}",

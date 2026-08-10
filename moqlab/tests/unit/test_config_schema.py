@@ -206,6 +206,43 @@ def test_native_media_subscriber_forbids_browser_fields():
         )
 
 
+def test_native_playback_simulation_inherits_and_resolves_buffer_defaults():
+    raw = _media_topology()
+    raw["defaults"]["subscriber"] = {
+        "media_client": "native",
+        "native_playback": "simulate",
+    }
+
+    topology = TopologyConfig.model_validate(raw)
+
+    assert topology.subscriber_native_playback("sub") == "simulate"
+    assert topology.subscribers["sub"].minimal_buffer_ms == 200
+    assert topology.subscribers["sub"].target_latency_ms == 300
+
+
+def test_native_receive_forbids_playback_buffers():
+    with pytest.raises(Exception, match="receive subscriber"):
+        TopologyConfig.model_validate(
+            _media_topology(
+                media_client="native",
+                minimal_buffer_ms=200,
+                target_latency_ms=300,
+            )
+        )
+
+
+def test_chrome_ignores_inherited_native_playback_but_rejects_explicit_field():
+    raw = _media_topology()
+    raw["defaults"]["subscriber"] = {"native_playback": "simulate"}
+    topology = TopologyConfig.model_validate(raw)
+    assert topology.subscribers["sub"].minimal_buffer_ms == 200
+
+    with pytest.raises(Exception, match="cannot set native_playback"):
+        TopologyConfig.model_validate(
+            _media_topology(native_playback="simulate")
+        )
+
+
 @pytest.mark.parametrize("asset", ["../testsvc", "a/b", "bad asset", ""])
 def test_media_publisher_rejects_unsafe_asset(asset):
     raw = _media_topology()

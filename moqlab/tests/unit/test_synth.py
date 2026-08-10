@@ -231,8 +231,25 @@ def test_native_media_subscriber_command_uses_mlmsub_flags():
         "-subscribe-dependencies",
         "-loglevel", "info",
         "-qlog", "/tmp/viewer.qlog",
+        "-metrics-path", "/tmp/moqlab-player-metrics.json",
     ]
     leaf = synthesize_relay_yaml(topology, "leaf")
     assert {"authority": {"any": True}, "path": {"exact": "/"}} in (
         leaf["services"]["default"]["match"]
     )
+
+
+def test_native_simulated_playback_command_includes_buffer_flags():
+    topology = _media_topology()
+    subscriber = topology.subscribers["viewer"]
+    subscriber.media_client = "native"
+    subscriber.native_playback = "simulate"
+    subscriber.browser_mode = None
+
+    argv = synthesize_subscriber_command(topology, "viewer")
+
+    assert argv[-5:] == [
+        "-simulate-playback",
+        "-minimal-buffer-ms", "200",
+        "-target-latency-ms", "300",
+    ]

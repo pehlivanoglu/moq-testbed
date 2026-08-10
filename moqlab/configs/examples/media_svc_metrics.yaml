@@ -34,16 +34,14 @@ subscribers:
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
-  chrome-x11:
-    kind: media
-    media_client: chrome
-    browser_mode: x11
-    connects_to: relay-a
-    namespace: msf/clear
-    track: video/s2
 
 links:
   - { from: pub, to: relay-a }
-  - { from: relay-a, to: load-1 }
-  - { from: relay-a, to: chrome-headless }
-  - { from: relay-a, to: chrome-x11 }
+  - from: relay-a
+    to: load-1
+    forward: { delay_ms: 10, jitter_ms: 2 }
+    reverse: { delay_ms: 10, jitter_ms: 2 }
+  - from: relay-a
+    to: chrome-headless
+    forward: { delay_ms: 10, jitter_ms: 2 }
+    reverse: { delay_ms: 10, jitter_ms: 2 }

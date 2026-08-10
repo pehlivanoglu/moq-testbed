@@ -110,6 +110,7 @@ class SubscriberDefaults(_StrictBase):
     media_image: str = "moqlab-media-sub"
     native_media_image: str = "moqlab-media-native-sub"
     media_client: Literal["chrome", "native"] = "chrome"
+    native_playback: Literal["receive", "simulate"] = "receive"
     insecure: bool = True
     log_level: str = "INFO"
 
@@ -203,6 +204,7 @@ class SubscriberConfig(_StrictBase):
     insecure: bool | None = None
     log_level: str | None = None
     media_client: Literal["chrome", "native"] | None = None
+    native_playback: Literal["receive", "simulate"] | None = None
     browser_mode: Literal["headless", "x11"] | None = None
     minimal_buffer_ms: int | None = Field(default=None, ge=0)
     target_latency_ms: int | None = Field(default=None, gt=0)
@@ -213,7 +215,7 @@ class SubscriberConfig(_StrictBase):
             raise ValueError(f"log_level must be one of {sorted(_VALID_LOG_LEVELS)}")
         if self.kind == "text":
             if any(value is not None for value in (
-                self.media_client, self.browser_mode,
+                self.media_client, self.native_playback, self.browser_mode,
                 self.minimal_buffer_ms, self.target_latency_ms,
             )):
                 raise ValueError("text subscriber cannot set media fields")
@@ -426,15 +428,36 @@ class TopologyConfig(_StrictBase):
             for sid, subscriber in media_subscribers.items():
                 client = self.subscriber_media_client(sid)
                 if client == "native":
-                    if any(value is not None for value in (
-                        subscriber.browser_mode,
-                        subscriber.minimal_buffer_ms,
-                        subscriber.target_latency_ms,
-                    )):
+                    if subscriber.browser_mode is not None:
                         raise ValueError(
                             "native media subscriber cannot set browser fields"
                         )
+                    if self.subscriber_native_playback(sid) == "receive":
+                        if any(value is not None for value in (
+                            subscriber.minimal_buffer_ms,
+                            subscriber.target_latency_ms,
+                        )):
+                            raise ValueError(
+                                "native receive subscriber cannot set playback buffer fields"
+                            )
+                        continue
+                    subscriber.minimal_buffer_ms = (
+                        200
+                        if subscriber.minimal_buffer_ms is None
+                        else subscriber.minimal_buffer_ms
+                    )
+                    subscriber.target_latency_ms = (
+                        300
+                        if subscriber.target_latency_ms is None
+                        else subscriber.target_latency_ms
+                    )
+                    if subscriber.target_latency_ms <= subscriber.minimal_buffer_ms:
+                        raise ValueError("target_latency_ms must exceed minimal_buffer_ms")
                     continue
+                if "native_playback" in subscriber.model_fields_set:
+                    raise ValueError(
+                        "chrome media subscriber cannot set native_playback"
+                    )
                 subscriber.browser_mode = subscriber.browser_mode or "headless"
                 subscriber.minimal_buffer_ms = (
                     200
@@ -598,6 +621,10 @@ class TopologyConfig(_StrictBase):
     def subscriber_media_client(self, sid: str) -> Literal["chrome", "native"]:
         subscriber = self.subscribers[sid]
         return subscriber.media_client or self.defaults.subscriber.media_client
+
+    def subscriber_native_playback(self, sid: str) -> Literal["receive", "simulate"]:
+        subscriber = self.subscribers[sid]
+        return subscriber.native_playback or self.defaults.subscriber.native_playback
 
     def subscriber_insecure(self, sid: str) -> bool:
         s = self.subscribers[sid]

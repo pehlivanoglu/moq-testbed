@@ -9,7 +9,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Callable
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 from moqlab.config.schema import DirectionSpec, TopologyConfig, load_topology
 from moqlab.runtime import (
@@ -42,6 +42,9 @@ class _EdgeCounterSample:
 
 
 CounterReader = Callable[[str, str], InterfaceCounters | None]
+MetricsReader = Callable[[str], bytes | None]
+_METRICS_PATH = "/tmp/moqlab-player-metrics.json"
+_METRICS_STALE_MS = 3000
 
 
 def _direction_payload(spec: DirectionSpec) -> dict[str, object]:
@@ -130,6 +133,12 @@ def topology_snapshot(topology: TopologyConfig) -> dict[str, object]:
                 "media_client": (
                     topology.subscriber_media_client(sid)
                     if subscriber.kind == "media"
+                    else None
+                ),
+                "native_playback": (
+                    topology.subscriber_native_playback(sid)
+                    if subscriber.kind == "media"
+                    and topology.subscriber_media_client(sid) == "native"
                     else None
                 ),
                 "browser_mode": subscriber.browser_mode,
@@ -250,10 +259,33 @@ class VisualizerHTTPServer(ThreadingHTTPServer):
         self,
         server_address: tuple[str, int],
         topology: TopologyConfig,
+        backend: str = "containernet",
+        metrics_reader: MetricsReader | None = None,
     ) -> None:
         super().__init__(server_address, _VisualizerHandler)
         self.topology = topology
         self.sampler = ThroughputSampler(topology)
+        self.backend = backend
+        self.metrics_reader = metrics_reader or _read_container_metrics
+        self.subscriber_containers: dict[str, str] = {}
+
+    def register_subscriber_containers(self, containers: dict[str, str]) -> None:
+        self.subscriber_containers = dict(containers)
+
+    def node_metrics(self, node_id: str) -> dict[str, object]:
+        subscriber = self.topology.subscribers.get(node_id)
+        if subscriber is None:
+            return {"status": "unavailable", "reason": "unknown node"}
+        if subscriber.kind != "media":
+            return {"status": "unavailable", "reason": "player metrics unavailable"}
+        container = (
+            f"mn.{node_id}"
+            if self.backend == "containernet"
+            else self.subscriber_containers.get(node_id)
+        )
+        if not container:
+            return {"status": "unavailable", "reason": "container not registered"}
+        return parse_node_metrics(self.metrics_reader(container))
 
 
 def make_server(
@@ -261,9 +293,32 @@ def make_server(
     config_path: str | Path,
     host: str,
     port: int,
+    backend: str = "containernet",
+    metrics_reader: MetricsReader | None = None,
 ) -> VisualizerHTTPServer:
     topology = load_topology(config_path)
-    return VisualizerHTTPServer((host, port), topology)
+    return VisualizerHTTPServer(
+        (host, port), topology, backend=backend, metrics_reader=metrics_reader
+    )
+
+
+def parse_node_metrics(
+    raw: bytes | None, *, now_unix_ms: int | None = None
+) -> dict[str, object]:
+    if raw is None:
+        return {"status": "unavailable", "reason": "metrics not ready"}
+    try:
+        metrics = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return {"status": "unavailable", "reason": "invalid metrics JSON"}
+    if not isinstance(metrics, dict) or metrics.get("schema_version") != 1:
+        return {"status": "unavailable", "reason": "unsupported metrics schema"}
+    sampled_at = metrics.get("sampled_at_unix_ms")
+    if not isinstance(sampled_at, (int, float)):
+        return {"status": "unavailable", "reason": "missing metrics timestamp"}
+    now = int(time.time() * 1000) if now_unix_ms is None else now_unix_ms
+    status = "stale" if now - sampled_at > _METRICS_STALE_MS else "ok"
+    return {"status": status, "metrics": metrics}
 
 
 class _VisualizerHandler(BaseHTTPRequestHandler):
@@ -273,6 +328,12 @@ class _VisualizerHandler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if path == "/api/snapshot":
             self._send_json(snapshot_with_rates(self.server.topology, self.server.sampler))
+            return
+        prefix = "/api/nodes/"
+        suffix = "/metrics"
+        if path.startswith(prefix) and path.endswith(suffix):
+            node_id = unquote(path[len(prefix):-len(suffix)]).strip("/")
+            self._send_json(self.server.node_metrics(node_id))
             return
         static_file = _STATIC_FILES.get(path)
         if static_file is not None:
@@ -345,3 +406,20 @@ def _read_containernet_counters(node_id: str, iface: str) -> InterfaceCounters |
         return InterfaceCounters(rx_bytes=int(lines[0]), tx_bytes=int(lines[1]))
     except ValueError:
         return None
+
+
+def _read_container_metrics(container_id: str) -> bytes | None:
+    try:
+        import docker
+        from docker.errors import DockerException, NotFound
+    except ImportError:
+        return None
+
+    try:
+        client = docker.from_env()
+        result = client.containers.get(container_id).exec_run(["cat", _METRICS_PATH])
+    except (DockerException, NotFound):
+        return None
+    if result.exit_code != 0 or len(result.output) > 64 * 1024:
+        return None
+    return bytes(result.output)
