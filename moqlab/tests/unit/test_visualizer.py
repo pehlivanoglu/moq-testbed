@@ -7,6 +7,8 @@ from moqlab.visualizer import (
     InterfaceCounters,
     ThroughputSampler,
     _VisualizerHandler,
+    VisualizerHTTPServer,
+    parse_node_metrics,
     topology_snapshot,
 )
 
@@ -17,6 +19,15 @@ def test_browser_assets_live_outside_python_package():
     assert (root / "index.html").is_file()
     assert (root / "style.css").is_file()
     assert (root / "app.js").is_file()
+
+    html = (root / "index.html").read_text()
+    app = (root / "app.js").read_text()
+    assert 'id="node-details"' in html
+    assert "/api/nodes/${encodeURIComponent(requestedId)}/metrics" in app
+    assert 'classList.toggle("selected"' in app
+    assert "function updateNodeMetrics(payload)" in app
+    assert "updateNodeMetrics(await response.json())" in app
+    assert app.count("nodeDetails.replaceChildren()") == 1
 
 
 def test_response_write_ignores_broken_pipe():
@@ -184,6 +195,103 @@ def test_native_media_snapshot_has_no_browser_mode():
 
     assert sub["media_client"] == "native"
     assert sub["browser_mode"] is None
+    assert sub["native_playback"] == "receive"
+
+
+def test_node_metrics_resolves_containernet_name_and_staleness():
+    topology = TopologyConfig.model_validate(
+        {
+            "defaults": {
+                "relay": {"tls": {"insecure": False, "generated": True}},
+                "subscriber": {
+                    "media_client": "native",
+                    "native_playback": "simulate",
+                },
+            },
+            "relays": {"root": {"listen_port": 9668, "admin_port": 9669}},
+            "publishers": {
+                "pub": {
+                    "kind": "media", "connects_to": "root", "asset": "testsvc",
+                    "listen_port": 4443, "fingerprint_port": 8081,
+                }
+            },
+            "subscribers": {
+                "sub": {
+                    "kind": "media", "connects_to": "root",
+                    "namespace": "msf/clear", "track": "video/s2",
+                }
+            },
+        }
+    )
+    seen = []
+    server = VisualizerHTTPServer(
+        ("127.0.0.1", 0), topology,
+        metrics_reader=lambda container: seen.append(container) or (
+            b'{"schema_version":1,"sampled_at_unix_ms":1000}'
+        ),
+    )
+    try:
+        result = server.node_metrics("sub")
+    finally:
+        server.server_close()
+
+    assert seen == ["mn.sub"]
+    assert result["status"] == "stale"
+
+
+def test_node_metrics_handles_non_media_and_unknown_nodes():
+    server = VisualizerHTTPServer(
+        ("127.0.0.1", 0), _topology(), backend="docker", metrics_reader=lambda _id: None
+    )
+    try:
+        assert server.node_metrics("sub")["reason"] == "player metrics unavailable"
+        assert server.node_metrics("missing")["reason"] == "unknown node"
+    finally:
+        server.server_close()
+
+
+def test_node_metrics_uses_registered_docker_container_id():
+    topology = TopologyConfig.model_validate(
+        {
+            "defaults": {"relay": {"tls": {"insecure": False, "generated": True}}},
+            "relays": {"root": {"listen_port": 9668, "admin_port": 9669}},
+            "publishers": {
+                "pub": {
+                    "kind": "media", "connects_to": "root", "asset": "testsvc",
+                    "listen_port": 4443, "fingerprint_port": 8081,
+                }
+            },
+            "subscribers": {
+                "sub": {
+                    "kind": "media", "connects_to": "root",
+                    "namespace": "msf/clear", "track": "video/s2",
+                }
+            },
+        }
+    )
+    seen = []
+    server = VisualizerHTTPServer(
+        ("127.0.0.1", 0), topology, backend="docker",
+        metrics_reader=lambda container: seen.append(container) or (
+            b'{"schema_version":1,"sampled_at_unix_ms":9999999999999}'
+        ),
+    )
+    try:
+        assert server.node_metrics("sub")["status"] == "unavailable"
+        server.register_subscriber_containers({"sub": "abc123"})
+        assert server.node_metrics("sub")["status"] == "ok"
+    finally:
+        server.server_close()
+
+    assert seen == ["abc123"]
+
+
+def test_parse_node_metrics_rejects_bad_json_and_marks_fresh_data_ok():
+    assert parse_node_metrics(b"not json")["status"] == "unavailable"
+    result = parse_node_metrics(
+        b'{"schema_version":1,"sampled_at_unix_ms":9000}', now_unix_ms=10_000
+    )
+    assert result["status"] == "ok"
 
 
 def test_throughput_sampler_reports_unavailable_when_counters_missing():

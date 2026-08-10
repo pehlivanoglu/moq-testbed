@@ -97,7 +97,9 @@ def test_run_visualize_starts_server_and_passes_it_to_backend(monkeypatch, tmp_p
         seen["visualizer"] = visualizer
 
     monkeypatch.setattr(cli_module, "ensure_run_ready", lambda config_path, backend: None)
-    monkeypatch.setattr(cli_module, "_start_visualizer", lambda config_path: server)
+    monkeypatch.setattr(
+        cli_module, "_start_visualizer", lambda config_path, backend: server
+    )
     monkeypatch.setattr(cli_module, "_up_docker", fake_up_docker)
 
     result = CliRunner().invoke(

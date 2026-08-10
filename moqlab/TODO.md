@@ -47,10 +47,10 @@ cut from current versions, not bugs or oversights.
       receives at least one date object, then `down`.
 - [ ] `moqlab status --run-id NAME` reporting per-node container status,
       recent log tail, and admin-port reachability.
-- [ ] Extend the first localhost visualizer beyond Containernet interface
-      counters once a real observability collector exists. The current
-      `moqlab run --visualize` flag intentionally avoids guessing Docker
-      per-link throughput from aggregate bridge counters.
+- [ ] Extend the localhost visualizer beyond live link counters and selected
+      media-player metrics once a real observability collector exists. The
+      current `moqlab run --visualize` flag intentionally avoids history and
+      guessing Docker per-link throughput from aggregate bridge counters.
 - [ ] Decide whether `moqlab run` should grow a plan/preview mode later, and
       what exact output should be useful for experiments.
 - [ ] Decide on run-dir location (`moqlab/.runs/` vs
@@ -126,6 +126,11 @@ These become tractable once Phase 4 lands.
       CDP automation and generated per-run TLS; no Playwright dependency.
 
 ## History Notes
+
+- 2026-08-10: Added opt-in `native_playback: simulate`, chain-correct AV1-SVC
+  fake decode/playback with decode-deadline downswitch and independent-only
+  upswitch, shared Chrome/native live metrics, and selected-node metrics in the
+  Containernet-first visualizer. See `PLAYBACK_METRICS.md`.
 
 - 2026-08-06: Added per-subscriber `media_client: chrome|native`, inheritable
   native defaults for large topologies, lightweight `mlmsub` image and launch

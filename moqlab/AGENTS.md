@@ -64,8 +64,9 @@ ergonomics. This is research infrastructure, not a demo script.
   localhost HTTP/API server with separate browser assets under
   `moqlab/visualizer/`. It renders a pannable/zoomable validated topology and
   samples live per-link throughput from active Containernet `mn.<node>`
-  interfaces when available. Docker-backend runs render topology only because
-  Docker bridge counters are not per-topology-link.
+  interfaces when available and reads the selected media subscriber's atomic
+  player-metrics file from its container. Docker-backend runs render topology
+  only for links because Docker bridge counters are not per-topology-link.
 - **Tests** (`tests/unit/`) - unit tests for schema, synthesis, and
   Containernet launch ordering plus visualizer snapshot/rate helpers. They do
   not require Docker, Containernet, or root.
@@ -73,8 +74,9 @@ ergonomics. This is research infrastructure, not a demo script.
 Media support is clear LOC AV1 spatial-SVC only: one origin per relay tree,
 configured namespace/track, headless or direct-X11 Chromium with strict
 decoded frame readiness, plus lightweight native `mlmsub` subscribers with
-dependency-chain subscription and first-media readiness. Not implemented yet:
-ABR, temporal SVC, DRM/audio selection,
+dependency-chain subscription, opt-in chain-correct simulated playback, live
+media metrics, and first-media readiness. Not implemented yet:
+bandwidth-estimation ABR, temporal SVC, DRM/audio selection,
 multiple upstreams per relay, generative topologies,
 scenario runner, observability, JSONL collector, Prometheus/Grafana, QLOG
 archive, TLS CA per run, full `experiments/run_*/` archive layout, replay,
@@ -147,6 +149,7 @@ defaults:
     media_image: moqlab-media-sub
     native_media_image: moqlab-media-native-sub
     media_client: chrome
+    native_playback: receive
     insecure: true
     log_level: INFO
 

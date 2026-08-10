@@ -3,12 +3,21 @@ const svg = document.querySelector("#graph");
 const summary = document.querySelector("#summary");
 const updated = document.querySelector("#updated");
 const linksTable = document.querySelector("#links");
+const nodeDetails = document.querySelector("#node-details");
 const zoomMin = 0.25;
 const zoomMax = 5;
 let viewport;
 let view = { x: 0, y: 0, scale: 1 };
 let dragging = false;
 let lastPointer;
+let selectedNodeId = null;
+let nodesById = new Map();
+let metricsRequestNodeId = null;
+let renderedNodeId = null;
+let metricFields = new Map();
+let metricsStatus;
+let metricsReason;
+let metricsGrid;
 
 function formatRate(bps, status) {
   if (status === "warming") return "sampling";
@@ -16,6 +25,147 @@ function formatRate(bps, status) {
   if (bps >= 1000000) return `${(bps / 1000000).toFixed(2)} Mbps`;
   if (bps >= 1000) return `${(bps / 1000).toFixed(1)} kbps`;
   return `${bps.toFixed(0)} bps`;
+}
+
+function formatMs(value) {
+  if (value === null || value === undefined) return "N/A";
+  return `${Number(value).toFixed(1)} ms`;
+}
+
+function formatSampleTime(value) {
+  if (value === null || value === undefined) return "N/A";
+  return new Date(Number(value)).toISOString().slice(11, 23);
+}
+
+function addMetric(grid, key, label) {
+  const labelEl = document.createElement("div");
+  labelEl.className = "metric-label";
+  labelEl.textContent = label;
+  const valueEl = document.createElement("div");
+  valueEl.className = "metric-value";
+  valueEl.textContent = "N/A";
+  metricFields.set(key, valueEl);
+  grid.append(labelEl, valueEl);
+}
+
+function setMetric(key, value) {
+  const field = metricFields.get(key);
+  if (field) field.textContent = value;
+}
+
+function renderNodeDetails(node) {
+  nodeDetails.replaceChildren();
+  renderedNodeId = node?.id ?? null;
+  metricFields = new Map();
+  metricsStatus = undefined;
+  metricsReason = undefined;
+  metricsGrid = undefined;
+  const heading = document.createElement("h2");
+  heading.textContent = "Node";
+  nodeDetails.append(heading);
+  if (!node) {
+    const prompt = document.createElement("p");
+    prompt.textContent = "Select a node to inspect it.";
+    nodeDetails.append(prompt);
+    return;
+  }
+
+  const name = document.createElement("h3");
+  name.textContent = node.id;
+  const identity = document.createElement("p");
+  identity.textContent = [node.role, node.kind, node.media_client, node.native_playback]
+    .filter(Boolean).join(" · ");
+  nodeDetails.append(name, identity);
+  if (node.role !== "subscriber" || node.kind !== "media") {
+    const unavailable = document.createElement("p");
+    unavailable.textContent = "Player metrics unavailable.";
+    nodeDetails.append(unavailable);
+    return;
+  }
+
+  metricsStatus = document.createElement("span");
+  metricsStatus.className = "metric-status unavailable";
+  metricsStatus.textContent = "loading";
+  metricsReason = document.createElement("p");
+  metricsReason.textContent = "Loading live metrics…";
+  metricsGrid = document.createElement("div");
+  metricsGrid.className = "metric-grid";
+  metricsGrid.hidden = true;
+  addMetric(metricsGrid, "sample", "Sample time (UTC)");
+  addMetric(metricsGrid, "state", "State");
+  addMetric(metricsGrid, "active", "Active quality");
+  addMetric(metricsGrid, "resolution", "Resolution");
+  addMetric(metricsGrid, "spatial", "Spatial layer");
+  addMetric(metricsGrid, "switch", "Switch");
+  addMetric(metricsGrid, "latency", "E2E latency");
+  addMetric(metricsGrid, "player_rate", "Player bitrate");
+  addMetric(metricsGrid, "receive_rate", "Receive bitrate");
+  addMetric(metricsGrid, "catalog_rate", "Catalog bitrate");
+  addMetric(metricsGrid, "buffer", "Buffer");
+  addMetric(metricsGrid, "playback_rate", "Playback rate");
+  addMetric(metricsGrid, "stalls", "Stalls");
+  nodeDetails.append(metricsStatus, metricsReason, metricsGrid);
+}
+
+function updateNodeMetrics(payload) {
+  if (!metricsStatus || !metricsReason || !metricsGrid) return;
+  const status = payload.status ?? "unavailable";
+  metricsStatus.className = `metric-status ${status}`;
+  metricsStatus.textContent = status;
+  if (!payload.metrics) {
+    metricsReason.hidden = false;
+    metricsReason.textContent = payload.reason ?? "Metrics unavailable.";
+    metricsGrid.hidden = true;
+    return;
+  }
+
+  const metrics = payload.metrics;
+  const quality = metrics.quality ?? {};
+  const resolution = quality.width != null && quality.height != null
+    ? `${quality.width}×${quality.height}`
+    : "N/A";
+  metricsReason.hidden = true;
+  metricsGrid.hidden = false;
+  setMetric("sample", formatSampleTime(metrics.sampled_at_unix_ms));
+  setMetric("state", metrics.state ?? "N/A");
+  setMetric("active", metrics.active_track ?? "N/A");
+  setMetric("resolution", resolution);
+  setMetric("spatial", quality.spatial_id == null ? "N/A" : `S${quality.spatial_id}`);
+  setMetric("switch", metrics.switch_state ?? "N/A");
+  setMetric("latency", formatMs(metrics.e2e_latency_ms));
+  setMetric("player_rate", formatRate(metrics.player_bitrate_bps));
+  setMetric("receive_rate", formatRate(metrics.receive_bitrate_bps));
+  setMetric("catalog_rate", formatRate(metrics.catalog_bitrate_bps));
+  setMetric("buffer", formatMs(metrics.buffer_level_ms));
+  setMetric("playback_rate", metrics.playback_rate == null ? "N/A" : `${Number(metrics.playback_rate).toFixed(2)}×`);
+  setMetric("stalls", `${metrics.stall_count ?? 0} · ${formatMs(metrics.stall_duration_ms)}`);
+}
+
+async function refreshNodeMetrics() {
+  const node = nodesById.get(selectedNodeId);
+  if (!node || node.role !== "subscriber" || node.kind !== "media" || metricsRequestNodeId === selectedNodeId) return;
+  const requestedId = selectedNodeId;
+  metricsRequestNodeId = requestedId;
+  try {
+    const response = await fetch(`/api/nodes/${encodeURIComponent(requestedId)}/metrics`, { cache: "no-store" });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    if (selectedNodeId === requestedId) updateNodeMetrics(await response.json());
+  } catch (error) {
+    if (selectedNodeId === requestedId) {
+      updateNodeMetrics({ status: "unavailable", reason: error.message });
+    }
+  } finally {
+    if (metricsRequestNodeId === requestedId) metricsRequestNodeId = null;
+  }
+}
+
+function selectNode(node) {
+  selectedNodeId = node.id;
+  for (const element of document.querySelectorAll(".node")) {
+    element.classList.toggle("selected", element.dataset.nodeId === selectedNodeId);
+  }
+  if (renderedNodeId !== node.id) renderNodeDetails(node);
+  void refreshNodeMetrics();
 }
 
 function directionText(spec, arrow) {
@@ -72,6 +222,11 @@ function layout(nodes) {
 }
 
 function draw(data) {
+  nodesById = new Map(data.nodes.map((node) => [node.id, node]));
+  if (selectedNodeId && !nodesById.has(selectedNodeId)) {
+    selectedNodeId = null;
+    renderNodeDetails(null);
+  }
   const { width, height, positions } = layout(data.nodes);
   svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
   svg.innerHTML = "";
@@ -111,7 +266,19 @@ function draw(data) {
     const p = positions.get(node.id);
     const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
     group.setAttribute("class", `node ${node.role}`);
+    group.classList.toggle("selected", node.id === selectedNodeId);
+    group.dataset.nodeId = node.id;
+    group.setAttribute("role", "button");
+    group.setAttribute("tabindex", "0");
+    group.setAttribute("aria-label", `Inspect ${node.id}`);
     group.setAttribute("transform", `translate(${p.x}, ${p.y})`);
+    group.addEventListener("click", () => selectNode(node));
+    group.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        selectNode(node);
+      }
+    });
     const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
     circle.setAttribute("r", "34");
     group.append(circle);
@@ -188,6 +355,7 @@ function zoomAt(event) {
 
 function startPan(event) {
   if (event.button !== 0) return;
+  if (event.target.closest?.(".node")) return;
   dragging = true;
   lastPointer = svgPoint(event);
   svg.setPointerCapture(event.pointerId);
@@ -223,6 +391,7 @@ async function refresh() {
     const response = await fetch("/api/snapshot", { cache: "no-store" });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     draw(await response.json());
+    await refreshNodeMetrics();
   } catch (error) {
     updated.textContent = `Visualizer fetch failed: ${error.message}`;
   }

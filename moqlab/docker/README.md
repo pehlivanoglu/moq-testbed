@@ -50,7 +50,9 @@ vendoring. Its defaults are sibling `moqlivemock-svc` and `warp-player-svc`
 repositories. Native subscriber image builds `mlmsub` from `moqlivemock-svc`.
 Chrome subscriber runtime starts a Node static server, Chromium,
 and the CDP readiness runner. X11 mode uses host display socket directly. No
-process manager is used.
+process manager is used. Chrome and native media subscribers atomically write
+live player metrics to `/tmp/moqlab-player-metrics.json`; simulated native
+playback does not add a decoder or FFmpeg process.
 
 Image tags can be overridden per topology via `defaults.relay.image` /
 `defaults.publisher.image` / `defaults.subscriber.image` /

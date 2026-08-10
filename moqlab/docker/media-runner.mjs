@@ -1,4 +1,4 @@
-import { writeFileSync } from "node:fs";
+import { renameSync, writeFileSync } from "node:fs";
 
 const options = Object.fromEntries(process.argv.slice(2).map((arg) => {
   const [key, ...value] = arg.replace(/^--/, "").split("=");
@@ -6,9 +6,15 @@ const options = Object.fromEntries(process.argv.slice(2).map((arg) => {
 }));
 const readyPath = "/tmp/moqlab-media-ready.json";
 const failurePath = "/tmp/moqlab-media-failure.json";
+const metricsPath = "/tmp/moqlab-player-metrics.json";
 const timeoutMs = Number(options["ready-timeout-s"] ?? 30) * 1000;
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const emit = (event, detail = {}) => console.log(JSON.stringify({ event, at: Date.now(), ...detail }));
+const writeAtomicJson = (path, value) => {
+  const temporary = `${path}.tmp`;
+  writeFileSync(temporary, `${JSON.stringify(value)}\n`);
+  renameSync(temporary, path);
+};
 
 async function endpoint(path, init) {
   const response = await fetch(`http://127.0.0.1:9222${path}`, init);
@@ -35,6 +41,8 @@ async function connectCdp() {
 }
 
 const socket = await connectCdp();
+let metricsTimer;
+let samplingMetrics = false;
 let nextId = 1;
 const pending = new Map();
 socket.onmessage = ({ data }) => {
@@ -109,6 +117,21 @@ try {
     document.getElementById("startBtn").click();
   })()`);
 
+  const sampleMetrics = async () => {
+    if (samplingMetrics) return;
+    samplingMetrics = true;
+    try {
+      const metrics = await evaluate(`globalThis.__moqlabPlayerMetrics?.() ?? null`);
+      if (metrics) writeAtomicJson(metricsPath, metrics);
+    } catch (error) {
+      emit("metrics_error", { error: error instanceof Error ? error.message : String(error) });
+    } finally {
+      samplingMetrics = false;
+    }
+  };
+  await sampleMetrics();
+  metricsTimer = setInterval(sampleMetrics, 1000);
+
   const sid = /\/s(\d+)$/.exec(options["video-track"] ?? "");
   emit("subscription_target", { track: options["video-track"], expectedSubscriptions: sid ? Number(sid[1]) + 1 : 1 });
   const expected = await evaluate(`(() => {
@@ -161,7 +184,16 @@ try {
     }
   }
 } catch (error) {
+  if (metricsTimer) clearInterval(metricsTimer);
   const failure = { status: "failed", error: error instanceof Error ? error.message : String(error) };
+  writeAtomicJson(metricsPath, {
+    schema_version: 1, sampled_at_unix_ms: Date.now(), client: "chrome", simulated: false,
+    state: "error", target_track: options["video-track"] ?? null, active_track: null,
+    switch_state: "stable", quality: { spatial_id: null, width: null, height: null },
+    e2e_latency_ms: null, player_bitrate_bps: null, receive_bitrate_bps: 0,
+    catalog_bitrate_bps: null, buffer_level_ms: null, playback_rate: null,
+    stall_count: 0, stall_duration_ms: 0,
+  });
   writeFileSync(failurePath, JSON.stringify(failure));
   emit("playback_error", failure);
   process.exitCode = 1;
