@@ -17,6 +17,7 @@ from moqlab.build import (
 from moqlab.cleanup import remove_pycaches
 from moqlab.config.schema import load_topology
 from moqlab.doctor import doctor_checks, ensure_run_ready, has_failures
+from moqlab.designer import DesignerHTTPServer, make_designer_server
 from moqlab.exceptions import MoqlabError
 from moqlab.orchestrator.docker_backend import DockerBackend
 from moqlab.visualizer import VisualizerHTTPServer, make_server
@@ -49,6 +50,36 @@ def _docker_backend(ctx: click.Context) -> DockerBackend:
         return DockerBackend(runs_dir=ctx.obj.get("runs_dir"))
     except MoqlabError as e:
         raise click.ClickException(str(e)) from e
+
+
+@cli.command(help="Open the local drag-and-drop topology YAML designer.")
+@click.option(
+    "--config",
+    "-c",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="Optional topology YAML to load into the editor.",
+)
+@click.option(
+    "--port",
+    type=click.IntRange(1, 65535),
+    default=_VIS_PORT,
+    show_default=True,
+)
+def design(config: Path | None, port: int) -> None:
+    server: DesignerHTTPServer | None = None
+    try:
+        server = make_designer_server(host=_VIS_HOST, port=port, config_path=config)
+        click.echo(f"designer: http://{_VIS_HOST}:{server.server_address[1]}/")
+        click.echo("press Ctrl-C to stop")
+        server.serve_forever()
+    except KeyboardInterrupt:
+        click.echo("\nstopped designer")
+    except (MoqlabError, OSError) as error:
+        raise click.ClickException(f"failed to start designer: {error}") from error
+    finally:
+        if server is not None:
+            server.server_close()
 
 
 @cli.group(help="Prepare local build artifacts. Build commands do not run topologies.")

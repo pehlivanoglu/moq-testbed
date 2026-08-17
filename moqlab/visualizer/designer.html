@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>moqlab topology designer</title>
+  <link rel="stylesheet" href="/designer.css">
+</head>
+<body>
+  <header>
+    <div>
+      <h1>moqlab topology designer</h1>
+      <p id="summary">Loading schema…</p>
+    </div>
+    <div class="toolbar" role="toolbar" aria-label="Topology actions">
+      <span id="backend-badge" class="badge">Docker compatible</span>
+      <button id="undo" type="button" disabled>Undo</button>
+      <button id="redo" type="button" disabled>Redo</button>
+      <button id="auto-layout" type="button">Auto layout</button>
+      <button id="preview" type="button" disabled>Preview YAML</button>
+      <button id="download" class="primary" type="button" disabled>Download YAML</button>
+    </div>
+  </header>
+
+  <main>
+    <aside id="palette" aria-label="Topology palette">
+      <section>
+        <h2>Add nodes</h2>
+        <div id="node-palette" class="palette-grid">
+          <button draggable="true" data-role="relay">Relay</button>
+          <button draggable="true" data-role="router">Router</button>
+          <button draggable="true" data-role="publisher">Publisher</button>
+          <button draggable="true" data-role="subscriber">Subscriber</button>
+          <button draggable="true" data-role="traffic-sender">Traffic sender</button>
+          <button draggable="true" data-role="traffic-receiver">Traffic receiver</button>
+        </div>
+        <button id="link-mode" class="wide" type="button">Connect physical link</button>
+        <p id="link-prompt" class="hint" aria-live="polite"></p>
+        <div id="link-items"></div>
+      </section>
+
+      <section>
+        <h2>Start from</h2>
+        <select id="examples" aria-label="Bundled example">
+          <option value="">Blank topology</option>
+        </select>
+        <button id="load-example" class="wide" type="button">Load selection</button>
+        <label class="file-button wide">
+          Import YAML
+          <input id="import-file" type="file" accept=".yaml,.yml,application/yaml,text/yaml">
+        </label>
+      </section>
+
+      <section>
+        <h2>Traffic loads</h2>
+        <button id="add-load" class="wide" type="button">Add traffic load</button>
+        <div id="traffic-items"></div>
+        <details>
+          <summary>Advanced routes</summary>
+          <div class="split-actions">
+            <button id="add-route" type="button">Add route</button>
+            <button id="add-flow" type="button">Reuse route</button>
+          </div>
+          <div id="route-items"></div>
+        </details>
+      </section>
+
+      <section>
+        <h2>Global config</h2>
+        <div id="global-config-buttons"></div>
+      </section>
+    </aside>
+
+    <section id="canvas-wrap">
+      <svg id="graph" role="application" aria-label="Editable moqlab topology graph" tabindex="0">
+        <g id="viewport"></g>
+      </svg>
+      <div id="canvas-help">Drop nodes here. Drag nodes to position. Select items to edit.</div>
+    </section>
+
+    <aside id="inspector" aria-live="polite">
+      <div id="validation" class="validation pending">Waiting for validation</div>
+      <div id="errors"></div>
+      <div id="editor">
+        <h2>Inspector</h2>
+        <p>Select node, link, route, flow, defaults, or startup.</p>
+      </div>
+    </aside>
+  </main>
+
+  <dialog id="yaml-dialog">
+    <form method="dialog">
+      <div class="dialog-heading">
+        <h2>Validated YAML</h2>
+        <button aria-label="Close YAML preview">Close</button>
+      </div>
+      <textarea id="yaml-preview" readonly spellcheck="false"></textarea>
+    </form>
+  </dialog>
+
+  <script src="/designer.js"></script>
+</body>
+</html>

@@ -265,6 +265,37 @@ counts. `segmented` models network load only: no browser, MPD, codec, or media.
 Python scheduling gives deterministic inputs, not bit-identical kernel timing.
 ECN/L4S socket behavior is intentionally deferred.
 
+### Topology designer
+
+The local designer creates the same strict YAML consumed by `validate` and
+`run`, without starting Docker or Containernet:
+
+```bash
+cd moqlab
+python -m moqlab design
+python -m moqlab design -c configs/examples/external_traffic.yaml
+python -m moqlab design --port 8765
+```
+
+Open the printed localhost URL. Drag or click relays, routers, publishers,
+subscribers, and traffic endpoints onto the canvas; connect physical links;
+then configure application references, directional shaping, and traffic loads
+in the inspector. Each load combines its path and traffic pattern in one place;
+named reusable routes remain under Advanced routes. Bundled examples, bulk
+node duplication, undo/redo, automatic layout, server-side validation, YAML
+preview, and YAML download are built in. Draft data and node positions stay in
+browser `localStorage`; positions never enter topology YAML.
+New nodes receive concrete effective image, endpoint, TLS/cache, logging, and
+media defaults. Service ports are allocated from the next free value and the
+editor blocks export when manually entered ports collide.
+
+Forms come from `TopologyConfig.model_json_schema()`, while a small manifest
+describes graph-specific relationships. Schema coverage tests fail when a new
+config construct lacks editor support. Imported YAML is exported in normalized
+form: configuration meaning and explicit values remain, but comments and
+original formatting do not. The designer cannot run experiments or write
+repository files; use the downloaded file with `moqlab run`.
+
 ### AV1-SVC media nodes
 
 See [`media_svc_headless.yaml`](configs/examples/media_svc_headless.yaml),
@@ -398,6 +429,7 @@ needs the four runtime deps installed (see "Running it").
 | Command | Backend | Purpose |
 |---|---|---|
 | `python -m moqlab doctor [-c <config>] [--backend docker\|containernet]` | both | Check Python deps, Docker, required images, Containernet importability, privileges, and optional config readiness. |
+| `python -m moqlab design [-c <config>] [--port PORT]` | n/a | Open the dependency-free localhost drag-and-drop topology YAML designer. Validates and downloads configs; never runs a topology. |
 | `python -m moqlab build moqx` | n/a | Build moqx and prepare moxygen binaries used by images. |
 | `python -m moqlab build images` | n/a | Build `moqlab-relay`, `moqlab-pub`, `moqlab-sub`, `moqlab-router`, and `moqlab-traffic`. |
 | `python -m moqlab build media-images [--publisher-context PATH] [--player-context PATH]` | n/a | Build `moqlab-media-pub`, `moqlab-media-sub`, and `moqlab-media-native-sub` from local contexts. Environment equivalents: `MOQLAB_MEDIA_PUBLISHER_CONTEXT` and `MOQLAB_MEDIA_PLAYER_CONTEXT`. |
