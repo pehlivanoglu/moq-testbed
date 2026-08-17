@@ -71,6 +71,12 @@ ergonomics. This is research infrastructure, not a demo script.
   interfaces when available and reads the selected media subscriber's atomic
   player-metrics file from its container. Docker-backend runs render topology
   only for links because Docker bridge counters are not per-topology-link.
+- **Designer** (`moqlab/designer.py` + `visualizer/designer.*`) - standalone
+  dependency-free localhost drag/drop editor launched by `moqlab design`.
+  Pydantic JSON Schema drives every config field; a small UI manifest adds
+  graph semantics. It imports examples or local YAML, validates through the
+  canonical `TopologyConfig`, and downloads normalized YAML without running
+  containers or writing repository files.
 - **Tests** (`tests/unit/`) - unit tests for schema, synthesis, and
   Containernet launch ordering plus visualizer snapshot/rate helpers. They do
   not require Docker, Containernet, or root.
@@ -108,12 +114,16 @@ moqlab/
 ├── visualizer/
 │   ├── index.html
 │   ├── style.css
-│   └── app.js
+│   ├── app.js
+│   ├── designer.html
+│   ├── designer.css
+│   └── designer.js
 ├── moqlab/
 │   ├── __main__.py
 │   ├── build.py
 │   ├── cli.py
 │   ├── exceptions.py
+│   ├── designer.py
 │   ├── visualizer.py
 │   ├── trafficgen.py
 │   ├── config/
@@ -293,6 +303,10 @@ Containernet specifics that matter in this repo:
   not import each other.
 - Prefer config/schema helpers over duplicating string construction in
   backends.
+- Every `TopologyConfig` schema change must keep the designer schema-contract
+  tests passing. Ordinary fields must remain reachable through generated
+  forms; new node collections, relationships, or discriminated variants must
+  also update the designer UI manifest and graph interactions.
 - Do not add comments or docstrings that merely restate a function, class, or
   file name. For example, avoid docstrings like "Commands that build the local
   Docker images" on a function already named `docker_image_build_commands`.

@@ -1,0 +1,107 @@
+topology_mode: explicit
+relays:
+  relay:
+    listen_port: 9668
+    admin_port: 9669
+    upstream: null
+    image: moqlab-relay
+    endpoint: /moq-relay
+    tls:
+      insecure: true
+      generated: false
+    cache:
+      enabled: false
+      max_tracks: 100
+      max_groups_per_track: 3
+publishers:
+  pub:
+    kind: text
+    connects_to: relay
+    namespace: moq-date
+    port: 9700
+    image: moqlab-pub
+    insecure: true
+    log_level: INFO
+subscribers:
+  sub:
+    kind: text
+    connects_to: relay
+    namespace: moq-date
+    track: date
+    image: moqlab-sub
+    insecure: true
+    log_level: INFO
+routers:
+  router:
+    image: moqlab-router
+links:
+- from: traffic-tx
+  to: router
+  forward:
+    bandwidth_mbps: 7
+- from: router
+  to: traffic-rx
+  forward:
+    bandwidth_mbps: 7
+- from: pub
+  to: relay
+- from: sub
+  to: router
+- from: relay
+  to: router
+defaults:
+  relay:
+    image: moqlab-relay
+    endpoint: /moq-relay
+    tls:
+      insecure: true
+      generated: false
+    cache:
+      enabled: false
+      max_tracks: 100
+      max_groups_per_track: 3
+  publisher:
+    image: moqlab-pub
+    media_image: moqlab-media-pub
+    insecure: true
+    log_level: INFO
+  subscriber:
+    image: moqlab-sub
+    media_image: moqlab-media-sub
+    native_media_image: moqlab-media-native-sub
+    media_client: chrome
+    native_playback: receive
+    insecure: true
+    log_level: INFO
+  router:
+    image: moqlab-router
+  traffic:
+    image: moqlab-traffic
+    tcp_port: 9000
+    udp_port: 9001
+  link:
+    forward: {}
+    reverse: {}
+startup:
+  relay_warmup_s: 2
+  publisher_warmup_s: 1
+  media_ready_timeout_s: 30
+  traffic_ready_timeout_s: 5
+traffic:
+  routes:
+    load-2-route:
+      path:
+      - traffic-tx
+      - router
+      - traffic-rx
+  flows:
+  - id: load-2
+    kind: cbr
+    route: load-2-route
+    duration_s: 100
+    rate_mbps: 6.7
+    start_s: 0
+  sender:
+    id: traffic-tx
+  receiver:
+    id: traffic-rx
