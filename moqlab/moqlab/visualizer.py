@@ -144,6 +144,18 @@ def topology_snapshot(topology: TopologyConfig) -> dict[str, object]:
                 "browser_mode": subscriber.browser_mode,
             }
         )
+    if topology.traffic is not None:
+        for role, endpoint in (
+            ("traffic-sender", topology.traffic.sender),
+            ("traffic-receiver", topology.traffic.receiver),
+        ):
+            nodes.append(
+                {
+                    "id": endpoint.id,
+                    "role": role,
+                    "level": _level(endpoint.id, 0),
+                }
+            )
 
     min_level = min((int(node["level"]) for node in nodes), default=0)
     for node in nodes:
@@ -184,6 +196,7 @@ def topology_snapshot(topology: TopologyConfig) -> dict[str, object]:
             "publishers": len(topology.publishers),
             "subscribers": len(topology.subscribers),
             "links": len(links),
+            **({"traffic_endpoints": 2} if topology.traffic is not None else {}),
         },
     }
 

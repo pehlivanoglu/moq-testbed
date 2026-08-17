@@ -52,6 +52,7 @@ def docker_image_build_commands(root: Path | None = None) -> list[BuildCommand]:
         ("publisher image", "moqlab/docker/Dockerfile.pub", "moqlab-pub"),
         ("subscriber image", "moqlab/docker/Dockerfile.sub", "moqlab-sub"),
         ("router image", "moqlab/docker/Dockerfile.router", "moqlab-router"),
+        ("traffic image", "moqlab/docker/Dockerfile.traffic", "moqlab-traffic"),
     ]
     return [
         BuildCommand(

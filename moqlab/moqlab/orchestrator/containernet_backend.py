@@ -26,6 +26,7 @@ the user actually runs `moqlab run --backend containernet`.
 from __future__ import annotations
 
 import ipaddress
+import json
 import logging
 import os
 import shutil
@@ -51,6 +52,8 @@ from moqlab.runtime import (
     default_runs_dir,
     node_loopback_ips,
     relay_order,
+    traffic_plan,
+    traffic_route_ips,
     validate_run_id,
 )
 
@@ -68,6 +71,8 @@ _SUB_BINARY = "/usr/local/bin/moqtextclient"
 _MEDIA_PUB_BINARY = "/usr/local/bin/mlmpub"
 _MEDIA_SUB_BINARY = "/usr/local/bin/moqlab-media-sub"
 _NATIVE_MEDIA_SUB_BINARY = "/usr/local/bin/mlmsub"
+_TRAFFIC_BINARY = "python3 /usr/local/bin/moqlab-traffic"
+_TRAFFIC_PLAN_PATH = "/etc/moqlab/traffic-plan.json"
 
 # We carve one /24 out of this /16 per topology link. Avoid Containernet's
 # default 10.0.0.0/8 pool so our explicit subnets don't collide with anything
@@ -100,6 +105,7 @@ class ContainernetRunRecord:
     routers: list[str] = field(default_factory=list)
     publishers: list[str] = field(default_factory=list)
     subscribers: list[str] = field(default_factory=list)
+    traffic_endpoints: list[str] = field(default_factory=list)
     # node id → canonical /32 loopback address (no prefix). Written to every
     # node's /etc/hosts and targeted by the static routes.
     loopback_ips: dict[str, str] = field(default_factory=dict)
@@ -176,6 +182,10 @@ class ContainernetBackend:
         shutil.copyfile(config_path, run_dir / "topology.yaml")
         generate_run_tls(topology, run_dir)
         relay_yaml_paths = synthesize_relay_configs(topology, run_dir / "configs")
+        if topology.traffic is not None:
+            (run_dir / "traffic-plan.json").write_text(
+                json.dumps(traffic_plan(topology, run_id), indent=2) + "\n"
+            )
 
         # Containernet names every Docker host `mn.<id>`. Stale copies from a
         # previous crashed run will collide on container create; remove them
@@ -323,6 +333,17 @@ class ContainernetBackend:
             )
             record.subscribers.append(sid)
 
+        if topology.traffic is not None:
+            plan_path = (record.run_dir / "traffic-plan.json").resolve()
+            for endpoint in (topology.traffic.sender, topology.traffic.receiver):
+                nodes[endpoint.id] = net.addDocker(
+                    endpoint.id,
+                    dimage=topology.traffic_image(endpoint.id),
+                    volumes=[f"{plan_path}:{_TRAFFIC_PLAN_PATH}:ro"],
+                    sysctls=dict(_ENDPOINT_SYSCTLS),
+                )
+                record.traffic_endpoints.append(endpoint.id)
+
         # One /24 per link, direct host↔host veth pair, both sides addressed
         # explicitly (multi-link nodes need one IP per interface, so we never
         # rely on Containernet's auto-assignment).
@@ -392,6 +413,34 @@ class ContainernetBackend:
                 nid, hops[nid], record.loopback_ips, neighbor_addrs.get(nid, {})
             ):
                 node.cmd(cmd)
+
+        if topology.traffic is not None:
+            aliases = traffic_route_ips(topology)
+            sender = topology.traffic.sender.id
+            receiver = topology.traffic.receiver.id
+            for sender_ip, receiver_ip in aliases.values():
+                net.get(sender).cmd(f"ip addr replace {sender_ip}/32 dev lo")
+                net.get(receiver).cmd(f"ip addr replace {receiver_ip}/32 dev lo")
+
+            for name, route in topology.traffic.routes.items():
+                sender_ip, receiver_ip = aliases[name]
+                for index, (current, neighbor) in enumerate(
+                    zip(route.path, route.path[1:])
+                ):
+                    next_ip, iface = neighbor_addrs[current][neighbor]
+                    source = f" src {sender_ip}" if index == 0 else ""
+                    net.get(current).cmd(
+                        f"ip route replace {receiver_ip}/32 via {next_ip} "
+                        f"dev {iface}{source}"
+                    )
+                reverse = list(reversed(route.path))
+                for index, (current, neighbor) in enumerate(zip(reverse, reverse[1:])):
+                    next_ip, iface = neighbor_addrs[current][neighbor]
+                    source = f" src {receiver_ip}" if index == 0 else ""
+                    net.get(current).cmd(
+                        f"ip route replace {sender_ip}/32 via {next_ip} "
+                        f"dev {iface}{source}"
+                    )
 
         info("*** Applying per-direction link shaping\n")
         for edge, link in zip(edges, topology.links):
@@ -513,6 +562,25 @@ class ContainernetBackend:
                         topology.startup.media_ready_timeout_s, info
                     )
 
+        if topology.traffic is not None:
+            receiver = topology.traffic.receiver.id
+            sender = topology.traffic.sender.id
+            receiver_cmd = (
+                f"{_TRAFFIC_BINARY} receiver --plan {_TRAFFIC_PLAN_PATH} "
+                f"> /tmp/{receiver}.log 2>&1 &"
+            )
+            info(f"*** launching traffic receiver {receiver}\n")
+            net.get(receiver).cmd(receiver_cmd)
+            _await_traffic_receiver(
+                net.get(receiver), receiver, topology.startup.traffic_ready_timeout_s
+            )
+            sender_cmd = (
+                f"{_TRAFFIC_BINARY} sender --plan {_TRAFFIC_PLAN_PATH} "
+                f"> /tmp/{sender}.log 2>&1 &"
+            )
+            info(f"*** launching traffic sender {sender}\n")
+            net.get(sender).cmd(sender_cmd)
+
 
 def _shell_quote_argv(argv: list[str]) -> list[str]:
     """Shell-quote each argv element so dcmd survives shell interpretation."""
@@ -526,6 +594,23 @@ def _sleep_if_configured(seconds: float, reason: str, info) -> None:
         return
     info(f"*** waiting {seconds:g}s {reason}\n")
     time.sleep(seconds)
+
+
+def _await_traffic_receiver(node, node_id: str, timeout_s: float) -> None:
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        output = node.cmd(
+            f"grep -F '\"event\":\"receiver_ready\"' /tmp/{node_id}.log "
+            "2>/dev/null && echo __MOQLAB_READY__"
+        )
+        if "__MOQLAB_READY__" in output:
+            return
+        time.sleep(0.05)
+    detail = node.cmd(f"tail -n 40 /tmp/{node_id}.log 2>/dev/null").strip()
+    raise OrchestratorError(
+        f"traffic receiver {node_id!r} was not ready within {timeout_s:g}s"
+        + (f": {detail}" if detail else "")
+    )
 
 
 def _await_containernet_media_ready(node, node_id: str, timeout_s: float, info) -> None:

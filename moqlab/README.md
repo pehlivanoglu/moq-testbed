@@ -1,7 +1,7 @@
 # moqlab — MoQ Multirelay Testbed Orchestrator
 
 `moqlab` takes a single YAML topology and brings it up as a graph of MoQ
-relays, publishers, subscribers, and IP routers. Two backends share the same
+relays, publishers, subscribers, IP routers, and optional external traffic. Two backends share the same
 config:
 
 - **`--backend containernet`** (default for `run`) — every node (including
@@ -13,12 +13,12 @@ config:
   tear down.
 - **`--backend docker`** — each node is a Docker container on a
   user-defined bridge network. Detached; `moqlab down` to tear down. Ignores
-  `links:`; refuses topologies that declare routers.
+  `links:`; refuses topologies that declare routers or external traffic.
 
 No per-relay YAMLs. No hardcoded IPs in configs. No `localhost`. The
 orchestrator wires everything by name (Docker DNS on the docker backend;
 generated `/etc/hosts` + static routes on containernet), so the same
-router-free config runs on either backend.
+router/traffic-free config runs on either backend.
 
 Publisher/subscriber nodes default to existing text tools. `kind: media`
 selects `mlmpub` plus either Chromium-driven WARP Player or native `mlmsub`
@@ -47,6 +47,7 @@ moqlab/
 │   ├── cli.py                      ← Click commands
 │   ├── exceptions.py
 │   ├── visualizer.py               ← localhost visualizer API/static server
+│   ├── trafficgen.py                ← custom bulk/CBR/segmented traffic runtime
 │   ├── config/
 │   │   ├── schema.py               ← Pydantic v2 topology model
 │   │   └── synth.py                ← topology → relay YAML + pub/sub argv
@@ -60,9 +61,10 @@ moqlab/
 │       ├── linear_1r_1s.yaml      ← 1 relay + pub + sub + 1 router (dualpi2 bottleneck)
 │       ├── linear_3r_1s.yaml      ← 3-relay chain with a router between relay hops
 │       ├── tree_3r_4s.yaml        ← 3-relay tree behind one core router + 4 subscribers
+│       ├── external_traffic.yaml  ← two traffic containers across two named paths
 │       ├── media_svc_metrics.yaml ← headless Chrome + simulated native subscriber
 │       └── 100subs.yaml           ← 100 simulated native subscribers on one relay
-├── docker/                         ← Dockerfiles for the four node images
+├── docker/                         ← Dockerfiles for node images
 │   └── README.md
 ├── visualizer/                      ← browser UI assets (HTML, CSS, JS)
 └── tests/unit/                     ← pytest, no Docker required
@@ -115,7 +117,8 @@ cd moqlab
 # missing, this runs the repository setup step first.
 python -m moqlab build moqx
 
-# Builds moqlab-relay, moqlab-pub, moqlab-sub, and moqlab-router from the
+# Builds moqlab-relay, moqlab-pub, moqlab-sub, moqlab-router, and
+# moqlab-traffic from the
 # repo root context. The router image compiles a pinned modern iproute2 so
 # its tc knows dualpi2; the host's tc version does not matter.
 python -m moqlab build images
@@ -172,6 +175,7 @@ defaults:
 startup:
   relay_warmup_s: 2.0
   publisher_warmup_s: 1.0
+  traffic_ready_timeout_s: 5.0
 
 relays:
   relay-a: { listen_port: 9668, admin_port: 9669, upstream: null }
@@ -188,6 +192,15 @@ routers:                     # Containernet only; Docker backend refuses
   rt-ab: {}                  # image defaults to defaults.router.image (moqlab-router)
   rt-bc: {}
 
+traffic:                     # optional; exactly one sender + one receiver
+  sender: { id: traffic-tx }
+  receiver: { id: traffic-rx }
+  routes:
+    west: { path: [traffic-tx, rt-ab, traffic-rx] }
+  flows:
+    - { id: bulk, kind: bulk, route: west, start_s: 0, duration_s: 30,
+        connections: 2 }
+
 links:                       # Containernet only; physical wiring + shaping
   - from: pub
     to: relay-a
@@ -201,6 +214,8 @@ links:                       # Containernet only; physical wiring + shaping
     to: relay-b
     forward: { bandwidth_mbps: 50, aqm: dualpi2 }   # bottleneck on router egress
     reverse: { delay_ms: 10 }
+  - { from: traffic-tx, to: rt-ab }
+  - { from: rt-ab, to: traffic-rx }
   # ... rt-bc, relay-c, sub follow the same pattern
 ```
 
@@ -223,8 +238,32 @@ Invariants the schema enforces:
 | When `links:`/`routers:` are declared, every `upstream`/`connects_to` pair must have a path through the link graph | A relay that cannot reach its upstream would only fail at run time. |
 | `aqm` only on directions whose egress node is a router | Endpoint images ship an iproute2 too old for modern AQMs; the router image carries its own. |
 | Every declared router appears in at least one link | An unwired router is a config bug. |
+| Traffic paths start at sender, end at receiver, use routers internally, and follow declared links | Makes selected routes explicit and reproducible. |
 | `jitter_ms` requires `delay_ms` | netem expresses jitter as a variation of delay. |
 | Unknown fields rejected | Surfaces typos as `ConfigError`. |
+
+### External traffic
+
+[`external_traffic.yaml`](configs/examples/external_traffic.yaml) runs one
+`moqlab-traffic` sender and one receiver across multiple named paths. Backend
+generates one sender/receiver `/32` alias pair per path and installs symmetric
+hop-by-hop routes, so concurrent flows between same two containers can traverse
+different routers. Generated aliases and resolved flows are saved as
+`<run_dir>/traffic-plan.json`; configs never contain IP addresses.
+
+Available flow kinds:
+
+- `bulk`: continuous TCP writes over `connections` sockets.
+- `cbr`: paced UDP using `rate_mbps` and `packet_size_bytes`.
+- `segmented`: DASH-like TCP bursts. Each client sends one segment per
+  `segment_duration_ms`; segment sizes cycle through
+  `representation_sequence_mbps`.
+
+Sender schedules every flow from one monotonic epoch. JSONL logs contain
+planned flow identity, actual timings, byte/packet totals, and CBR late-packet
+counts. `segmented` models network load only: no browser, MPD, codec, or media.
+Python scheduling gives deterministic inputs, not bit-identical kernel timing.
+ECN/L4S socket behavior is intentionally deferred.
 
 ### AV1-SVC media nodes
 
@@ -339,6 +378,7 @@ There is no bandwidth-estimation ABR, DRM, audio selection, or temporal SVC.
   work across any number of router hops. Routers are plain Docker hosts with
   `net.ipv4.ip_forward=1` (plus `rp_filter=0` and ICMP-redirect suppression)
   that run no MoQ binary. After `net.start()` the backend assigns loopbacks,
+  then installs route-specific traffic aliases when `traffic:` is present.
   disables NIC offloads on link interfaces (GSO/TSO/GRO would distort
   shaping), installs routes, applies the per-direction tc chains from
   `orchestrator/shaping.py` inside each owning container, sanity-pings every
@@ -359,7 +399,7 @@ needs the four runtime deps installed (see "Running it").
 |---|---|---|
 | `python -m moqlab doctor [-c <config>] [--backend docker\|containernet]` | both | Check Python deps, Docker, required images, Containernet importability, privileges, and optional config readiness. |
 | `python -m moqlab build moqx` | n/a | Build moqx and prepare moxygen binaries used by images. |
-| `python -m moqlab build images` | n/a | Build `moqlab-relay`, `moqlab-pub`, `moqlab-sub`, and `moqlab-router`. |
+| `python -m moqlab build images` | n/a | Build `moqlab-relay`, `moqlab-pub`, `moqlab-sub`, `moqlab-router`, and `moqlab-traffic`. |
 | `python -m moqlab build media-images [--publisher-context PATH] [--player-context PATH]` | n/a | Build `moqlab-media-pub`, `moqlab-media-sub`, and `moqlab-media-native-sub` from local contexts. Environment equivalents: `MOQLAB_MEDIA_PUBLISHER_CONTEXT` and `MOQLAB_MEDIA_PLAYER_CONTEXT`. |
 | `python -m moqlab validate -c <config>` | both | Parse + validate, no side effects. |
 | `python -m moqlab run -c <config> [--backend docker\|containernet] [--run-id N] [--publish-ports] [--vis\|--visualize]` | both | Run topology. Defaults to `containernet`. With `--visualize`, also serves `http://127.0.0.1:8765/` showing a pannable/zoomable topology graph and link rates. Live per-link throughput is available for Containernet runs, where every topology edge has its own interface. Docker-backend runs still render the correct topology, but Docker's single bridge interface is not split per topology link. |

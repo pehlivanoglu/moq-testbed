@@ -1,0 +1,70 @@
+# Two external traffic containers drive two explicit router paths while a text
+# MoQ publisher/subscriber runs through the west router.
+
+topology_mode: explicit
+
+defaults:
+  traffic:
+    image: moqlab-traffic
+    tcp_port: 9000
+    udp_port: 9001
+
+startup:
+  relay_warmup_s: 1
+  publisher_warmup_s: 1
+  traffic_ready_timeout_s: 5
+
+relays:
+  relay-a: { listen_port: 9668, admin_port: 9669 }
+
+publishers:
+  pub: { connects_to: relay-a, namespace: moq-date }
+
+subscribers:
+  sub: { connects_to: relay-a, namespace: moq-date, track: date }
+
+routers:
+  rt-west: {}
+  rt-east: {}
+
+traffic:
+  sender: { id: traffic-tx }
+  receiver: { id: traffic-rx }
+  routes:
+    west: { path: [traffic-tx, rt-west, traffic-rx] }
+    east: { path: [traffic-tx, rt-east, traffic-rx] }
+  flows:
+    - id: video-west
+      kind: segmented
+      route: west
+      start_s: 2
+      duration_s: 60
+      clients: 2
+      segment_duration_ms: 2000
+      representation_sequence_mbps: [2, 5, 8, 5]
+    - id: bulk-east
+      kind: bulk
+      route: east
+      start_s: 5
+      duration_s: 45
+      connections: 2
+    - id: cbr-west
+      kind: cbr
+      route: west
+      start_s: 10
+      duration_s: 30
+      rate_mbps: 12
+      packet_size_bytes: 1200
+
+links:
+  - { from: pub, to: relay-a }
+  - { from: relay-a, to: rt-west }
+  - { from: rt-west, to: sub }
+  - { from: traffic-tx, to: rt-west }
+  - from: rt-west
+    to: traffic-rx
+    forward: { bandwidth_mbps: 20, aqm: dualpi2 }
+  - { from: traffic-tx, to: rt-east }
+  - from: rt-east
+    to: traffic-rx
+    forward: { bandwidth_mbps: 15, aqm: dualpi2 }

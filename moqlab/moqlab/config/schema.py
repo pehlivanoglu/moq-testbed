@@ -1,12 +1,12 @@
 """Pydantic v2 schema for the moqlab topology config.
 
 A topology is a YAML file with node-bearing blocks (relays, publishers,
-subscribers, routers) plus `links:` physical wiring and inheritable defaults.
+subscribers, routers, traffic) plus `links:` physical wiring and inheritable defaults.
 Every node id is unique across the whole topology — it becomes a Docker
 container name and the name other nodes use to reach it.
 
 Schema invariants enforced here:
-  - node ids globally unique across relays/publishers/subscribers/routers
+  - node ids globally unique across all node kinds
   - upstream / connects_to references resolve to a known relay (never a router)
   - all relay listen_port + admin_port values unique (host-port pool)
   - single upstream per relay, no cycles in the upstream chain
@@ -18,9 +18,9 @@ Schema invariants enforced here:
   - every declared router appears in at least one link
   - generative mode rejected (v1 explicit only)
 
-`links:` and `routers:` describe physical wiring and are read by the
+`links:`, `routers:`, and `traffic:` describe routed experiments read by the
 Containernet backend only. The Docker backend (flat bridge, no forwarding
-nodes) ignores `links:` and refuses topologies that declare routers.
+nodes) ignores `links:` and refuses topologies that declare routers or traffic.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ from __future__ import annotations
 import re
 from enum import Enum
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -125,10 +125,23 @@ class RouterDefaults(_StrictBase):
     image: str = "moqlab-router"
 
 
+class TrafficDefaults(_StrictBase):
+    image: str = "moqlab-traffic"
+    tcp_port: int = Field(default=9000, ge=_MIN_PORT, le=_MAX_PORT)
+    udp_port: int = Field(default=9001, ge=_MIN_PORT, le=_MAX_PORT)
+
+    @model_validator(mode="after")
+    def _check_ports_differ(self) -> "TrafficDefaults":
+        if self.tcp_port == self.udp_port:
+            raise ValueError("traffic tcp_port and udp_port must differ")
+        return self
+
+
 class StartupConfig(_StrictBase):
     relay_warmup_s: float = Field(default=2.0, ge=0)
     publisher_warmup_s: float = Field(default=1.0, ge=0)
     media_ready_timeout_s: float = Field(default=30.0, gt=0)
+    traffic_ready_timeout_s: float = Field(default=5.0, gt=0)
 
 
 # ── nodes ──────────────────────────────────────────────────────────────────
@@ -193,6 +206,82 @@ class RouterConfig(_StrictBase):
     """An IP-forwarding node that owns link queues (AQM/ECN); runs no MoQ binary."""
 
     image: str | None = None
+
+
+class TrafficEndpointConfig(_StrictBase):
+    id: str
+    image: str | None = None
+
+
+class TrafficRouteConfig(_StrictBase):
+    path: list[str] = Field(min_length=3)
+
+
+class _TrafficFlowBase(_StrictBase):
+    id: str
+    route: str
+    start_s: float = Field(default=0, ge=0)
+    duration_s: float = Field(gt=0)
+
+
+class BulkTrafficFlow(_TrafficFlowBase):
+    kind: Literal["bulk"]
+    connections: int = Field(default=1, gt=0, le=1024)
+    chunk_bytes: int = Field(default=65536, ge=1024, le=65536)
+
+
+class CbrTrafficFlow(_TrafficFlowBase):
+    kind: Literal["cbr"]
+    rate_mbps: float = Field(gt=0)
+    packet_size_bytes: int = Field(default=1200, ge=64, le=65507)
+
+
+class SegmentedTrafficFlow(_TrafficFlowBase):
+    kind: Literal["segmented"]
+    clients: int = Field(default=1, gt=0, le=1024)
+    segment_duration_ms: int = Field(default=2000, gt=0)
+    representation_sequence_mbps: list[Annotated[float, Field(gt=0)]] = Field(
+        min_length=1
+    )
+
+
+TrafficFlow = Annotated[
+    BulkTrafficFlow | CbrTrafficFlow | SegmentedTrafficFlow,
+    Field(discriminator="kind"),
+]
+
+
+class TrafficConfig(_StrictBase):
+    sender: TrafficEndpointConfig
+    receiver: TrafficEndpointConfig
+    routes: dict[str, TrafficRouteConfig] = Field(min_length=1, max_length=254)
+    flows: list[TrafficFlow] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _check_local_references(self) -> "TrafficConfig":
+        if self.sender.id == self.receiver.id:
+            raise ValueError("traffic sender and receiver ids must differ")
+        for label, value in (
+            ("traffic sender id", self.sender.id),
+            ("traffic receiver id", self.receiver.id),
+            *(("traffic route name", name) for name in self.routes),
+        ):
+            if not _NODE_ID_RE.fullmatch(value):
+                raise ValueError(f"{label} {value!r} must match {_NODE_ID_RE.pattern}")
+        seen: set[str] = set()
+        for flow in self.flows:
+            if not _NODE_ID_RE.fullmatch(flow.id):
+                raise ValueError(
+                    f"traffic flow id {flow.id!r} must match {_NODE_ID_RE.pattern}"
+                )
+            if flow.id in seen:
+                raise ValueError(f"duplicate traffic flow id {flow.id!r}")
+            seen.add(flow.id)
+            if flow.route not in self.routes:
+                raise ValueError(
+                    f"traffic flow {flow.id!r} references unknown route {flow.route!r}"
+                )
+        return self
 
 
 class SubscriberConfig(_StrictBase):
@@ -283,6 +372,7 @@ class Defaults(_StrictBase):
     publisher: PublisherDefaults = Field(default_factory=PublisherDefaults)
     subscriber: SubscriberDefaults = Field(default_factory=SubscriberDefaults)
     router: RouterDefaults = Field(default_factory=RouterDefaults)
+    traffic: TrafficDefaults = Field(default_factory=TrafficDefaults)
     link: LinkDefaults = Field(default_factory=LinkDefaults)
 
 
@@ -323,6 +413,7 @@ class TopologyConfig(_StrictBase):
     publishers: dict[str, PublisherConfig] = Field(default_factory=dict)
     subscribers: dict[str, SubscriberConfig] = Field(default_factory=dict)
     routers: dict[str, RouterConfig] = Field(default_factory=dict)
+    traffic: TrafficConfig | None = None
     links: list[LinkSpec] = Field(default_factory=list)
 
     @model_validator(mode="after")
@@ -359,6 +450,19 @@ class TopologyConfig(_StrictBase):
                     raise ValueError(
                         f"invalid {kind} id {nid!r}: must match {_NODE_ID_RE.pattern}"
                     )
+                if nid in all_nodes:
+                    raise ValueError(
+                        f"node id {nid!r} reused: already declared as a "
+                        f"{all_nodes[nid]}"
+                    )
+                all_nodes[nid] = kind
+
+        if self.traffic is not None:
+            for kind, endpoint in (
+                ("traffic sender", self.traffic.sender),
+                ("traffic receiver", self.traffic.receiver),
+            ):
+                nid = endpoint.id
                 if nid in all_nodes:
                     raise ValueError(
                         f"node id {nid!r} reused: already declared as a "
@@ -531,6 +635,30 @@ class TopologyConfig(_StrictBase):
             if rid not in linked_nodes:
                 raise ValueError(f"router {rid!r} does not appear in any link")
 
+        if self.traffic is not None:
+            sender = self.traffic.sender.id
+            receiver = self.traffic.receiver.id
+            link_keys = {link.canonical_key() for link in self.links}
+            for name, route in self.traffic.routes.items():
+                if route.path[0] != sender or route.path[-1] != receiver:
+                    raise ValueError(
+                        f"traffic route {name!r} must start at {sender!r} and end at "
+                        f"{receiver!r}"
+                    )
+                if len(set(route.path)) != len(route.path):
+                    raise ValueError(f"traffic route {name!r} repeats a node")
+                for intermediate in route.path[1:-1]:
+                    if intermediate not in self.routers:
+                        raise ValueError(
+                            f"traffic route {name!r} intermediate {intermediate!r} "
+                            "must be a router"
+                        )
+                for a, b in zip(route.path, route.path[1:]):
+                    if tuple(sorted((a, b))) not in link_keys:
+                        raise ValueError(
+                            f"traffic route {name!r} uses undeclared link {a!r}-{b!r}"
+                        )
+
         # Every application edge (upstream / connects_to pair) must be
         # realizable as a path through the link graph. Skipped when neither
         # links nor routers are declared: Docker-backend configs need no
@@ -635,6 +763,14 @@ class TopologyConfig(_StrictBase):
 
     def router_image(self, rid: str) -> str:
         return self.routers[rid].image or self.defaults.router.image
+
+    def traffic_image(self, node_id: str) -> str:
+        if self.traffic is None:
+            raise KeyError("topology has no traffic endpoints")
+        for endpoint in (self.traffic.sender, self.traffic.receiver):
+            if endpoint.id == node_id:
+                return endpoint.image or self.defaults.traffic.image
+        raise KeyError(node_id)
 
     def relay_root(self, rid: str) -> str:
         while self.relays[rid].upstream is not None:

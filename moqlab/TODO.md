@@ -19,6 +19,13 @@ cut from current versions, not bugs or oversights.
 
 ## Now-Shippable Cleanups
 
+- [x] Add one external traffic sender and one receiver with explicit named
+      router paths, bulk TCP, paced CBR UDP, scripted segmented TCP, resolved
+      plans, and JSONL runtime logs.
+- [ ] Add ECN/L4S modes to external traffic sockets: codepoint selection,
+      congestion-control selection/validation, CE accounting, and packet-level
+      verification. Do not label ECT(1) CBR as compliant L4S.
+
 - [x] Fix or clarify Docker image build commands and context in `README.md`
       and `docker/README.md`; `moqlab build images` now builds from the
       repository root context.

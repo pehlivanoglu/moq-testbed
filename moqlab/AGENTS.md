@@ -37,13 +37,17 @@ ergonomics. This is research infrastructure, not a demo script.
 ## Current Implementation
 
 - **Schema** (`moqlab/config/schema.py`) - Pydantic v2 topology model:
-  `defaults`, `startup`, `relays`, `publishers`, `subscribers`, `routers`,
+  `defaults`, `startup`, `relays`, `publishers`, `subscribers`, `routers`, `traffic`,
   and `links` (per-direction `forward`/`reverse` shaping incl. `aqm`). Text
   nodes remain the default; media nodes model `mlmpub`, Chromium WARP Player,
   and native `mlmsub` subscribers. It is
   strict (`extra="forbid"`) and validates node ids, relay references, port
   collisions, cycles, duplicate links, link-graph reachability of every
   app edge, aqm-on-router-egress, and orphan routers.
+- **External traffic** (`moqlab/trafficgen.py`) - one custom Python sender and
+  one receiver generate bulk TCP, paced CBR UDP, and scripted segmented TCP.
+  Named paths get generated `/32` alias pairs and explicit symmetric routes;
+  resolved plans live in each run directory. Containernet only.
 - **Synthesis** (`moqlab/config/synth.py`) - turns topology config into
   per-relay moqx YAML files and argv lists for text or media binaries.
 - **Docker backend** (`moqlab/orchestrator/docker_backend.py`) - creates one
@@ -99,6 +103,7 @@ moqlab/
 │   ├── Dockerfile.relay
 │   ├── Dockerfile.pub
 │   ├── Dockerfile.sub
+│   ├── Dockerfile.traffic
 │   └── README.md
 ├── visualizer/
 │   ├── index.html
@@ -110,6 +115,7 @@ moqlab/
 │   ├── cli.py
 │   ├── exceptions.py
 │   ├── visualizer.py
+│   ├── trafficgen.py
 │   ├── config/
 │   │   ├── schema.py
 │   │   └── synth.py
@@ -156,6 +162,7 @@ defaults:
 startup:
   relay_warmup_s: 2.0
   publisher_warmup_s: 1.0
+  traffic_ready_timeout_s: 5.0
 
 relays:
   relay-a: { listen_port: 9668, admin_port: 9669, upstream: null }
@@ -169,6 +176,15 @@ subscribers:
 
 routers:
   rt-1: {}
+
+traffic:
+  sender: { id: traffic-tx }
+  receiver: { id: traffic-rx }
+  routes:
+    main: { path: [traffic-tx, rt-1, traffic-rx] }
+  flows:
+    - { id: load, kind: cbr, route: main, duration_s: 30,
+        rate_mbps: 10, packet_size_bytes: 1200 }
 
 links:
   - from: pub
@@ -206,6 +222,8 @@ Implemented invariants:
   declared router must appear in at least one link; `jitter_ms` requires
   `delay_ms`.
 - Unknown fields are rejected.
+- Traffic uses exactly two endpoint containers. Named paths must follow
+  declared links with routers as all intermediate nodes; flows select a path.
 
 Future target config work may introduce named `networks`, relay `upstreams`,
 scenarios, and generative topology mode. Do not start

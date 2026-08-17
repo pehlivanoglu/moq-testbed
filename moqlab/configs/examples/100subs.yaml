@@ -1,0 +1,627 @@
+topology_mode: explicit
+
+defaults:
+  relay:
+    tls: { insecure: false, generated: true }
+  subscriber:
+    media_client: native
+    native_playback: simulate
+
+startup:
+  media_ready_timeout_s: 30
+
+relays:
+  relay-a: { listen_port: 9668, admin_port: 9669 }
+
+publishers:
+  pub:
+    kind: media
+    connects_to: relay-a
+    asset: testsvc
+    listen_port: 4443
+    fingerprint_port: 8081
+
+subscribers:
+  load-1:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-2:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-3:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-4:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-5:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-6:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-7:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-8:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-9:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-10:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-11:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-12:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-13:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-14:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-15:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-16:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-17:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-18:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-19:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-20:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-21:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-22:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-23:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-24:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-25:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-26:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-27:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-28:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-29:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-30:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-31:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-32:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-33:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-34:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-35:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-36:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-37:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-38:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-39:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-40:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-41:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-42:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-43:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-44:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-45:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-46:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-47:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-48:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-49:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-50:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-51:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-52:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-53:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-54:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-55:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-56:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-57:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-58:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-59:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-60:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-61:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-62:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-63:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-64:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-65:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-66:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-67:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-68:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-69:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-70:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-71:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-72:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-73:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-74:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-75:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-76:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-77:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-78:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-79:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-80:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-81:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-82:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-83:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-84:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-85:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-86:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-87:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-88:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-89:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-90:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-91:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-92:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-93:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-94:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-95:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-96:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-97:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-98:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-99:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+  load-100:
+    kind: media
+    connects_to: relay-a
+    namespace: msf/clear
+    track: video/s2
+
+links:
+  - { from: pub, to: relay-a }
+  - { from: relay-a, to: load-1 }
+  - { from: relay-a, to: load-2 }
+  - { from: relay-a, to: load-3 }
+  - { from: relay-a, to: load-4 }
+  - { from: relay-a, to: load-5 }
+  - { from: relay-a, to: load-6 }
+  - { from: relay-a, to: load-7 }
+  - { from: relay-a, to: load-8 }
+  - { from: relay-a, to: load-9 }
+  - { from: relay-a, to: load-10 }
+  - { from: relay-a, to: load-11 }
+  - { from: relay-a, to: load-12 }
+  - { from: relay-a, to: load-13 }
+  - { from: relay-a, to: load-14 }
+  - { from: relay-a, to: load-15 }
+  - { from: relay-a, to: load-16 }
+  - { from: relay-a, to: load-17 }
+  - { from: relay-a, to: load-18 }
+  - { from: relay-a, to: load-19 }
+  - { from: relay-a, to: load-20 }
+  - { from: relay-a, to: load-21 }
+  - { from: relay-a, to: load-22 }
+  - { from: relay-a, to: load-23 }
+  - { from: relay-a, to: load-24 }
+  - { from: relay-a, to: load-25 }
+  - { from: relay-a, to: load-26 }
+  - { from: relay-a, to: load-27 }
+  - { from: relay-a, to: load-28 }
+  - { from: relay-a, to: load-29 }
+  - { from: relay-a, to: load-30 }
+  - { from: relay-a, to: load-31 }
+  - { from: relay-a, to: load-32 }
+  - { from: relay-a, to: load-33 }
+  - { from: relay-a, to: load-34 }
+  - { from: relay-a, to: load-35 }
+  - { from: relay-a, to: load-36 }
+  - { from: relay-a, to: load-37 }
+  - { from: relay-a, to: load-38 }
+  - { from: relay-a, to: load-39 }
+  - { from: relay-a, to: load-40 }
+  - { from: relay-a, to: load-41 }
+  - { from: relay-a, to: load-42 }
+  - { from: relay-a, to: load-43 }
+  - { from: relay-a, to: load-44 }
+  - { from: relay-a, to: load-45 }
+  - { from: relay-a, to: load-46 }
+  - { from: relay-a, to: load-47 }
+  - { from: relay-a, to: load-48 }
+  - { from: relay-a, to: load-49 }
+  - { from: relay-a, to: load-50 }
+  - { from: relay-a, to: load-51 }
+  - { from: relay-a, to: load-52 }
+  - { from: relay-a, to: load-53 }
+  - { from: relay-a, to: load-54 }
+  - { from: relay-a, to: load-55 }
+  - { from: relay-a, to: load-56 }
+  - { from: relay-a, to: load-57 }
+  - { from: relay-a, to: load-58 }
+  - { from: relay-a, to: load-59 }
+  - { from: relay-a, to: load-60 }
+  - { from: relay-a, to: load-61 }
+  - { from: relay-a, to: load-62 }
+  - { from: relay-a, to: load-63 }
+  - { from: relay-a, to: load-64 }
+  - { from: relay-a, to: load-65 }
+  - { from: relay-a, to: load-66 }
+  - { from: relay-a, to: load-67 }
+  - { from: relay-a, to: load-68 }
+  - { from: relay-a, to: load-69 }
+  - { from: relay-a, to: load-70 }
+  - { from: relay-a, to: load-71 }
+  - { from: relay-a, to: load-72 }
+  - { from: relay-a, to: load-73 }
+  - { from: relay-a, to: load-74 }
+  - { from: relay-a, to: load-75 }
+  - { from: relay-a, to: load-76 }
+  - { from: relay-a, to: load-77 }
+  - { from: relay-a, to: load-78 }
+  - { from: relay-a, to: load-79 }
+  - { from: relay-a, to: load-80 }
+  - { from: relay-a, to: load-81 }
+  - { from: relay-a, to: load-82 }
+  - { from: relay-a, to: load-83 }
+  - { from: relay-a, to: load-84 }
+  - { from: relay-a, to: load-85 }
+  - { from: relay-a, to: load-86 }
+  - { from: relay-a, to: load-87 }
+  - { from: relay-a, to: load-88 }
+  - { from: relay-a, to: load-89 }
+  - { from: relay-a, to: load-90 }
+  - { from: relay-a, to: load-91 }
+  - { from: relay-a, to: load-92 }
+  - { from: relay-a, to: load-93 }
+  - { from: relay-a, to: load-94 }
+  - { from: relay-a, to: load-95 }
+  - { from: relay-a, to: load-96 }
+  - { from: relay-a, to: load-97 }
+  - { from: relay-a, to: load-98 }
+  - { from: relay-a, to: load-99 }
+  - { from: relay-a, to: load-100 }

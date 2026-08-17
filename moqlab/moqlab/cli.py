@@ -210,6 +210,7 @@ def validate(config: Path) -> None:
         f"routers={len(topology.routers)} "
         f"publishers={len(topology.publishers)} "
         f"subscribers={len(topology.subscribers)} "
+        f"traffic_endpoints={2 if topology.traffic is not None else 0} "
         f"links={len(topology.links)}"
     )
     for rid, r in topology.relays.items():
@@ -232,6 +233,15 @@ def validate(config: Path) -> None:
         click.echo(
             f"  subscriber {sid:14}  -> {s.connects_to}  kind={s.kind}  "
             f"ns={s.namespace}  track={s.track}{media}"
+        )
+    if topology.traffic is not None:
+        click.echo(
+            f"  traffic     {topology.traffic.sender.id:14}  sender  "
+            f"image={topology.traffic_image(topology.traffic.sender.id)}"
+        )
+        click.echo(
+            f"  traffic     {topology.traffic.receiver.id:14}  receiver  "
+            f"image={topology.traffic_image(topology.traffic.receiver.id)}"
         )
 
 
