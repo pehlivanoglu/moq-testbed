@@ -144,6 +144,11 @@ main {
   fill: #5a8f5d;
 }
 
+.traffic-sender circle,
+.traffic-receiver circle {
+  fill: #f6c453;
+}
+
 #details {
   min-height: 0;
   overflow: auto;

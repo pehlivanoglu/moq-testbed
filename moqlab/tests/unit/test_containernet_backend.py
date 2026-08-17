@@ -115,6 +115,38 @@ def _routed_topology() -> TopologyConfig:
     )
 
 
+def _traffic_topology() -> TopologyConfig:
+    return TopologyConfig.model_validate(
+        {
+            "startup": {"relay_warmup_s": 0},
+            "relays": {"relay-a": {"listen_port": 9668, "admin_port": 9669}},
+            "routers": {"west": {}, "east": {}},
+            "traffic": {
+                "sender": {"id": "tx"},
+                "receiver": {"id": "rx"},
+                "routes": {
+                    "west": {"path": ["tx", "west", "rx"]},
+                    "east": {"path": ["tx", "east", "rx"]},
+                },
+                "flows": [
+                    {
+                        "id": "load",
+                        "kind": "bulk",
+                        "route": "west",
+                        "duration_s": 1,
+                    }
+                ],
+            },
+            "links": [
+                {"from": "tx", "to": "west"},
+                {"from": "west", "to": "rx"},
+                {"from": "tx", "to": "east"},
+                {"from": "east", "to": "rx"},
+            ],
+        }
+    )
+
+
 def _record_for(topology: TopologyConfig) -> ContainernetRunRecord:
     record = ContainernetRunRecord(
         run_id="run-test",
@@ -409,6 +441,58 @@ def test_configure_network_orders_loopbacks_routes_then_shaping():
         "ip route replace 10.99.0.3/32 via 10.20.1.1 dev rt-1-eth0 src 10.99.0.2"
         in rt_cmds
     )
+
+
+def test_traffic_alias_routes_follow_each_explicit_path():
+    topology = _traffic_topology()
+    record = ContainernetRunRecord(
+        run_id="run-test",
+        run_dir=Path("/tmp/run-test"),
+        loopback_ips=node_loopback_ips(topology),
+    )
+    build_net = _FakeBuildNet()
+    ContainernetBackend()._build(
+        build_net,
+        topology,
+        {"relay-a": Path("/tmp/relay-a.yaml")},
+        record,
+        lambda _: None,
+    )
+    fake_net = _FakeNet(["relay-a", "west", "east", "tx", "rx"])
+
+    ContainernetBackend._configure_network(fake_net, topology, record, lambda _: None)
+
+    tx_commands = [command for node, command in fake_net.calls if node == "tx"]
+    west_commands = [command for node, command in fake_net.calls if node == "west"]
+    east_commands = [command for node, command in fake_net.calls if node == "east"]
+    assert "ip addr replace 10.100.0.1/32 dev lo" in tx_commands
+    assert (
+        "ip route replace 10.101.0.1/32 via 10.20.0.2 dev tx-eth0 src 10.100.0.1"
+        in tx_commands
+    )
+    assert "ip route replace 10.101.0.1/32 via 10.20.1.2 dev west-eth1" in west_commands
+    assert "ip route replace 10.101.0.2/32 via 10.20.3.2 dev east-eth1" in east_commands
+
+
+def test_launches_one_traffic_receiver_then_one_sender(monkeypatch):
+    topology = _traffic_topology()
+    net = _FakeNet(["relay-a", "tx", "rx"])
+    record = ContainernetRunRecord(
+        run_id="run-test",
+        run_dir=Path("/tmp/run-test"),
+        relays=["relay-a"],
+        traffic_endpoints=["tx", "rx"],
+    )
+    monkeypatch.setattr(
+        "moqlab.orchestrator.containernet_backend._await_traffic_receiver",
+        lambda _node, _node_id, _timeout: None,
+    )
+
+    ContainernetBackend._launch_node_binaries(net, topology, record, lambda _: None)
+
+    assert [node for node, _ in net.calls] == ["relay-a", "rx", "tx"]
+    assert "moqlab-traffic receiver" in net.calls[1][1]
+    assert "moqlab-traffic sender" in net.calls[2][1]
 
 
 def test_write_etc_hosts_appends_full_mesh_minus_self(monkeypatch):

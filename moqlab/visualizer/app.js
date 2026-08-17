@@ -311,7 +311,7 @@ function draw(data) {
   }
 
   const s = data.summary;
-  summary.textContent = `${s.relays} relays, ${s.routers} routers, ${s.publishers} publishers, ${s.subscribers} subscribers, ${s.links} links`;
+  summary.textContent = `${s.relays} relays, ${s.routers} routers, ${s.publishers} publishers, ${s.subscribers} subscribers${s.traffic_endpoints ? `, ${s.traffic_endpoints} traffic endpoints` : ""}, ${s.links} links`;
   updated.textContent = `Updated ${new Date(data.sampled_at_unix_s * 1000).toLocaleTimeString()}`;
 }
 

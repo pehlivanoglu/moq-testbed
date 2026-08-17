@@ -77,13 +77,16 @@ def topology_edges(topology: TopologyConfig) -> list[tuple[str, str]]:
 
 
 def all_node_ids(topology: TopologyConfig) -> list[str]:
-    """Every node id in declaration order: relays, routers, publishers, subscribers."""
-    return [
+    """Every node id in stable declaration order."""
+    node_ids = [
         *topology.relays,
         *topology.routers,
         *topology.publishers,
         *topology.subscribers,
     ]
+    if topology.traffic is not None:
+        node_ids.extend([topology.traffic.sender.id, topology.traffic.receiver.id])
+    return node_ids
 
 
 def containernet_edge_interfaces(
@@ -137,9 +140,53 @@ def node_loopback_ips(topology: TopologyConfig) -> dict[str, str]:
 
 
 def topology_image_tags(topology: TopologyConfig) -> set[str]:
-    return {
+    tags = {
         *(topology.relay_image(rid) for rid in topology.relays),
         *(topology.publisher_image(pid) for pid in topology.publishers),
         *(topology.subscriber_image(sid) for sid in topology.subscribers),
         *(topology.router_image(rid) for rid in topology.routers),
     }
+    if topology.traffic is not None:
+        tags.update(
+            topology.traffic_image(nid)
+            for nid in (topology.traffic.sender.id, topology.traffic.receiver.id)
+        )
+    return tags
+
+
+def traffic_route_ips(topology: TopologyConfig) -> dict[str, tuple[str, str]]:
+    """Route name to sender/receiver aliases used for explicit path steering."""
+    if topology.traffic is None:
+        return {}
+    if len(topology.traffic.routes) > 254:
+        raise OrchestratorError("traffic supports at most 254 named routes")
+    return {
+        name: (f"10.100.0.{index}", f"10.101.0.{index}")
+        for index, name in enumerate(topology.traffic.routes, start=1)
+    }
+
+
+def traffic_plan(
+    topology: TopologyConfig, run_id: str | None = None
+) -> dict[str, object]:
+    if topology.traffic is None:
+        raise OrchestratorError("topology has no traffic configuration")
+    aliases = traffic_route_ips(topology)
+    plan: dict[str, object] = {
+        "sender_id": topology.traffic.sender.id,
+        "receiver_id": topology.traffic.receiver.id,
+        "tcp_port": topology.defaults.traffic.tcp_port,
+        "udp_port": topology.defaults.traffic.udp_port,
+        "routes": {
+            name: {
+                "sender_ip": aliases[name][0],
+                "receiver_ip": aliases[name][1],
+                "path": route.path,
+            }
+            for name, route in topology.traffic.routes.items()
+        },
+        "flows": [flow.model_dump(mode="json") for flow in topology.traffic.flows],
+    }
+    if run_id is not None:
+        plan["run_id"] = run_id
+    return plan

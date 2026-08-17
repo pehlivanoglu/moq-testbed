@@ -26,7 +26,8 @@ network behavior (queueing, marking, dropping, forwarding).
 - Each link gets a /24 from `10.20.0.0/16` (`.1` = `from` side, `.2` = `to`
   side).
 - Each node gets a canonical /32 on `lo` from `10.99.0.0/24`, assigned in
-  declaration order (relays, routers, publishers, subscribers).
+  declaration order (relays, routers, publishers, subscribers, then optional
+  traffic endpoints).
 - `/etc/hosts` on every node maps every peer name to its /32, so the
   generated moqx/pub/sub URLs (`moqt://relay-a:9668/...`) are path-
   independent.
@@ -35,6 +36,10 @@ network behavior (queueing, marking, dropping, forwarding).
   and installs one `ip route replace <dst>/32 via <neighbor> dev <iface>
   src <own /32>` per destination on every node. No routing daemons.
 - The topology schema still never asks the user for an IP address.
+- External traffic named paths add generated sender aliases from
+  `10.100.0.0/24` and receiver aliases from `10.101.0.0/24`. Explicit
+  symmetric `/32` routes force each alias pair through its declared router
+  sequence, even when several paths connect the same two traffic containers.
 
 Router containers get `net.ipv4.ip_forward=1`, `rp_filter=0`, and
 `send_redirects=0`; endpoints get `accept_redirects=0` so a forwarding hop

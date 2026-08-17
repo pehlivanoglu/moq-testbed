@@ -16,7 +16,13 @@ from moqlab.runtime import topology_image_tags
 
 CheckStatus = Literal["ok", "warn", "fail"]
 
-_DEFAULT_IMAGE_TAGS = ("moqlab-relay", "moqlab-pub", "moqlab-sub", "moqlab-router")
+_DEFAULT_IMAGE_TAGS = (
+    "moqlab-relay",
+    "moqlab-pub",
+    "moqlab-sub",
+    "moqlab-router",
+    "moqlab-traffic",
+)
 
 
 @dataclass(frozen=True)

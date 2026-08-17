@@ -11,6 +11,7 @@ defined in YAML under [../configs/](../configs/) and brought up with
 | `Dockerfile.pub`   | `moqlab-pub`   | `/usr/local/bin/moqdateserver` | Every `publishers:` entry |
 | `Dockerfile.sub`   | `moqlab-sub`   | `/usr/local/bin/moqtextclient` | Every `subscribers:` entry |
 | `Dockerfile.router` | `moqlab-router` | none (IP forwarding + tc only) | Every `routers:` entry |
+| `Dockerfile.traffic` | `moqlab-traffic` | Python stdlib traffic runtime | Optional sender + receiver |
 | `Dockerfile.media-pub` | `moqlab-media-pub` | `/usr/local/bin/mlmpub` | Media publishers |
 | `Dockerfile.media-sub` | `moqlab-media-sub` | Chromium + WARP Player runner | Media subscribers |
 | `Dockerfile.media-native-sub` | `moqlab-media-native-sub` | `/usr/local/bin/mlmsub` | Native media subscribers |
@@ -56,8 +57,8 @@ playback does not add a decoder or FFmpeg process.
 
 Image tags can be overridden per topology via `defaults.relay.image` /
 `defaults.publisher.image` / `defaults.subscriber.image` /
-`defaults.router.image` or per-node `image:`. The router image needs no
-moqx/moxygen artifacts and can be built standalone:
+`defaults.router.image` / `defaults.traffic.image` or per-node `image:`.
+Router and traffic images need no moqx/moxygen artifacts and can be built standalone:
 `docker build -f moqlab/docker/Dockerfile.router -t moqlab-router .`
 
 ## Why no docker-compose here
