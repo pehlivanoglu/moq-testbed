@@ -19,10 +19,10 @@ publishers:
 
 subscribers:
   sub:
+    media_client: chrome-headless
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
-    browser_mode: headless
     minimal_buffer_ms: 200
     target_latency_ms: 300
 

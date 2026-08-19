@@ -26,8 +26,7 @@ subscribers:
     namespace: msf/clear
     track: video/s2
   chrome-headless:
-    media_client: chrome
-    browser_mode: headless
+    media_client: chrome-headless
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2

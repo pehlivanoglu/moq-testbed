@@ -209,7 +209,7 @@ def synthesize_subscriber_command(
         f"{media_publisher[1].fingerprint_port}/fingerprint",
         f"--namespace={s.namespace}",
         f"--video-track={s.track}",
-        f"--browser-mode={s.browser_mode}",
+        f"--browser-mode={'x11' if topology.subscriber_media_client(subscriber_id) == 'chrome' else 'headless'}",
         f"--minimal-buffer-ms={s.minimal_buffer_ms}",
         f"--target-latency-ms={s.target_latency_ms}",
         f"--ready-timeout-s={topology.startup.media_ready_timeout_s:g}",

@@ -170,7 +170,7 @@ defaults:
   publisher:  { image: moqlab-media-pub }
   subscriber: { image: moqlab-media-sub,
                 native_media_image: moqlab-media-native-sub,
-                media_client: chrome, log_level: INFO }
+                media_client: chrome-headless, log_level: INFO }
 
 startup:
   relay_warmup_s: 2.0
@@ -337,29 +337,29 @@ publishers:
 
 subscribers:
   sub:
-    media_client: chrome
+    media_client: chrome-headless
     connects_to: relay-c
     namespace: msf/clear
     track: video/s2
-    browser_mode: headless
     minimal_buffer_ms: 200
     target_latency_ms: 300
 ```
 
-`media_client: chrome` launches WARP Player in Chromium. `browser_mode`
-selects `headless` or `x11`.
+`media_client: chrome-headless` launches real WARP Player decode/playback in
+headless Chromium. `media_client: chrome` runs the same real playback in a
+visible Chrome window through X11.
 `media_client: native` launches lightweight `mlmsub` over raw MoQT/QUIC,
 subscribes to the configured track plus its catalog dependency chain, and
 becomes ready after receiving its first media group. `native_playback` defaults
 to `receive`; `simulate` models AV1-SVC decode-chain validity, buffering,
 presentation, stalls, and safe layer switches without decoding pixels. Buffer
-settings apply to Chrome and simulated native playback. For large topologies,
+settings apply to both Chrome modes and simulated native playback; native
+`receive` has no playback buffer controls. For large topologies,
 set `defaults.subscriber.media_client: native` and
 `defaults.subscriber.native_playback: simulate`, then override only subscribers
 that need Chrome. [`100subs.yaml`](configs/examples/100subs.yaml) shows 100
 simulated native subscribers connected to one relay. Schema default remains
-`chrome`, and native playback defaults to `receive`, so existing configs keep
-their behavior.
+`chrome-headless`, and native playback defaults to `receive`.
 
 Every media subscriber publishes live metrics inside its container at
 `/tmp/moqlab-player-metrics.json`. With `--visualize`, click a subscriber node
@@ -372,7 +372,7 @@ Moqlab starts all subscriber containers before checking media readiness, then
 delays the publisher's one-shot catalog by two seconds. Mixed clients behind a
 shared relay can all attach before that catalog is forwarded.
 
-`browser_mode: x11` opens Chromium directly on host X display. Backend mounts
+`media_client: chrome` opens Chromium directly on host X display. Backend mounts
 `/tmp/.X11-unix` and forwards `DISPLAY`. Grant only root
 local-display access, preserve `DISPLAY` through sudo, then revoke access:
 

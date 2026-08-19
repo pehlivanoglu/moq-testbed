@@ -101,7 +101,7 @@ class PublisherDefaults(_StrictBase):
 class SubscriberDefaults(_StrictBase):
     image: str = "moqlab-media-sub"
     native_media_image: str = "moqlab-media-native-sub"
-    media_client: Literal["chrome", "native"] = "chrome"
+    media_client: Literal["chrome-headless", "chrome", "native"] = "chrome-headless"
     native_playback: Literal["receive", "simulate"] = "receive"
     log_level: str = "INFO"
 
@@ -263,9 +263,8 @@ class SubscriberConfig(_StrictBase):
     track: str
     image: str | None = None
     log_level: str | None = None
-    media_client: Literal["chrome", "native"] | None = None
+    media_client: Literal["chrome-headless", "chrome", "native"] | None = None
     native_playback: Literal["receive", "simulate"] | None = None
-    browser_mode: Literal["headless", "x11"] | None = None
     minimal_buffer_ms: int | None = Field(default=None, ge=0)
     target_latency_ms: int | None = Field(default=None, gt=0)
 
@@ -487,10 +486,6 @@ class TopologyConfig(_StrictBase):
             for sid, subscriber in self.subscribers.items():
                 client = self.subscriber_media_client(sid)
                 if client == "native":
-                    if subscriber.browser_mode is not None:
-                        raise ValueError(
-                            "native media subscriber cannot set browser fields"
-                        )
                     if self.subscriber_native_playback(sid) == "receive":
                         if any(value is not None for value in (
                             subscriber.minimal_buffer_ms,
@@ -517,7 +512,6 @@ class TopologyConfig(_StrictBase):
                     raise ValueError(
                         "chrome media subscriber cannot set native_playback"
                     )
-                subscriber.browser_mode = subscriber.browser_mode or "headless"
                 subscriber.minimal_buffer_ms = (
                     200
                     if subscriber.minimal_buffer_ms is None
@@ -685,7 +679,9 @@ class TopologyConfig(_StrictBase):
         )
         return subscriber.image or default
 
-    def subscriber_media_client(self, sid: str) -> Literal["chrome", "native"]:
+    def subscriber_media_client(
+        self, sid: str
+    ) -> Literal["chrome-headless", "chrome", "native"]:
         subscriber = self.subscribers[sid]
         return subscriber.media_client or self.defaults.subscriber.media_client
 

@@ -14,8 +14,7 @@ visualizer. It is updated with each implementation checkpoint.
   one container exec, once per second.
 
 Non-goals are codec CPU modelling, rendered-pixel validation in native clients,
-bandwidth-estimation ABR, persistent metric storage, and metrics for text
-subscribers.
+bandwidth-estimation ABR, and persistent metric storage.
 
 ## Configuration
 
@@ -27,7 +26,6 @@ defaults:
 
 subscribers:
   load-1:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
@@ -37,8 +35,9 @@ subscribers:
 
 `native_playback` defaults to `receive`, which preserves the existing native
 subscriber behavior. `simulate` treats `track` as the maximum target quality
-and enables the buffer settings. Chrome subscribers always use real playback
-and ignore an inherited native playback default.
+and enables the buffer settings. Chrome subscribers always use real playback,
+expose the same buffer settings, and ignore an inherited native playback
+default. Native `receive` subscribers expose neither playback setting.
 
 ## AV1-SVC Design
 

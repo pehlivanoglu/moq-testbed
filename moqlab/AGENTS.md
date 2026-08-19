@@ -162,7 +162,7 @@ defaults:
   subscriber:
     image: moqlab-media-sub
     native_media_image: moqlab-media-native-sub
-    media_client: chrome
+    media_client: chrome-headless
     native_playback: receive
     log_level: INFO
 

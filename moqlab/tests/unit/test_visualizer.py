@@ -141,7 +141,7 @@ def test_topology_snapshot_places_router_between_endpoints():
     assert aqm_link["forward"]["aqm"] == "dualpi2"
 
 
-def test_media_snapshot_includes_x11_browser_mode():
+def test_media_snapshot_includes_chrome_mode():
     topology = TopologyConfig.model_validate(
         {
             "defaults": {"relay": {"tls": {"insecure": False, "generated": True}}},
@@ -155,7 +155,7 @@ def test_media_snapshot_includes_x11_browser_mode():
             "subscribers": {
                 "sub": {
                     "kind": "media", "connects_to": "root", "namespace": "msf/clear",
-                    "track": "video/s2", "browser_mode": "x11",
+                    "track": "video/s2", "media_client": "chrome",
                 }
             },
         }
@@ -165,10 +165,9 @@ def test_media_snapshot_includes_x11_browser_mode():
     sub = next(node for node in snapshot["nodes"] if node["id"] == "sub")
     assert sub["kind"] == "media"
     assert sub["media_client"] == "chrome"
-    assert sub["browser_mode"] == "x11"
 
 
-def test_native_media_snapshot_has_no_browser_mode():
+def test_native_media_snapshot_includes_playback_mode():
     topology = TopologyConfig.model_validate(
         {
             "defaults": {
@@ -194,7 +193,6 @@ def test_native_media_snapshot_has_no_browser_mode():
     sub = next(node for node in topology_snapshot(topology)["nodes"] if node["id"] == "sub")
 
     assert sub["media_client"] == "native"
-    assert sub["browser_mode"] is None
     assert sub["native_playback"] == "receive"
 
 

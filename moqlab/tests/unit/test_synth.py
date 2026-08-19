@@ -177,8 +177,7 @@ def _media_topology() -> TopologyConfig:
             "subscribers": {
                 "viewer": {
                     "kind": "media", "connects_to": "leaf", "namespace": "msf/clear",
-                    "track": "video/s2", "minimal_buffer_ms": 200,
-                    "target_latency_ms": 300,
+                    "track": "video/s2",
                 }
             },
         }
@@ -218,7 +217,6 @@ def test_native_media_subscriber_command_uses_mlmsub_flags():
     topology = _media_topology()
     subscriber = topology.subscribers["viewer"]
     subscriber.media_client = "native"
-    subscriber.browser_mode = None
     subscriber.minimal_buffer_ms = None
     subscriber.target_latency_ms = None
 
@@ -246,7 +244,6 @@ def test_native_simulated_playback_command_includes_buffer_flags():
     subscriber = topology.subscribers["viewer"]
     subscriber.media_client = "native"
     subscriber.native_playback = "simulate"
-    subscriber.browser_mode = None
 
     argv = synthesize_subscriber_command(topology, "viewer")
 

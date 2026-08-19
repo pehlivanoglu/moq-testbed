@@ -154,7 +154,6 @@ function inheritedNodeValues(role, config) {
       log_level: defaults.subscriber.log_level,
       media_client: defaults.subscriber.media_client,
       native_playback: defaults.subscriber.native_playback,
-      browser_mode: "headless",
       minimal_buffer_ms: 200,
       target_latency_ms: 300,
     };
@@ -180,11 +179,12 @@ function renderObjectEditor(container, rawSchema, value, onReplace, options = {}
   for (const [name, rawFieldSchema] of Object.entries(objectSchema.properties || {})) {
     if ((options.skip || []).includes(name)) continue;
     const fieldSchema = resolveSchema(rawFieldSchema);
-    const target = required.has(name) || (fieldSchema.default !== undefined && fieldSchema.default !== null) || options.common?.includes(name)
+    const fieldRequired = required.has(name) || options.alwaysSet?.includes(name);
+    const target = fieldRequired || (fieldSchema.default !== undefined && fieldSchema.default !== null) || options.common?.includes(name)
       ? common
       : advanced;
     if (target === advanced) advancedCount += 1;
-    target.append(renderField(name, rawFieldSchema, value?.[name], required.has(name), (next, unset) => {
+    target.append(renderField(name, rawFieldSchema, value?.[name], fieldRequired, (next, unset) => {
       const updated = clone(value || {});
       if (unset) delete updated[name];
       else updated[name] = next;
@@ -200,7 +200,7 @@ function renderField(name, rawSchema, current, required, onChange, inherited) {
   const wrapper = document.createElement("div");
   wrapper.className = "field";
   const label = document.createElement("label");
-  label.textContent = `${fieldTitle(name, spec)}${required ? " *" : ""}`;
+  label.textContent = `${name === "media_client" ? "Mode" : fieldTitle(name, spec)}${required ? " *" : ""}`;
   wrapper.append(label);
 
   if (spec.type === "object" || spec.properties) {
@@ -261,8 +261,15 @@ function renderField(name, rawSchema, current, required, onChange, inherited) {
     const select = document.createElement("select");
     if (!required && spec.const === undefined) select.append(new Option(inherited === undefined ? "Inherit / unset" : `Inherit (${inherited})`, ""));
     const values = spec.enum || [spec.const];
-    for (const item of values) select.append(new Option(String(item), String(item)));
-    select.value = current ?? "";
+    const labels = {
+      "chrome-headless": "Chrome headless",
+      chrome: "Chrome",
+      native: "Native",
+      receive: "Receive",
+      simulate: "Simulate",
+    };
+    for (const item of values) select.append(new Option(labels[item] || String(item), String(item)));
+    select.value = current ?? inherited ?? spec.default ?? "";
     select.addEventListener("change", () => {
       if (select.value === "") onChange(undefined, true);
       else onChange(select.value, false);
@@ -502,8 +509,8 @@ function normalizedNodeConfig(role, next) {
     const client = value.media_client || defaults.subscriber.media_client;
     value.image = client === "native" ? defaults.subscriber.native_media_image : defaults.subscriber.image;
     if (client === "native") {
-      delete value.browser_mode;
       const playback = value.native_playback || defaults.subscriber.native_playback;
+      value.native_playback = playback;
       if (playback === "simulate") {
         value.minimal_buffer_ms ??= 200;
         value.target_latency_ms ??= 300;
@@ -513,12 +520,25 @@ function normalizedNodeConfig(role, next) {
       }
     } else {
       delete value.native_playback;
-      value.browser_mode ||= "headless";
       value.minimal_buffer_ms ??= 200;
       value.target_latency_ms ??= 300;
     }
   }
   return value;
+}
+
+function cleanSubscriberModeFields() {
+  const defaults = effectiveDefaults().subscriber;
+  for (const subscriber of Object.values(draft.subscribers || {})) {
+    delete subscriber.browser_mode;
+    const client = subscriber.media_client || defaults.media_client;
+    if (client !== "native") {
+      delete subscriber.native_playback;
+    } else if ((subscriber.native_playback || defaults.native_playback) !== "simulate") {
+      delete subscriber.minimal_buffer_ms;
+      delete subscriber.target_latency_ms;
+    }
+  }
 }
 
 function nodeDefinition(role) {
@@ -1066,17 +1086,31 @@ function renderNodeInspector() {
     wrapper.append(label, select);
     editor.append(wrapper);
   }
+  const nativeSubscriber = role === "subscriber"
+    && (config.media_client || effectiveDefaults().subscriber.media_client) === "native";
+  const simulatedNative = nativeSubscriber
+    && (config.native_playback || effectiveDefaults().subscriber.native_playback) === "simulate";
+  const bufferedSubscriber = role === "subscriber" && (!nativeSubscriber || simulatedNative);
   const commonFields = role === "publisher"
     ? ["asset", "listen_port", "fingerprint_port"]
     : role === "subscriber"
-      ? ["namespace", "track", "media_client", "native_playback", "browser_mode", "minimal_buffer_ms", "target_latency_ms"]
+      ? ["namespace", "track", "media_client", ...(nativeSubscriber ? ["native_playback"] : []), ...(bufferedSubscriber ? ["minimal_buffer_ms", "target_latency_ms"] : [])]
       : ["kind", "namespace", "track"];
   renderObjectEditor(editor, nodeDefinition(role), config, (next) => commit(() => {
     if (role.startsWith("traffic-")) draft.traffic[role.slice(8)] = next;
     else draft[propertyForRole(role)][id] = normalizedNodeConfig(role, next);
   }), {
-    skip: [...(["publisher", "subscriber"].includes(role) ? ["kind"] : []), ...(role.startsWith("traffic-") ? ["id"] : []), ...(relationship ? [relationship] : [])],
+    skip: [
+      ...(["publisher", "subscriber"].includes(role) ? ["kind"] : []),
+      ...(role === "subscriber" && !nativeSubscriber ? ["native_playback"] : []),
+      ...(role === "subscriber" && !bufferedSubscriber ? ["minimal_buffer_ms", "target_latency_ms"] : []),
+      ...(role.startsWith("traffic-") ? ["id"] : []),
+      ...(relationship ? [relationship] : []),
+    ],
     common: commonFields,
+    alwaysSet: role === "subscriber"
+      ? ["media_client", ...(nativeSubscriber ? ["native_playback"] : [])]
+      : [],
     inherited: inheritedNodeValues(role, config),
   });
   const actions = document.createElement("div");
@@ -1445,6 +1479,7 @@ async function importYaml(text) {
   history.push(snapshot());
   future = [];
   draft = payload.config;
+  cleanSubscriberModeFields();
   positions = {};
   selected = null;
   autoLayout(false);
@@ -1468,6 +1503,7 @@ async function loadExample() {
     if (!response.ok) return alert(payload.error || "Could not load example.");
     history.push(snapshot());
     draft = payload.config;
+    cleanSubscriberModeFields();
   }
   future = [];
   positions = {};
@@ -1506,6 +1542,7 @@ async function initialize() {
     draft.defaults = schemaDefault(schema.properties.defaults);
     draft.startup = schemaDefault(schema.properties.startup);
   }
+  cleanSubscriberModeFields();
   if (!Object.keys(positions).length) autoLayout(false);
   const select = document.querySelector("#examples");
   for (const name of examplesPayload.examples) select.append(new Option(name, name));
