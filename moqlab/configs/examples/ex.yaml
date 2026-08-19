@@ -13,90 +13,27 @@ relays:
       enabled: false
       max_tracks: 100
       max_groups_per_track: 3
-  relay-1:
-    listen_port: 9670
-    admin_port: 9671
-    upstream: relay
-    image: moqlab-relay
-    endpoint: /moq-relay
-    tls:
-      insecure: false
-      generated: true
-    cache:
-      enabled: false
-      max_tracks: 100
-      max_groups_per_track: 3
 publishers:
   pub:
+    kind: media
     connects_to: relay
-    image: moqlab-media-pub
     asset: testsvc
     listen_port: 4443
     fingerprint_port: 8081
+    image: moqlab-media-pub
 subscribers:
   sub:
-    connects_to: relay-1
-    namespace: msf/clear
-    track: video/s2
-    image: moqlab-media-sub
-    log_level: INFO
-    media_client: chrome
-    browser_mode: headless
-    minimal_buffer_ms: 200
-    target_latency_ms: 300
-  sub-1:
+    kind: media
     connects_to: relay
     namespace: msf/clear
     track: video/s2
     image: moqlab-media-sub
     log_level: INFO
-    media_client: chrome
-    browser_mode: headless
+    media_client: chrome-headless
     minimal_buffer_ms: 200
     target_latency_ms: 300
-  sub-2:
-    connects_to: relay
-    namespace: msf/clear
-    track: video/s2
-    image: moqlab-media-sub
-    log_level: INFO
-    media_client: chrome
-    browser_mode: headless
-    minimal_buffer_ms: 200
-    target_latency_ms: 300
-  sub-3:
-    connects_to: relay
-    namespace: msf/clear
-    track: video/s2
-    image: moqlab-media-sub
-    log_level: INFO
-    media_client: chrome
-    browser_mode: headless
-    minimal_buffer_ms: 200
-    target_latency_ms: 300
-routers:
-  router:
-    image: moqlab-router
-links:
-- from: pub
-  to: relay
-- from: relay
-  to: sub-2
-- from: relay
-  to: router
-- from: router
-  to: sub-1
-- from: router
-  to: sub-3
-- from: router
-  to: relay-1
-- from: relay-1
-  to: sub
-  forward:
-    bandwidth_mbps: 1
-    delay_ms: 3
-    jitter_ms: 0
-    loss_pct: 0
+routers: {}
+links: []
 defaults:
   relay:
     image: moqlab-relay
@@ -113,7 +50,7 @@ defaults:
   subscriber:
     image: moqlab-media-sub
     native_media_image: moqlab-media-native-sub
-    media_client: chrome
+    media_client: chrome-headless
     native_playback: receive
     log_level: INFO
   router:

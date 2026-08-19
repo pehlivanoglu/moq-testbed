@@ -163,7 +163,7 @@ class DockerBackend:
             # This lets every browser catch one of the publisher's initial
             # catalog copies instead of serializing startup behind readiness.
             for sid, container in subscriber_containers.items():
-                if topology.subscriber_media_client(sid) == "chrome":
+                if topology.subscriber_media_client(sid) != "native":
                     self._await_media_ready(
                         container, topology.startup.media_ready_timeout_s
                     )
@@ -349,11 +349,9 @@ class DockerBackend:
             LABEL_ROLE: "subscriber",
             LABEL_NODE_ID: subscriber_id,
         }
-        subscriber = topology.subscribers[subscriber_id]
         volumes = None
         environment = None
-        chrome = topology.subscriber_media_client(subscriber_id) == "chrome"
-        if chrome and subscriber.browser_mode == "x11":
+        if topology.subscriber_media_client(subscriber_id) == "chrome":
             display = os.environ.get("DISPLAY")
             if not display:
                 raise OrchestratorError(

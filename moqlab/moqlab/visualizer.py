@@ -135,7 +135,6 @@ def topology_snapshot(topology: TopologyConfig) -> dict[str, object]:
                     if topology.subscriber_media_client(sid) == "native"
                     else None
                 ),
-                "browser_mode": subscriber.browser_mode,
             }
         )
     if topology.traffic is not None:

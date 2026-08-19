@@ -189,7 +189,7 @@ def test_media_defaults_and_images_validate():
     topology = TopologyConfig.model_validate(_media_topology())
     assert topology.publishers["pub"].kind == "media"
     assert topology.publisher_image("pub") == "moqlab-media-pub"
-    assert topology.subscribers["sub"].browser_mode == "headless"
+    assert topology.subscriber_media_client("sub") == "chrome-headless"
     assert topology.subscriber_image("sub") == "moqlab-media-sub"
     assert topology.startup.media_ready_timeout_s == 30
 
@@ -206,17 +206,14 @@ def test_media_client_inherits_native_default_and_allows_chrome_override():
 
     assert topology.subscriber_media_client("sub") == "native"
     assert topology.subscriber_image("sub") == "moqlab-media-native-sub"
-    assert topology.subscribers["sub"].browser_mode is None
     assert topology.subscriber_media_client("chrome") == "chrome"
     assert topology.subscriber_image("chrome") == "moqlab-media-sub"
-    assert topology.subscribers["chrome"].browser_mode == "headless"
 
 
-def test_native_media_subscriber_forbids_browser_fields():
-    with pytest.raises(Exception, match="cannot set browser fields"):
-        TopologyConfig.model_validate(
-            _media_topology(media_client="native", browser_mode="headless")
-        )
+@pytest.mark.parametrize("mode", ["chrome-headless", "chrome", "native"])
+def test_media_client_modes(mode):
+    topology = TopologyConfig.model_validate(_media_topology(media_client=mode))
+    assert topology.subscriber_media_client("sub") == mode
 
 
 def test_native_playback_simulation_inherits_and_resolves_buffer_defaults():
@@ -244,7 +241,7 @@ def test_native_receive_forbids_playback_buffers():
         )
 
 
-def test_chrome_ignores_inherited_native_playback_but_rejects_explicit_field():
+def test_chrome_ignores_inherited_native_playback_and_accepts_buffers():
     raw = _media_topology()
     raw["defaults"]["subscriber"] = {"native_playback": "simulate"}
     topology = TopologyConfig.model_validate(raw)
@@ -254,6 +251,12 @@ def test_chrome_ignores_inherited_native_playback_but_rejects_explicit_field():
         TopologyConfig.model_validate(
             _media_topology(native_playback="simulate")
         )
+
+    topology = TopologyConfig.model_validate(
+        _media_topology(minimal_buffer_ms=100, target_latency_ms=250)
+    )
+    assert topology.subscribers["sub"].minimal_buffer_ms == 100
+    assert topology.subscribers["sub"].target_latency_ms == 250
 
 
 @pytest.mark.parametrize("asset", ["../testsvc", "a/b", "bad asset", ""])
@@ -303,20 +306,24 @@ def test_media_subscriber_must_share_origin_tree():
         TopologyConfig.model_validate(raw)
 
 
-def test_browser_modes_are_headless_or_x11():
-    topology = TopologyConfig.model_validate(_media_topology(browser_mode="x11"))
-    assert topology.subscribers["sub"].browser_mode == "x11"
+def test_old_browser_mode_is_rejected():
     with pytest.raises(Exception):
-        TopologyConfig.model_validate(_media_topology(browser_mode="invalid"))
+        TopologyConfig.model_validate(_media_topology(browser_mode="x11"))
     with pytest.raises(Exception):
         TopologyConfig.model_validate(_media_topology(legacy_field=1))
 
 
-def test_media_buffer_target_must_exceed_minimum():
+@pytest.mark.parametrize("mode", ["chrome-headless", "chrome", "native"])
+def test_media_buffer_target_must_exceed_minimum(mode):
+    values = {
+        "media_client": mode,
+        "minimal_buffer_ms": 300,
+        "target_latency_ms": 300,
+    }
+    if mode == "native":
+        values["native_playback"] = "simulate"
     with pytest.raises(Exception, match="must exceed"):
-        TopologyConfig.model_validate(
-            _media_topology(minimal_buffer_ms=300, target_latency_ms=300)
-        )
+        TopologyConfig.model_validate(_media_topology(**values))
 
 
 # ── links ──────────────────────────────────────────────────────────────────

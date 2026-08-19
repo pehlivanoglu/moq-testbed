@@ -132,6 +132,12 @@ These become tractable once Phase 4 lands.
 
 ## History Notes
 
+- 2026-08-19: Replaced separate Chrome `browser_mode` with subscriber modes
+  `chrome-headless`, `chrome`, and `native`. Native alone exposes
+  `receive|simulate`; designer node selectors no longer show inheritance.
+  Chrome modes and simulated Native expose buffer/latency controls; Native
+  Receive does not.
+
 - 2026-08-19: Removed text publisher/subscriber topology support. Media is the
   only node kind, defaults no longer expose text images, and the designer hides
   the constant `kind: media` field.
@@ -141,7 +147,7 @@ These become tractable once Phase 4 lands.
   upswitch, shared Chrome/native live metrics, and selected-node metrics in the
   Containernet-first visualizer. See `PLAYBACK_METRICS.md`.
 
-- 2026-08-06: Added per-subscriber `media_client: chrome|native`, inheritable
+- 2026-08-06: Added per-subscriber Chrome/native client selection, inheritable
   native defaults for large topologies, lightweight `mlmsub` image and launch
   paths, dependency-chain subscription, first-media readiness, and legal
   deterministic veth names for long subscriber ids. Mixed startup launches all

@@ -304,10 +304,8 @@ class ContainernetBackend:
             record.publishers.append(pid)
 
         for sid in topology.subscribers:
-            subscriber = topology.subscribers[sid]
             extra_kwargs = {}
-            chrome = topology.subscriber_media_client(sid) == "chrome"
-            if chrome and subscriber.browser_mode == "x11":
+            if topology.subscriber_media_client(sid) == "chrome":
                 display = os.environ.get("DISPLAY")
                 if not display:
                     raise OrchestratorError(
@@ -523,7 +521,7 @@ class ContainernetBackend:
             net.get(sid).cmd(f"{cmd_line} > /tmp/{sid}.log 2>&1 &")
 
         for sid in record.subscribers:
-            if topology.subscriber_media_client(sid) == "chrome":
+            if topology.subscriber_media_client(sid) != "native":
                 _await_containernet_media_ready(
                     net.get(sid), sid, topology.startup.media_ready_timeout_s, info
                 )

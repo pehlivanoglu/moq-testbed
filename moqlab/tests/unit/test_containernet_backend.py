@@ -296,7 +296,7 @@ def test_x11_media_subscriber_mounts_host_display(monkeypatch):
             "subscribers": {
                 "sub": {
                     "kind": "media", "connects_to": "root", "namespace": "msf/clear",
-                    "track": "video/s2", "browser_mode": "x11",
+                    "track": "video/s2", "media_client": "chrome",
                 }
             },
             "links": [

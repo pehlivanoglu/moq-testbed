@@ -182,6 +182,12 @@ def test_designer_assets_include_editor_controls_and_valid_javascript() -> None:
     assert "function allocatePort" in app.read_text()
     assert "function portCollisionErrors" in app.read_text()
     assert '["publisher", "subscriber"].includes(role) ? ["kind"]' in app.read_text()
+    assert '"chrome-headless": "Chrome headless"' in app.read_text()
+    assert '["media_client", ...(nativeSubscriber ? ["native_playback"] : [])]' in app.read_text()
+    assert 'const bufferedSubscriber = role === "subscriber" && (!nativeSubscriber || simulatedNative)' in app.read_text()
+    assert "delete subscriber.browser_mode" in app.read_text()
+    assert "delete value.minimal_buffer_ms" in app.read_text()
+    assert "function cleanSubscriberModeFields" in app.read_text()
     assert "function addTrafficLoad" in app.read_text()
     assert 'heading("Traffic load")' in app.read_text()
     if node := shutil.which("node"):

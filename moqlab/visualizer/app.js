@@ -73,7 +73,7 @@ function renderNodeDetails(node) {
   const name = document.createElement("h3");
   name.textContent = node.id;
   const identity = document.createElement("p");
-  identity.textContent = [node.role, node.kind, node.media_client, node.native_playback]
+  identity.textContent = [node.role, node.media_client, node.native_playback]
     .filter(Boolean).join(" · ");
   nodeDetails.append(name, identity);
   if (node.role !== "subscriber" || node.kind !== "media") {
@@ -291,9 +291,7 @@ function draw(data) {
     const role = document.createElementNS("http://www.w3.org/2000/svg", "text");
     role.setAttribute("class", "role");
     role.setAttribute("y", "70");
-    role.textContent = node.kind === "media"
-      ? `${node.role} · ${node.media_client === "native" ? "native" : node.browser_mode}`
-      : node.role;
+    role.textContent = `${node.role} · ${node.media_client || "media"}`;
     group.append(role);
 
     nodeLayer.append(group);
