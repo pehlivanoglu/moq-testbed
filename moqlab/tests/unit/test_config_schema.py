@@ -48,8 +48,8 @@ def test_minimum_topology_validates():
     t = TopologyConfig.model_validate({"relays": _minimal_relays()})
     assert t.topology_mode == "explicit"
     assert t.defaults.relay.image == "moqlab-relay"
-    assert t.defaults.publisher.image == "moqlab-pub"
-    assert t.defaults.subscriber.image == "moqlab-sub"
+    assert t.defaults.publisher.image == "moqlab-media-pub"
+    assert t.defaults.subscriber.image == "moqlab-media-sub"
     assert t.startup.relay_warmup_s == 2.0
     assert t.startup.publisher_warmup_s == 1.0
 
@@ -109,6 +109,19 @@ def test_rejects_same_listen_and_admin_on_one_relay():
         TopologyConfig.model_validate({"relays": relays})
 
 
+def test_rejects_invalid_l4s_ce_target():
+    for target in (0, 1, -0.1):
+        relays = {
+            "r1": {
+                "listen_port": 9668,
+                "admin_port": 9669,
+                "l4s_ce_target": target,
+            }
+        }
+        with pytest.raises(Exception):
+            TopologyConfig.model_validate({"relays": relays})
+
+
 def test_rejects_invalid_relay_id():
     relays = {"bad name!": {"listen_port": 9668, "admin_port": 9669, "upstream": None}}
     with pytest.raises(Exception, match="invalid relay id"):
@@ -121,7 +134,7 @@ def test_rejects_invalid_relay_id():
 def test_publisher_must_target_known_relay():
     raw = {
         "relays": _minimal_relays(),
-        "publishers": {"pub": {"connects_to": "ghost", "namespace": "x"}},
+        "publishers": {"pub": {"connects_to": "ghost"}},
     }
     with pytest.raises(Exception, match="not a known relay"):
         TopologyConfig.model_validate(raw)
@@ -130,7 +143,7 @@ def test_publisher_must_target_known_relay():
 def test_publisher_id_collides_with_relay_id():
     raw = {
         "relays": _minimal_relays(),
-        "publishers": {"relay-a": {"connects_to": "relay-a", "namespace": "x"}},
+        "publishers": {"relay-a": {"connects_to": "relay-a"}},
     }
     with pytest.raises(Exception, match="reused"):
         TopologyConfig.model_validate(raw)
@@ -351,6 +364,7 @@ def test_rejects_old_flat_link_fields():
 def test_rejects_app_edge_without_link_path():
     raw = {
         "relays": _minimal_relays(),
+        "publishers": {"pub": {"connects_to": "relay-a"}},
         "subscribers": {"sub": {"connects_to": "relay-b", "namespace": "x", "track": "t"}},
         "links": [{"from": "relay-a", "to": "relay-b"}],
     }
@@ -395,7 +409,7 @@ def test_link_for_allows_pub_sub_links():
     t = TopologyConfig.model_validate(
         {
             "relays": _minimal_relays(),
-            "publishers": {"pub": {"connects_to": "relay-a", "namespace": "x"}},
+            "publishers": {"pub": {"connects_to": "relay-a"}},
             "subscribers": {"sub": {"connects_to": "relay-b", "namespace": "x", "track": "t"}},
             "links": [
                 {"from": "pub", "to": "relay-a", "forward": {"delay_ms": 5.0}},
@@ -598,7 +612,7 @@ def test_connects_to_cannot_reference_router():
     raw = {
         "relays": _minimal_relays(),
         "routers": {"rt-1": {}},
-        "publishers": {"pub": {"connects_to": "rt-1", "namespace": "x"}},
+        "publishers": {"pub": {"connects_to": "rt-1"}},
         "links": [
             {"from": "relay-a", "to": "rt-1"},
             {"from": "rt-1", "to": "relay-b"},
@@ -660,13 +674,23 @@ def test_endpoint_must_start_with_slash():
         TopologyConfig.model_validate({"relays": relays})
 
 
-def test_pub_log_level_validated():
+def test_text_publisher_fields_are_rejected():
     raw = {
         "relays": _minimal_relays(),
-        "publishers": {"pub": {"connects_to": "relay-a", "namespace": "x", "log_level": "TRACE"}},
+        "publishers": {"pub": {"connects_to": "relay-a", "namespace": "x"}},
     }
-    with pytest.raises(Exception, match="log_level"):
+    with pytest.raises(Exception, match="namespace"):
         TopologyConfig.model_validate(raw)
+
+
+def test_text_kind_is_rejected():
+    with pytest.raises(Exception, match="media"):
+        TopologyConfig.model_validate(
+            {
+                "relays": _minimal_relays(),
+                "publishers": {"pub": {"kind": "text", "connects_to": "relay-a"}},
+            }
+        )
 
 
 # ── loader ─────────────────────────────────────────────────────────────────

@@ -20,9 +20,10 @@ orchestrator wires everything by name (Docker DNS on the docker backend;
 generated `/etc/hosts` + static routes on containernet), so the same
 router/traffic-free config runs on either backend.
 
-Publisher/subscriber nodes default to existing text tools. `kind: media`
-selects `mlmpub` plus either Chromium-driven WARP Player or native `mlmsub`
-for clear LOC AV1 spatial SVC. Chrome readiness requires configured resolution,
+Publisher/subscriber nodes are media-only: `mlmpub` plus either
+Chromium-driven WARP Player or native `mlmsub` for clear LOC AV1 spatial SVC.
+`kind` defaults to the hidden constant `media`; the designer does not show a
+kind selector. Chrome readiness requires configured resolution,
 non-black pixels, and changing decoded frame hashes; native readiness requires
 first media on selected track.
 
@@ -117,9 +118,8 @@ cd moqlab
 # missing, this runs the repository setup step first.
 python -m moqlab build moqx
 
-# Builds moqlab-relay, moqlab-pub, moqlab-sub, moqlab-router, and
-# moqlab-traffic from the
-# repo root context. The router image compiles a pinned modern iproute2 so
+# Builds moqlab-relay, moqlab-router, and moqlab-traffic from the repo root
+# context. The router image compiles a pinned modern iproute2 so
 # its tc knows dualpi2; the host's tc version does not matter.
 python -m moqlab build images
 
@@ -165,12 +165,12 @@ topology_mode: explicit
 
 defaults:
   relay:      { image: moqlab-relay, endpoint: /moq-relay,
-                tls: { insecure: true },
+                tls: { insecure: false, generated: true },
                 cache: { enabled: false, max_tracks: 100, max_groups_per_track: 3 } }
-  publisher:  { image: moqlab-pub,   insecure: true, log_level: INFO }
-  subscriber: { image: moqlab-sub, media_image: moqlab-media-sub,
+  publisher:  { image: moqlab-media-pub }
+  subscriber: { image: moqlab-media-sub,
                 native_media_image: moqlab-media-native-sub,
-                media_client: chrome, insecure: true, log_level: INFO }
+                media_client: chrome, log_level: INFO }
 
 startup:
   relay_warmup_s: 2.0
@@ -218,6 +218,10 @@ links:                       # Containernet only; physical wiring + shaping
   - { from: rt-ab, to: traffic-rx }
   # ... rt-bc, relay-c, sub follow the same pattern
 ```
+
+Set `l4s_ce_target: 0.05` on a relay to make its mvfst listener send ECT(1)
+and react to CE feedback. Omit it to leave ECN disabled. This affects
+connections accepted by that relay, such as relay-to-subscriber traffic.
 
 Per direction (`forward` = from→to, `reverse` = to→from) you can set
 `bandwidth_mbps` (HTB rate), `delay_ms` / `jitter_ms` / `loss_pct` (netem),
@@ -314,9 +318,9 @@ verification because moqx does not yet implement `upstream.tls.ca_cert`.
 defaults:
   relay:
     tls: { insecure: false, generated: true }
-  publisher: { media_image: moqlab-media-pub }
+  publisher: { image: moqlab-media-pub }
   subscriber:
-    media_image: moqlab-media-sub
+    image: moqlab-media-sub
     native_media_image: moqlab-media-native-sub
     media_client: native
     native_playback: simulate
@@ -326,7 +330,6 @@ startup:
 
 publishers:
   pub:
-    kind: media
     connects_to: relay-a
     asset: testsvc
     listen_port: 4443
@@ -334,7 +337,6 @@ publishers:
 
 subscribers:
   sub:
-    kind: media
     media_client: chrome
     connects_to: relay-c
     namespace: msf/clear
@@ -395,7 +397,7 @@ There is no bandwidth-estimation ABR, DRM, audio selection, or temporal SVC.
 `<runs_dir>/<run_id>/configs/<relay>.yaml`, then:
 
 - **Docker backend**: creates bridge network `moqlab_<run_id>`. Starts media
-  origins first, relays root-first, text publishers, then subscribers. The
+  origins first, relays root-first, then subscribers. The
   configured warmups separate those phases. Each container is named after its
   node id; URLs like `moqt://relay-a:9668/moq-relay` and
   `https://relay-c:9672/moq-relay` resolve via Docker DNS.
@@ -431,7 +433,7 @@ needs the four runtime deps installed (see "Running it").
 | `python -m moqlab doctor [-c <config>] [--backend docker\|containernet]` | both | Check Python deps, Docker, required images, Containernet importability, privileges, and optional config readiness. |
 | `python -m moqlab design [-c <config>] [--port PORT]` | n/a | Open the dependency-free localhost drag-and-drop topology YAML designer. Validates and downloads configs; never runs a topology. |
 | `python -m moqlab build moqx` | n/a | Build moqx and prepare moxygen binaries used by images. |
-| `python -m moqlab build images` | n/a | Build `moqlab-relay`, `moqlab-pub`, `moqlab-sub`, `moqlab-router`, and `moqlab-traffic`. |
+| `python -m moqlab build images` | n/a | Build `moqlab-relay`, `moqlab-router`, and `moqlab-traffic`. |
 | `python -m moqlab build media-images [--publisher-context PATH] [--player-context PATH]` | n/a | Build `moqlab-media-pub`, `moqlab-media-sub`, and `moqlab-media-native-sub` from local contexts. Environment equivalents: `MOQLAB_MEDIA_PUBLISHER_CONTEXT` and `MOQLAB_MEDIA_PLAYER_CONTEXT`. |
 | `python -m moqlab validate -c <config>` | both | Parse + validate, no side effects. |
 | `python -m moqlab run -c <config> [--backend docker\|containernet] [--run-id N] [--publish-ports] [--vis\|--visualize]` | both | Run topology. Defaults to `containernet`. With `--visualize`, also serves `http://127.0.0.1:8765/` showing a pannable/zoomable topology graph and link rates. Live per-link throughput is available for Containernet runs, where every topology edge has its own interface. Docker-backend runs still render the correct topology, but Docker's single bridge interface is not split per topology link. |

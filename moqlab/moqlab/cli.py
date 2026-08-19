@@ -104,7 +104,7 @@ def build_moqx() -> None:
 
 @build.command(
     "images",
-    help="Build moqlab-relay, moqlab-pub, and moqlab-sub from local artifacts.",
+    help="Build relay, router, and external-traffic images.",
 )
 def build_images() -> None:
     try:
@@ -253,17 +253,11 @@ def validate(config: Path) -> None:
     for rid in topology.routers:
         click.echo(f"  router     {rid:14}  image={topology.router_image(rid)}")
     for pid, p in topology.publishers.items():
-        detail = f"asset={p.asset}" if p.kind == "media" else f"ns={p.namespace}"
-        click.echo(f"  publisher  {pid:14}  -> {p.connects_to}  kind={p.kind}  {detail}")
+        click.echo(f"  publisher  {pid:14}  -> {p.connects_to}  asset={p.asset}")
     for sid, s in topology.subscribers.items():
-        media = (
-            f"  client={topology.subscriber_media_client(sid)}"
-            if s.kind == "media"
-            else ""
-        )
         click.echo(
-            f"  subscriber {sid:14}  -> {s.connects_to}  kind={s.kind}  "
-            f"ns={s.namespace}  track={s.track}{media}"
+            f"  subscriber {sid:14}  -> {s.connects_to}  ns={s.namespace}  "
+            f"track={s.track}  client={topology.subscriber_media_client(sid)}"
         )
     if topology.traffic is not None:
         click.echo(

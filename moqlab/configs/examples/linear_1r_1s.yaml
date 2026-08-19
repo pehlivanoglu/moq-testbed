@@ -2,7 +2,7 @@
 #
 #   pub  ───►  relay-a  ───  rt-1  ───  sub
 #
-# pub publishes the date stream into relay-a; sub subscribes to it through
+# pub serves an AV1-SVC stream through relay-a; sub subscribes to it through
 # relay-a. rt-1 is an IP router container that owns the bottleneck queue on
 # the last mile: its egress toward sub runs a 20 Mbps HTB with a dualpi2
 # (L4S) AQM.
@@ -19,15 +19,12 @@ defaults:
   relay:
     image: moqlab-relay
     endpoint: /moq-relay
-    tls: { insecure: true }
+    tls: { insecure: false, generated: true }
     cache: { enabled: false, max_tracks: 100, max_groups_per_track: 3 }
   publisher:
-    image: moqlab-pub
-    insecure: true
-    log_level: INFO
+    image: moqlab-media-pub
   subscriber:
-    image: moqlab-sub
-    insecure: true
+    image: moqlab-media-sub
     log_level: INFO
   router:
     image: moqlab-router
@@ -35,6 +32,7 @@ defaults:
 startup:
   relay_warmup_s: 2.0
   publisher_warmup_s: 1.0
+  media_ready_timeout_s: 30
 
 relays:
   relay-a:
@@ -45,13 +43,15 @@ relays:
 publishers:
   pub:
     connects_to: relay-a
-    namespace: moq-date
+    asset: testsvc
+    listen_port: 4443
+    fingerprint_port: 8081
 
 subscribers:
   sub:
     connects_to: relay-a
-    namespace: moq-date
-    track: date
+    namespace: msf/clear
+    track: video/s2
 
 routers:
   rt-1: {}              # image defaults to moqlab-router

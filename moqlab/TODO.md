@@ -48,10 +48,8 @@ cut from current versions, not bugs or oversights.
       Resolved 2026-06-12: `links:` is the physical wiring source of truth on
       the Containernet backend (which refuses configs without it); the schema
       verifies every app edge has a path through the link graph.
-- [ ] Add the first text integration test under `tests/integration/` gated by
-      `MOQLAB_INTEGRATION=1`: bring up `linear_3r_1s.yaml` on the Docker
-      backend, assert every container reaches `running`, assert the subscriber
-      receives at least one date object, then `down`.
+- [ ] Extend media integration coverage beyond the existing one-relay gated
+      acceptance test to a multirelay topology.
 - [ ] `moqlab status --run-id NAME` reporting per-node container status,
       recent log tail, and admin-port reachability.
 - [ ] Extend the localhost visualizer beyond live link counters and selected
@@ -133,6 +131,10 @@ These become tractable once Phase 4 lands.
       CDP automation and generated per-run TLS; no Playwright dependency.
 
 ## History Notes
+
+- 2026-08-19: Removed text publisher/subscriber topology support. Media is the
+  only node kind, defaults no longer expose text images, and the designer hides
+  the constant `kind: media` field.
 
 - 2026-08-10: Added opt-in `native_playback: simulate`, chain-correct AV1-SVC
   fake decode/playback with decode-deadline downswitch and independent-only

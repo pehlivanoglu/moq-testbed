@@ -29,10 +29,10 @@ def _topology() -> TopologyConfig:
                 "relay-c": {"listen_port": 9672, "admin_port": 9673, "upstream": "relay-b"},
             },
             "publishers": {
-                "pub": {"connects_to": "relay-a", "namespace": "moq-date"},
+                "pub": {"connects_to": "relay-a"},
             },
             "subscribers": {
-                "sub": {"connects_to": "relay-c", "namespace": "moq-date", "track": "date"},
+                "sub": {"connects_to": "relay-c", "namespace": "msf/clear", "track": "video/s2"},
             },
         }
     )
@@ -41,10 +41,10 @@ def _topology() -> TopologyConfig:
 # ── relay yaml ─────────────────────────────────────────────────────────────
 
 
-def test_origin_relay_has_no_upstream():
+def test_origin_relay_pulls_media_publisher():
     doc = synthesize_relay_yaml(_topology(), "relay-a")
     assert doc["relay_id"] == "relay-a"
-    assert "upstream" not in doc["services"]["default"]
+    assert doc["services"]["default"]["upstream"]["url"] == "moqt://pub:4443/moq"
     listener = doc["listeners"][0]
     assert listener["udp"]["socket"]["port"] == 9668
     assert listener["endpoint"] == "/moq-relay"
@@ -83,6 +83,22 @@ def test_relay_overrides_supersede_defaults():
     assert doc["services"]["default"]["cache"]["max_tracks"] == 999
 
 
+def test_relay_l4s_ce_target_enables_mvfst_l4s():
+    t = TopologyConfig.model_validate(
+        {
+            "relays": {
+                "r1": {
+                    "listen_port": 9668,
+                    "admin_port": 9669,
+                    "l4s_ce_target": 0.05,
+                }
+            }
+        }
+    )
+    listener = synthesize_relay_yaml(t, "r1")["listeners"][0]
+    assert listener["mvfst"] == {"l4s": {"ce_target": 0.05}}
+
+
 def test_synthesize_relay_configs_writes_files(tmp_path: Path):
     t = _topology()
     written = synthesize_relay_configs(t, tmp_path)
@@ -98,34 +114,21 @@ def test_synthesize_relay_configs_writes_files(tmp_path: Path):
 
 def test_publisher_command_basic_shape():
     argv = synthesize_publisher_command(_topology(), "pub")
-    assert "--ns=moq-date" in argv
-    assert "--relay_url=https://relay-a:9668/moq-relay" in argv
-    assert "--logging=INFO" in argv
-    assert "--insecure" in argv
-    # No --port flag because publisher.port was unset
-    assert not any(a.startswith("--port=") for a in argv)
+    assert argv[:4] == [
+        "-addr", "0.0.0.0:4443",
+        "-asset", "/opt/moqlivemock/assets/testsvc",
+    ]
 
 
-def test_publisher_command_honors_port_override():
+def test_publisher_command_honors_listen_port_override():
     t = TopologyConfig.model_validate(
         {
             "relays": {"r": {"listen_port": 9668, "admin_port": 9669, "upstream": None}},
-            "publishers": {"p": {"connects_to": "r", "namespace": "n", "port": 4500}},
+            "publishers": {"p": {"connects_to": "r", "listen_port": 4500}},
         }
     )
     argv = synthesize_publisher_command(t, "p")
-    assert "--port=4500" in argv
-
-
-def test_publisher_command_drops_insecure_when_false():
-    t = TopologyConfig.model_validate(
-        {
-            "relays": {"r": {"listen_port": 9668, "admin_port": 9669, "upstream": None}},
-            "publishers": {"p": {"connects_to": "r", "namespace": "n", "insecure": False}},
-        }
-    )
-    argv = synthesize_publisher_command(t, "p")
-    assert "--insecure" not in argv
+    assert ["-addr", "0.0.0.0:4500"] == argv[:2]
 
 
 # ── subscriber argv ────────────────────────────────────────────────────────
@@ -133,11 +136,9 @@ def test_publisher_command_drops_insecure_when_false():
 
 def test_subscriber_command_basic_shape():
     argv = synthesize_subscriber_command(_topology(), "sub")
-    assert "--connect_url=https://relay-c:9672/moq-relay" in argv
-    assert "--track_namespace=moq-date" in argv
-    assert "--track_name=date" in argv
-    assert "--logging=INFO" in argv
-    assert "--insecure" in argv
+    assert "--server-url=https://relay-c:9672/moq-relay" in argv
+    assert "--namespace=msf/clear" in argv
+    assert "--video-track=video/s2" in argv
 
 
 def test_subscriber_command_uses_per_relay_endpoint_override():
@@ -151,11 +152,12 @@ def test_subscriber_command_uses_per_relay_endpoint_override():
                     "endpoint": "/custom",
                 }
             },
+            "publishers": {"p": {"connects_to": "r"}},
             "subscribers": {"s": {"connects_to": "r", "namespace": "n", "track": "t"}},
         }
     )
     argv = synthesize_subscriber_command(t, "s")
-    assert "--connect_url=https://r:9668/custom" in argv
+    assert "--server-url=https://r:9668/custom" in argv
 
 
 def _media_topology() -> TopologyConfig:

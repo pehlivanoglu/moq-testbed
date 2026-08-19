@@ -4,7 +4,7 @@
 #   pub ──► relay-1 ── rt-core
 #                       └── relay-3 ◄── sub-3, sub-4
 #
-# pub publishes the date stream into relay-1; relay-2 and relay-3 use relay-1
+# pub serves an AV1-SVC stream through relay-1; relay-2 and relay-3 use relay-1
 # as their upstream and reach it through rt-core, a multi-interface IP router
 # container. rt-core owns the fan-out bottlenecks: its egress toward each
 # leaf relay runs a 50 Mbps HTB with a dualpi2 (L4S) AQM.
@@ -21,15 +21,12 @@ defaults:
   relay:
     image: moqlab-relay
     endpoint: /moq-relay
-    tls: { insecure: true }
+    tls: { insecure: false, generated: true }
     cache: { enabled: false, max_tracks: 100, max_groups_per_track: 3 }
   publisher:
-    image: moqlab-pub
-    insecure: true
-    log_level: INFO
+    image: moqlab-media-pub
   subscriber:
-    image: moqlab-sub
-    insecure: true
+    image: moqlab-media-sub
     log_level: INFO
   router:
     image: moqlab-router
@@ -43,6 +40,7 @@ defaults:
 startup:
   relay_warmup_s: 2.0
   publisher_warmup_s: 1.0
+  media_ready_timeout_s: 30
 
 relays:
   relay-1:
@@ -63,28 +61,30 @@ relays:
 publishers:
   pub:
     connects_to: relay-1
-    namespace: moq-date
+    asset: testsvc
+    listen_port: 4443
+    fingerprint_port: 8081
 
 subscribers:
   sub-1:
     connects_to: relay-2
-    namespace: moq-date
-    track: date
+    namespace: msf/clear
+    track: video/s2
 
   sub-2:
     connects_to: relay-2
-    namespace: moq-date
-    track: date
+    namespace: msf/clear
+    track: video/s2
 
   sub-3:
     connects_to: relay-3
-    namespace: moq-date
-    track: date
+    namespace: msf/clear
+    track: video/s2
 
   sub-4:
     connects_to: relay-3
-    namespace: moq-date
-    track: date
+    namespace: msf/clear
+    track: video/s2
 
 routers:
   rt-core: {}

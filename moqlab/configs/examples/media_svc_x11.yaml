@@ -12,7 +12,6 @@ relays:
 
 publishers:
   pub:
-    kind: media
     connects_to: relay-a
     asset: testsvc
     listen_port: 4443
@@ -20,7 +19,6 @@ publishers:
 
 subscribers:
   sub:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2

@@ -116,7 +116,6 @@ def topology_snapshot(topology: TopologyConfig) -> dict[str, object]:
                 "level": _level(pid, depths[publisher.connects_to]),
                 "connects_to": publisher.connects_to,
                 "kind": publisher.kind,
-                "namespace": publisher.namespace,
                 "asset": publisher.asset,
             }
         )
@@ -130,15 +129,10 @@ def topology_snapshot(topology: TopologyConfig) -> dict[str, object]:
                 "kind": subscriber.kind,
                 "namespace": subscriber.namespace,
                 "track": subscriber.track,
-                "media_client": (
-                    topology.subscriber_media_client(sid)
-                    if subscriber.kind == "media"
-                    else None
-                ),
+                "media_client": topology.subscriber_media_client(sid),
                 "native_playback": (
                     topology.subscriber_native_playback(sid)
-                    if subscriber.kind == "media"
-                    and topology.subscriber_media_client(sid) == "native"
+                    if topology.subscriber_media_client(sid) == "native"
                     else None
                 ),
                 "browser_mode": subscriber.browser_mode,
@@ -289,8 +283,6 @@ class VisualizerHTTPServer(ThreadingHTTPServer):
         subscriber = self.topology.subscribers.get(node_id)
         if subscriber is None:
             return {"status": "unavailable", "reason": "unknown node"}
-        if subscriber.kind != "media":
-            return {"status": "unavailable", "reason": "player metrics unavailable"}
         container = (
             f"mn.{node_id}"
             if self.backend == "containernet"

@@ -49,8 +49,6 @@ def docker_image_build_commands(root: Path | None = None) -> list[BuildCommand]:
 
     specs = [
         ("relay image", "moqlab/docker/Dockerfile.relay", "moqlab-relay"),
-        ("publisher image", "moqlab/docker/Dockerfile.pub", "moqlab-pub"),
-        ("subscriber image", "moqlab/docker/Dockerfile.sub", "moqlab-sub"),
         ("router image", "moqlab/docker/Dockerfile.router", "moqlab-router"),
         ("traffic image", "moqlab/docker/Dockerfile.traffic", "moqlab-traffic"),
     ]
@@ -149,7 +147,7 @@ def _moxygen_binaries_ready(root: Path) -> bool:
 
 def missing_image_artifacts(root: Path | None = None) -> list[Path]:
     root = root or repo_root()
-    required = [root / "build" / "moqx", *_moxygen_binary_paths(root)]
+    required = [root / "build" / "moqx"]
     return [path for path in required if not path.exists()]
 
 

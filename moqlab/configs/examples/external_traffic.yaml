@@ -1,9 +1,11 @@
-# Two external traffic containers drive two explicit router paths while a text
-# MoQ publisher/subscriber runs through the west router.
+# Two external traffic containers drive two explicit router paths while a
+# media publisher/subscriber runs through the west router.
 
 topology_mode: explicit
 
 defaults:
+  relay:
+    tls: { insecure: false, generated: true }
   traffic:
     image: moqlab-traffic
     tcp_port: 9000
@@ -12,16 +14,18 @@ defaults:
 startup:
   relay_warmup_s: 1
   publisher_warmup_s: 1
+  media_ready_timeout_s: 30
   traffic_ready_timeout_s: 5
 
 relays:
   relay-a: { listen_port: 9668, admin_port: 9669 }
 
 publishers:
-  pub: { connects_to: relay-a, namespace: moq-date }
+  pub: { connects_to: relay-a, asset: testsvc, listen_port: 4443,
+         fingerprint_port: 8081 }
 
 subscribers:
-  sub: { connects_to: relay-a, namespace: moq-date, track: date }
+  sub: { connects_to: relay-a, namespace: msf/clear, track: video/s2 }
 
 routers:
   rt-west: {}

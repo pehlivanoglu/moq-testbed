@@ -144,18 +144,13 @@ function inheritedNodeValues(role, config) {
   if (role === "router") return defaults.router;
   if (role === "publisher") {
     return {
-      image: config.kind === "media" ? defaults.publisher.media_image : defaults.publisher.image,
-      insecure: defaults.publisher.insecure,
-      log_level: defaults.publisher.log_level,
+      image: defaults.publisher.image,
     };
   }
   if (role === "subscriber") {
     const client = config.media_client || defaults.subscriber.media_client;
     return {
-      image: config.kind === "media"
-        ? (client === "native" ? defaults.subscriber.native_media_image : defaults.subscriber.media_image)
-        : defaults.subscriber.image,
-      insecure: defaults.subscriber.insecure,
+      image: client === "native" ? defaults.subscriber.native_media_image : defaults.subscriber.image,
       log_level: defaults.subscriber.log_level,
       media_client: defaults.subscriber.media_client,
       native_playback: defaults.subscriber.native_playback,
@@ -343,7 +338,6 @@ function portEntries() {
     add(`relays.${id}.admin_port`, relay.admin_port);
   }
   for (const [id, publisher] of Object.entries(draft.publishers || {})) {
-    add(`publishers.${id}.port`, publisher.port);
     add(`publishers.${id}.listen_port`, publisher.listen_port);
     add(`publishers.${id}.fingerprint_port`, publisher.fingerprint_port);
   }
@@ -424,13 +418,12 @@ function nodeDefaults(role) {
     return {
       id: nextId("pub"),
       config: {
-        kind: "text",
+        kind: "media",
         connects_to: firstRelay(),
-        namespace: "moq-date",
-        port: allocatePort(9700),
+        asset: "testsvc",
+        listen_port: allocatePort(4443),
+        fingerprint_port: allocatePort(8081),
         image: defaults.publisher.image,
-        insecure: defaults.publisher.insecure,
-        log_level: defaults.publisher.log_level,
       },
     };
   }
@@ -438,13 +431,13 @@ function nodeDefaults(role) {
     return {
       id: nextId("sub"),
       config: {
-        kind: "text",
+        kind: "media",
         connects_to: firstRelay(),
-        namespace: "moq-date",
-        track: "date",
+        namespace: "msf/clear",
+        track: "video/s2",
         image: defaults.subscriber.image,
-        insecure: defaults.subscriber.insecure,
         log_level: defaults.subscriber.log_level,
+        media_client: defaults.subscriber.media_client,
       },
     };
   }
@@ -461,6 +454,7 @@ function addNode(role, point) {
   const trafficDefaults = endpoint && !draft.traffic ? availableTrafficDefaults() : null;
   const value = nodeDefaults(role);
   commit(() => {
+    if (role === "publisher" || role === "subscriber") ensureMediaTls();
     if (endpoint) {
       if (trafficDefaults) {
         draft.defaults ||= {};
@@ -501,64 +495,27 @@ function ensureMediaTls() {
   }
 }
 
-function normalizedNodeConfig(role, next, previous) {
+function normalizedNodeConfig(role, next) {
   const value = clone(next);
   const defaults = effectiveDefaults();
-  if (role === "publisher" && value.kind !== previous.kind) {
-    if (value.kind === "media") {
-      delete value.namespace;
-      delete value.port;
-      value.asset ||= "testsvc";
-      value.listen_port ||= allocatePort(4443);
-      value.fingerprint_port ||= allocatePort(8081);
-      value.image = defaults.publisher.media_image;
-      ensureMediaTls();
-    } else {
-      delete value.asset;
-      delete value.listen_port;
-      delete value.fingerprint_port;
-      value.namespace ||= "moq-date";
-      value.port ||= allocatePort(9700);
-      value.image = defaults.publisher.image;
-    }
-  }
   if (role === "subscriber") {
-    if (value.kind !== previous.kind) {
-      if (value.kind === "media") {
-        value.namespace = "msf/clear";
-        value.track = "video/s2";
-        value.media_client ||= defaults.subscriber.media_client;
-        ensureMediaTls();
-      } else {
-        value.namespace = "moq-date";
-        value.track = "date";
-        delete value.media_client;
-        delete value.native_playback;
-        delete value.browser_mode;
-        delete value.minimal_buffer_ms;
-        delete value.target_latency_ms;
-        value.image = defaults.subscriber.image;
-      }
-    }
-    if (value.kind === "media") {
-      const client = value.media_client || defaults.subscriber.media_client;
-      value.image = client === "native" ? defaults.subscriber.native_media_image : defaults.subscriber.media_image;
-      if (client === "native") {
-        delete value.browser_mode;
-        const playback = value.native_playback || defaults.subscriber.native_playback;
-        if (playback === "simulate") {
-          value.minimal_buffer_ms ??= 200;
-          value.target_latency_ms ??= 300;
-        } else {
-          delete value.minimal_buffer_ms;
-          delete value.target_latency_ms;
-        }
-      } else {
-        delete value.native_playback;
-        value.browser_mode ||= "headless";
+    const client = value.media_client || defaults.subscriber.media_client;
+    value.image = client === "native" ? defaults.subscriber.native_media_image : defaults.subscriber.image;
+    if (client === "native") {
+      delete value.browser_mode;
+      const playback = value.native_playback || defaults.subscriber.native_playback;
+      if (playback === "simulate") {
         value.minimal_buffer_ms ??= 200;
         value.target_latency_ms ??= 300;
+      } else {
+        delete value.minimal_buffer_ms;
+        delete value.target_latency_ms;
       }
+    } else {
+      delete value.native_playback;
+      value.browser_mode ||= "headless";
+      value.minimal_buffer_ms ??= 200;
+      value.target_latency_ms ??= 300;
     }
   }
   return value;
@@ -645,7 +602,7 @@ function duplicateNodes(role, id, count) {
         const [listen_port, admin_port] = nextRelayPorts();
         config.listen_port = listen_port;
         config.admin_port = admin_port;
-      } else if (role === "publisher" && config.kind === "media") {
+      } else if (role === "publisher") {
         config.listen_port = allocatePort(config.listen_port || 4443);
         config.fingerprint_port = allocatePort(config.fingerprint_port || 8081);
         if (config.fingerprint_port === config.listen_port) config.fingerprint_port = allocatePort(config.fingerprint_port + 1);
@@ -1110,15 +1067,15 @@ function renderNodeInspector() {
     editor.append(wrapper);
   }
   const commonFields = role === "publisher"
-    ? (config.kind === "media" ? ["kind", "asset", "listen_port", "fingerprint_port"] : ["kind", "namespace", "port"])
+    ? ["asset", "listen_port", "fingerprint_port"]
     : role === "subscriber"
-      ? (config.kind === "media" ? ["kind", "namespace", "track", "media_client", "native_playback", "browser_mode", "minimal_buffer_ms", "target_latency_ms"] : ["kind", "namespace", "track"])
+      ? ["namespace", "track", "media_client", "native_playback", "browser_mode", "minimal_buffer_ms", "target_latency_ms"]
       : ["kind", "namespace", "track"];
   renderObjectEditor(editor, nodeDefinition(role), config, (next) => commit(() => {
     if (role.startsWith("traffic-")) draft.traffic[role.slice(8)] = next;
-    else draft[propertyForRole(role)][id] = normalizedNodeConfig(role, next, config);
+    else draft[propertyForRole(role)][id] = normalizedNodeConfig(role, next);
   }), {
-    skip: [...(role.startsWith("traffic-") ? ["id"] : []), ...(relationship ? [relationship] : [])],
+    skip: [...(["publisher", "subscriber"].includes(role) ? ["kind"] : []), ...(role.startsWith("traffic-") ? ["id"] : []), ...(relationship ? [relationship] : [])],
     common: commonFields,
     inherited: inheritedNodeValues(role, config),
   });

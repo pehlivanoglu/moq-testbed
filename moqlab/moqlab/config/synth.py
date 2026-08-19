@@ -1,8 +1,8 @@
 """Synthesize per-node launch artifacts from a topology.
 
 For relays, emit a moqx YAML mounted into the container at /etc/moqx/relay.yaml.
-For publishers and subscribers, emit the CLI flag list passed to moqdateserver /
-moqtextclient (their entrypoints already point at the binaries).
+For publishers and subscribers, emit the CLI flag list passed to the media
+origin and media clients.
 
 All URLs use container DNS — the Docker backend creates every node with
 `name=<id>` on a single user-defined bridge network, and the Containernet
@@ -62,8 +62,7 @@ def synthesize_relay_yaml(topology: TopologyConfig, relay_id: str) -> dict[str, 
 
     matches = [{"authority": {"any": True}, "path": {"exact": endpoint}}]
     if endpoint != "/" and any(
-        subscriber.kind == "media"
-        and topology.subscriber_media_client(sid) == "native"
+        topology.subscriber_media_client(sid) == "native"
         and subscriber.connects_to == relay_id
         for sid, subscriber in topology.subscribers.items()
     ):
@@ -78,7 +77,7 @@ def synthesize_relay_yaml(topology: TopologyConfig, relay_id: str) -> dict[str, 
         (
             (pid, publisher)
             for pid, publisher in topology.publishers.items()
-            if publisher.kind == "media" and publisher.connects_to == relay_id
+            if publisher.connects_to == relay_id
         ),
         None,
     )
@@ -103,16 +102,19 @@ def synthesize_relay_yaml(topology: TopologyConfig, relay_id: str) -> dict[str, 
             "tls": upstream_tls,
         }
 
+    listener: dict[str, Any] = {
+        "name": "main",
+        # "udp": {"socket": {"address": "::", "port": r.listen_port}},
+        "udp": {"socket": {"address": "0.0.0.0", "port": r.listen_port}},
+        "tls": _tls_to_yaml(tls),
+        "endpoint": endpoint,
+    }
+    if r.l4s_ce_target is not None:
+        listener["mvfst"] = {"l4s": {"ce_target": r.l4s_ce_target}}
+
     return {
         "relay_id": relay_id,
-        "listeners": [
-            {
-                "name": "main",
-                "udp": {"socket": {"address": "::", "port": r.listen_port}},
-                "tls": _tls_to_yaml(tls),
-                "endpoint": endpoint,
-            }
-        ],
+        "listeners": [listener],
         "services": {"default": service},
         "admin": {
             "port": r.admin_port,
@@ -156,86 +158,59 @@ def _relay_native_client_address(topology: TopologyConfig, relay_id: str) -> str
 def synthesize_publisher_command(
     topology: TopologyConfig, publisher_id: str
 ) -> list[str]:
-    """Return the moqdateserver argv (without the binary path itself).
-
-    The image's ENTRYPOINT is /usr/local/bin/moqdateserver, so Docker prepends
-    it automatically. We return only the flag list.
-    """
+    """Return the media origin argv without the binary path."""
     if publisher_id not in topology.publishers:
         raise KeyError(f"unknown publisher id: {publisher_id}")
     p = topology.publishers[publisher_id]
 
-    if p.kind == "media":
-        return [
-            "-addr", f"0.0.0.0:{p.listen_port}",
-            "-asset", f"/opt/moqlivemock/assets/{p.asset}",
-            "-cert", TLS_CERT,
-            "-key", TLS_KEY,
-            "-sideport", str(p.fingerprint_port),
-            "-catalog-delay", "2s",
-            "-qlog", f"/tmp/{publisher_id}.qlog",
-        ]
-
-    argv = [
-        f"--ns={p.namespace}",
-        f"--relay_url={_relay_client_url(topology, p.connects_to)}",
-        f"--logging={topology.publisher_log_level(publisher_id)}",
+    return [
+        "-addr", f"0.0.0.0:{p.listen_port}",
+        "-asset", f"/opt/moqlivemock/assets/{p.asset}",
+        "-cert", TLS_CERT,
+        "-key", TLS_KEY,
+        "-sideport", str(p.fingerprint_port),
+        "-catalog-delay", "2s",
+        "-qlog", f"/tmp/{publisher_id}.qlog",
     ]
-    if topology.publisher_insecure(publisher_id):
-        argv.append("--insecure")
-    if p.port is not None:
-        argv.append(f"--port={p.port}")
-    return argv
 
 
 def synthesize_subscriber_command(
     topology: TopologyConfig, subscriber_id: str
 ) -> list[str]:
-    """Return the moqtextclient argv (without the binary path itself)."""
+    """Return the media subscriber argv without the binary path."""
     if subscriber_id not in topology.subscribers:
         raise KeyError(f"unknown subscriber id: {subscriber_id}")
     s = topology.subscribers[subscriber_id]
 
-    if s.kind == "media":
-        if topology.subscriber_media_client(subscriber_id) == "native":
-            argv = [
-                "-addr", _relay_native_client_address(topology, s.connects_to),
-                "-draft", "16",
-                "-namespace", s.namespace,
-                "-videoname", s.track,
-                "-catalog-mode", "subscribe",
-                "-subscribe-dependencies",
-                "-loglevel", topology.subscriber_log_level(subscriber_id).lower(),
-                "-qlog", f"/tmp/{subscriber_id}.qlog",
-                "-metrics-path", "/tmp/moqlab-player-metrics.json",
-            ]
-            if topology.subscriber_native_playback(subscriber_id) == "simulate":
-                argv.extend([
-                    "-simulate-playback",
-                    "-minimal-buffer-ms", str(s.minimal_buffer_ms),
-                    "-target-latency-ms", str(s.target_latency_ms),
-                ])
-            return argv
-        media_publisher = topology.media_publisher_for_relay(s.connects_to)
-        return [
-            f"--server-url={_relay_client_url(topology, s.connects_to)}",
-            "--fingerprint-url="
-            f"http://{media_publisher[0]}:"
-            f"{media_publisher[1].fingerprint_port}/fingerprint",
-            f"--namespace={s.namespace}",
-            f"--video-track={s.track}",
-            f"--browser-mode={s.browser_mode}",
-            f"--minimal-buffer-ms={s.minimal_buffer_ms}",
-            f"--target-latency-ms={s.target_latency_ms}",
-            f"--ready-timeout-s={topology.startup.media_ready_timeout_s:g}",
+    if topology.subscriber_media_client(subscriber_id) == "native":
+        argv = [
+            "-addr", _relay_native_client_address(topology, s.connects_to),
+            "-draft", "16",
+            "-namespace", s.namespace,
+            "-videoname", s.track,
+            "-catalog-mode", "subscribe",
+            "-subscribe-dependencies",
+            "-loglevel", topology.subscriber_log_level(subscriber_id).lower(),
+            "-qlog", f"/tmp/{subscriber_id}.qlog",
+            "-metrics-path", "/tmp/moqlab-player-metrics.json",
         ]
-
-    argv = [
-        f"--connect_url={_relay_client_url(topology, s.connects_to)}",
-        f"--track_namespace={s.namespace}",
-        f"--track_name={s.track}",
-        f"--logging={topology.subscriber_log_level(subscriber_id)}",
+        if topology.subscriber_native_playback(subscriber_id) == "simulate":
+            argv.extend([
+                "-simulate-playback",
+                "-minimal-buffer-ms", str(s.minimal_buffer_ms),
+                "-target-latency-ms", str(s.target_latency_ms),
+            ])
+        return argv
+    media_publisher = topology.media_publisher_for_relay(s.connects_to)
+    return [
+        f"--server-url={_relay_client_url(topology, s.connects_to)}",
+        "--fingerprint-url="
+        f"http://{media_publisher[0]}:"
+        f"{media_publisher[1].fingerprint_port}/fingerprint",
+        f"--namespace={s.namespace}",
+        f"--video-track={s.track}",
+        f"--browser-mode={s.browser_mode}",
+        f"--minimal-buffer-ms={s.minimal_buffer_ms}",
+        f"--target-latency-ms={s.target_latency_ms}",
+        f"--ready-timeout-s={topology.startup.media_ready_timeout_s:g}",
     ]
-    if topology.subscriber_insecure(subscriber_id):
-        argv.append("--insecure")
-    return argv

@@ -8,12 +8,10 @@ defined in YAML under [../configs/](../configs/) and brought up with
 | File | Image | Binary | Used by |
 |---|---|---|---|
 | `Dockerfile.relay` | `moqlab-relay` | `/usr/local/bin/moqx` | Every `relays:` entry |
-| `Dockerfile.pub`   | `moqlab-pub`   | `/usr/local/bin/moqdateserver` | Every `publishers:` entry |
-| `Dockerfile.sub`   | `moqlab-sub`   | `/usr/local/bin/moqtextclient` | Every `subscribers:` entry |
 | `Dockerfile.router` | `moqlab-router` | none (IP forwarding + tc only) | Every `routers:` entry |
 | `Dockerfile.traffic` | `moqlab-traffic` | Python stdlib traffic runtime | Optional sender + receiver |
-| `Dockerfile.media-pub` | `moqlab-media-pub` | `/usr/local/bin/mlmpub` | Media publishers |
-| `Dockerfile.media-sub` | `moqlab-media-sub` | Chromium + WARP Player runner | Media subscribers |
+| `Dockerfile.media-pub` | `moqlab-media-pub` | `/usr/local/bin/mlmpub` | Every publisher |
+| `Dockerfile.media-sub` | `moqlab-media-sub` | Chromium + WARP Player runner | Chrome subscribers |
 | `Dockerfile.media-native-sub` | `moqlab-media-native-sub` | `/usr/local/bin/mlmsub` | Native media subscribers |
 
 The router image runs no MoQ binary. It exists to own link queues: it builds
@@ -25,14 +23,13 @@ recognize `dualpi2`.
 The relay image expects its config bind-mounted at `/etc/moqx/relay.yaml`. The
 orchestrator synthesizes that file from the topology config at run time.
 
-The text and media pub/sub images take their arguments as the container `command`; the
+The media pub/sub images take their arguments as the container `command`; the
 orchestrator builds the argv from the topology config's
 `publishers:` / `subscribers:` blocks.
 
 ## Building the images
 
-The Dockerfiles `COPY` pre-built binaries from build-output paths in the repo
-root (e.g. `build/moqx`, `.scratch/moxygen-install/bin/moqdateserver`).
+The relay Dockerfile copies `build/moqx` from the repo root.
 Build the binaries and images through the moqlab CLI:
 
 ```bash
@@ -43,8 +40,7 @@ python -m moqlab build media-images
 ```
 
 `build images` runs Docker builds from the repository root context so the
-Dockerfiles can copy `build/moqx` and `.scratch/moxygen-install/bin/...`
-without requiring manual path juggling.
+Dockerfiles can copy `build/moqx` without manual path juggling.
 
 `build media-images` uses BuildKit named contexts instead of cloning or
 vendoring. Its defaults are sibling `moqlivemock-svc` and `warp-player-svc`

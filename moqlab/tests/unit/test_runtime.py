@@ -64,9 +64,9 @@ def test_topology_edges_dedupes_undirected_edges(tmp_path: Path):
                 "relays:",
                 "  relay-a: { listen_port: 9668, admin_port: 9669 }",
                 "publishers:",
-                "  pub: { connects_to: relay-a, namespace: moq-date }",
+                "  pub: { connects_to: relay-a }",
                 "subscribers:",
-                "  sub: { connects_to: relay-a, namespace: moq-date, track: date }",
+                "  sub: { connects_to: relay-a, namespace: msf/clear, track: video/s2 }",
                 "links:",
                 "  - { from: relay-a, to: pub, forward: { delay_ms: 5 } }",
                 "  - { from: relay-a, to: sub }",
@@ -88,9 +88,9 @@ def _routed_topology(tmp_path: Path):
                 "relays:",
                 "  relay-a: { listen_port: 9668, admin_port: 9669 }",
                 "publishers:",
-                "  pub: { connects_to: relay-a, namespace: moq-date }",
+                "  pub: { connects_to: relay-a }",
                 "subscribers:",
-                "  sub: { connects_to: relay-a, namespace: moq-date, track: date }",
+                "  sub: { connects_to: relay-a, namespace: msf/clear, track: video/s2 }",
                 "routers:",
                 "  rt-1: {}",
                 "links:",
@@ -122,10 +122,13 @@ def test_containernet_edge_interfaces_shorten_long_node_ids(tmp_path: Path):
             [
                 "relays:",
                 "  relay-a: { listen_port: 9668, admin_port: 9669 }",
+                "publishers:",
+                "  pub: { connects_to: relay-a }",
                 "subscribers:",
                 "  chrome-headless: { connects_to: relay-a, namespace: x, track: t }",
                 "  chrome-x11: { connects_to: relay-a, namespace: x, track: t }",
                 "links:",
+                "  - { from: pub, to: relay-a }",
                 "  - { from: relay-a, to: chrome-headless }",
                 "  - { from: relay-a, to: chrome-x11 }",
             ]
@@ -158,8 +161,8 @@ def test_topology_image_tags_include_router_image(tmp_path: Path):
 
     assert topology_image_tags(topology) == {
         "moqlab-relay",
-        "moqlab-pub",
-        "moqlab-sub",
+        "moqlab-media-pub",
+        "moqlab-media-sub",
         "moqlab-router",
     }
 
