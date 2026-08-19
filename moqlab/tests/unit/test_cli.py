@@ -87,6 +87,33 @@ def test_run_readiness_failure_stops_before_backend(monkeypatch, tmp_path: Path)
     assert not called
 
 
+def test_run_warns_how_to_launch_headed_chrome_before_readiness(monkeypatch, tmp_path: Path):
+    config = tmp_path / "topology.yaml"
+    config.write_text("topology_mode: explicit\n")
+    topology = SimpleNamespace(
+        subscribers={"screen": object()},
+        subscriber_media_client=lambda _sid: "chrome",
+    )
+    monkeypatch.setattr(cli_module, "load_topology", lambda _path: topology)
+    monkeypatch.setattr(
+        cli_module,
+        "ensure_run_ready",
+        lambda _path, _backend: (_ for _ in ()).throw(OrchestratorError("not root")),
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        ["run", "-c", str(config), "--backend", "containernet", "--visualize"],
+    )
+
+    assert result.exit_code == 1
+    assert "WARNING: headed Chrome subscriber(s): screen" in result.output
+    assert "xhost +SI:localuser:root" in result.output
+    assert "sudo --preserve-env=DISPLAY ../../../containernet/venv/bin/python3" in result.output
+    assert f"-c {config} --backend containernet --visualize" in result.output
+    assert result.output.index("WARNING") < result.output.index("not root")
+
+
 def test_run_visualize_starts_server_and_passes_it_to_backend(monkeypatch, tmp_path: Path):
     config = tmp_path / "topology.yaml"
     config.write_text("topology_mode: explicit\nrelays:\n  relay-a: { listen_port: 9668, admin_port: 9669 }\n")

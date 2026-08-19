@@ -923,6 +923,17 @@ function drawNode(node) {
       group.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     }
   });
+  group.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    routeBuild = null;
+    routeBuildFlow = null;
+    linkMode = true;
+    linkStart = node.id;
+    selected = { kind: "node", role: node.role, id: node.id };
+    linkPrompt.textContent = `Connect ${node.id} to another node.`;
+    renderAll();
+  });
   group.addEventListener("pointerdown", (event) => startNodeDrag(event, node));
   const circle = document.createElementNS(svgNS, "circle");
   circle.setAttribute("r", "34");

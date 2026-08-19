@@ -176,6 +176,8 @@ def test_designer_assets_include_editor_controls_and_valid_javascript() -> None:
     assert "/api/designer/validate" in app.read_text()
     assert "manifest.flowKinds" in app.read_text()
     assert "event.button !== 0 || linkMode || routeBuild" in app.read_text()
+    assert 'group.addEventListener("contextmenu"' in app.read_text()
+    assert "linkStart = node.id" in app.read_text()
     assert 'selected = { kind: "node", role: node.role, id: node.id }' in app.read_text()
     assert "if (suppressGraphClick)" in app.read_text()
     assert "function inheritedNodeValues" in app.read_text()
