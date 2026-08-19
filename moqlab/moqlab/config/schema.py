@@ -82,7 +82,9 @@ class CacheConfig(_StrictBase):
 class RelayDefaults(_StrictBase):
     image: str = "moqlab-relay"
     endpoint: str = "/moq-relay"
-    tls: TlsConfig = Field(default_factory=TlsConfig)
+    tls: TlsConfig = Field(
+        default_factory=lambda: TlsConfig(insecure=False, generated=True)
+    )
     cache: CacheConfig = Field(default_factory=CacheConfig)
 
     @model_validator(mode="after")
@@ -93,25 +95,14 @@ class RelayDefaults(_StrictBase):
 
 
 class PublisherDefaults(_StrictBase):
-    image: str = "moqlab-pub"
-    media_image: str = "moqlab-media-pub"
-    insecure: bool = True
-    log_level: str = "INFO"
-
-    @model_validator(mode="after")
-    def _check_log_level(self) -> "PublisherDefaults":
-        if self.log_level not in _VALID_LOG_LEVELS:
-            raise ValueError(f"log_level must be one of {sorted(_VALID_LOG_LEVELS)}")
-        return self
+    image: str = "moqlab-media-pub"
 
 
 class SubscriberDefaults(_StrictBase):
-    image: str = "moqlab-sub"
-    media_image: str = "moqlab-media-sub"
+    image: str = "moqlab-media-sub"
     native_media_image: str = "moqlab-media-native-sub"
     media_client: Literal["chrome", "native"] = "chrome"
     native_playback: Literal["receive", "simulate"] = "receive"
-    insecure: bool = True
     log_level: str = "INFO"
 
     @model_validator(mode="after")
@@ -155,6 +146,7 @@ class RelayConfig(_StrictBase):
     endpoint: str | None = None
     tls: TlsConfig | None = None
     cache: CacheConfig | None = None
+    l4s_ce_target: float | None = Field(default=None, gt=0, lt=1)
 
     @model_validator(mode="after")
     def _check(self) -> "RelayConfig":
@@ -166,39 +158,19 @@ class RelayConfig(_StrictBase):
 
 
 class PublisherConfig(_StrictBase):
-    kind: Literal["text", "media"] = "text"
+    kind: Literal["media"] = "media"
     connects_to: str
-    namespace: str | None = None
-    port: int | None = Field(default=None, ge=_MIN_PORT, le=_MAX_PORT)
-    asset: str | None = None
-    listen_port: int | None = Field(default=None, ge=_MIN_PORT, le=_MAX_PORT)
-    fingerprint_port: int | None = Field(default=None, ge=_MIN_PORT, le=_MAX_PORT)
+    asset: str = "testsvc"
+    listen_port: int = Field(default=4443, ge=_MIN_PORT, le=_MAX_PORT)
+    fingerprint_port: int = Field(default=8081, ge=_MIN_PORT, le=_MAX_PORT)
     image: str | None = None
-    insecure: bool | None = None
-    log_level: str | None = None
 
     @model_validator(mode="after")
     def _check(self) -> "PublisherConfig":
-        if self.log_level is not None and self.log_level not in _VALID_LOG_LEVELS:
-            raise ValueError(f"log_level must be one of {sorted(_VALID_LOG_LEVELS)}")
-        if self.kind == "text":
-            if not self.namespace:
-                raise ValueError("text publisher requires namespace")
-            if (
-                self.asset is not None
-                or self.listen_port is not None
-                or self.fingerprint_port is not None
-            ):
-                raise ValueError("text publisher cannot set media fields")
-        else:
-            if not self.asset or not _SAFE_ASSET_RE.fullmatch(self.asset):
-                raise ValueError("media publisher asset must be a safe file name")
-            if self.listen_port is None or self.fingerprint_port is None:
-                raise ValueError("media publisher requires listen_port and fingerprint_port")
-            if self.listen_port == self.fingerprint_port:
-                raise ValueError("listen_port and fingerprint_port must differ")
-            if self.namespace is not None or self.port is not None:
-                raise ValueError("media publisher cannot set text fields")
+        if not _SAFE_ASSET_RE.fullmatch(self.asset):
+            raise ValueError("media publisher asset must be a safe file name")
+        if self.listen_port == self.fingerprint_port:
+            raise ValueError("listen_port and fingerprint_port must differ")
         return self
 
 
@@ -285,12 +257,11 @@ class TrafficConfig(_StrictBase):
 
 
 class SubscriberConfig(_StrictBase):
-    kind: Literal["text", "media"] = "text"
+    kind: Literal["media"] = "media"
     connects_to: str
     namespace: str
     track: str
     image: str | None = None
-    insecure: bool | None = None
     log_level: str | None = None
     media_client: Literal["chrome", "native"] | None = None
     native_playback: Literal["receive", "simulate"] | None = None
@@ -302,12 +273,6 @@ class SubscriberConfig(_StrictBase):
     def _check(self) -> "SubscriberConfig":
         if self.log_level is not None and self.log_level not in _VALID_LOG_LEVELS:
             raise ValueError(f"log_level must be one of {sorted(_VALID_LOG_LEVELS)}")
-        if self.kind == "text":
-            if any(value is not None for value in (
-                self.media_client, self.native_playback, self.browser_mode,
-                self.minimal_buffer_ms, self.target_latency_ms,
-            )):
-                raise ValueError("text subscriber cannot set media fields")
         return self
 
 
@@ -516,20 +481,10 @@ class TopologyConfig(_StrictBase):
                     f"subscriber {sid!r} connects_to {s.connects_to!r} is not a known relay"
                 )
 
-        media_publishers = {
-            pid: publisher
-            for pid, publisher in self.publishers.items()
-            if publisher.kind == "media"
-        }
-        media_subscribers = {
-            sid: subscriber
-            for sid, subscriber in self.subscribers.items()
-            if subscriber.kind == "media"
-        }
-        if media_subscribers and not media_publishers:
+        if self.subscribers and not self.publishers:
             raise ValueError("media subscriber requires a media publisher")
-        if media_publishers or media_subscribers:
-            for sid, subscriber in media_subscribers.items():
+        if self.publishers or self.subscribers:
+            for sid, subscriber in self.subscribers.items():
                 client = self.subscriber_media_client(sid)
                 if client == "native":
                     if subscriber.browser_mode is not None:
@@ -588,7 +543,7 @@ class TopologyConfig(_StrictBase):
                 return rid
 
             origins_by_root: dict[str, str] = {}
-            for media_pid, media_publisher in media_publishers.items():
+            for media_pid, media_publisher in self.publishers.items():
                 media_root = media_publisher.connects_to
                 if self.relays[media_root].upstream is not None:
                     raise ValueError(
@@ -597,7 +552,7 @@ class TopologyConfig(_StrictBase):
                 if media_root in origins_by_root:
                     raise ValueError("v1 supports one media publisher per relay tree")
                 origins_by_root[media_root] = media_pid
-            for sid, subscriber in media_subscribers.items():
+            for sid, subscriber in self.subscribers.items():
                 if _relay_root(subscriber.connects_to) not in origins_by_root:
                     raise ValueError(
                         f"media subscriber {sid!r} is not in the media publisher tree"
@@ -719,31 +674,15 @@ class TopologyConfig(_StrictBase):
         return self.relays[rid].cache or self.defaults.relay.cache
 
     def publisher_image(self, pid: str) -> str:
-        publisher = self.publishers[pid]
-        default = (
-            self.defaults.publisher.media_image
-            if publisher.kind == "media"
-            else self.defaults.publisher.image
-        )
-        return publisher.image or default
-
-    def publisher_insecure(self, pid: str) -> bool:
-        p = self.publishers[pid]
-        return p.insecure if p.insecure is not None else self.defaults.publisher.insecure
-
-    def publisher_log_level(self, pid: str) -> str:
-        return self.publishers[pid].log_level or self.defaults.publisher.log_level
+        return self.publishers[pid].image or self.defaults.publisher.image
 
     def subscriber_image(self, sid: str) -> str:
         subscriber = self.subscribers[sid]
-        if subscriber.kind == "media":
-            default = (
-                self.defaults.subscriber.native_media_image
-                if self.subscriber_media_client(sid) == "native"
-                else self.defaults.subscriber.media_image
-            )
-        else:
-            default = self.defaults.subscriber.image
+        default = (
+            self.defaults.subscriber.native_media_image
+            if self.subscriber_media_client(sid) == "native"
+            else self.defaults.subscriber.image
+        )
         return subscriber.image or default
 
     def subscriber_media_client(self, sid: str) -> Literal["chrome", "native"]:
@@ -753,10 +692,6 @@ class TopologyConfig(_StrictBase):
     def subscriber_native_playback(self, sid: str) -> Literal["receive", "simulate"]:
         subscriber = self.subscribers[sid]
         return subscriber.native_playback or self.defaults.subscriber.native_playback
-
-    def subscriber_insecure(self, sid: str) -> bool:
-        s = self.subscribers[sid]
-        return s.insecure if s.insecure is not None else self.defaults.subscriber.insecure
 
     def subscriber_log_level(self, sid: str) -> str:
         return self.subscribers[sid].log_level or self.defaults.subscriber.log_level
@@ -780,7 +715,7 @@ class TopologyConfig(_StrictBase):
     def media_publisher_for_relay(self, rid: str) -> tuple[str, PublisherConfig]:
         root = self.relay_root(rid)
         for pid, publisher in self.publishers.items():
-            if publisher.kind == "media" and publisher.connects_to == root:
+            if publisher.connects_to == root:
                 return pid, publisher
         raise KeyError(f"no media publisher for relay {rid!r}")
 

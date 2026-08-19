@@ -38,9 +38,9 @@ ergonomics. This is research infrastructure, not a demo script.
 
 - **Schema** (`moqlab/config/schema.py`) - Pydantic v2 topology model:
   `defaults`, `startup`, `relays`, `publishers`, `subscribers`, `routers`, `traffic`,
-  and `links` (per-direction `forward`/`reverse` shaping incl. `aqm`). Text
-  nodes remain the default; media nodes model `mlmpub`, Chromium WARP Player,
-  and native `mlmsub` subscribers. It is
+  and `links` (per-direction `forward`/`reverse` shaping incl. `aqm`). Pub/sub
+  nodes are media-only and model `mlmpub`, Chromium WARP Player, and native
+  `mlmsub` subscribers. It is
   strict (`extra="forbid"`) and validates node ids, relay references, port
   collisions, cycles, duplicate links, link-graph reachability of every
   app edge, aqm-on-router-egress, and orphan routers.
@@ -49,7 +49,7 @@ ergonomics. This is research infrastructure, not a demo script.
   Named paths get generated `/32` alias pairs and explicit symmetric routes;
   resolved plans live in each run directory. Containernet only.
 - **Synthesis** (`moqlab/config/synth.py`) - turns topology config into
-  per-relay moqx YAML files and argv lists for text or media binaries.
+  per-relay moqx YAML files and argv lists for media binaries.
 - **Docker backend** (`moqlab/orchestrator/docker_backend.py`) - creates one
   bridge network and one detached container per node. Docker labels are the
   state of truth.
@@ -107,8 +107,9 @@ moqlab/
 │   └── examples/
 ├── docker/
 │   ├── Dockerfile.relay
-│   ├── Dockerfile.pub
-│   ├── Dockerfile.sub
+│   ├── Dockerfile.media-pub
+│   ├── Dockerfile.media-sub
+│   ├── Dockerfile.media-native-sub
 │   ├── Dockerfile.traffic
 │   └── README.md
 ├── visualizer/
@@ -154,19 +155,15 @@ defaults:
   relay:
     image: moqlab-relay
     endpoint: /moq-relay
-    tls: { insecure: true }
+    tls: { insecure: false, generated: true }
     cache: { enabled: false, max_tracks: 100, max_groups_per_track: 3 }
   publisher:
-    image: moqlab-pub
-    insecure: true
-    log_level: INFO
+    image: moqlab-media-pub
   subscriber:
-    image: moqlab-sub
-    media_image: moqlab-media-sub
+    image: moqlab-media-sub
     native_media_image: moqlab-media-native-sub
     media_client: chrome
     native_playback: receive
-    insecure: true
     log_level: INFO
 
 startup:
@@ -179,10 +176,11 @@ relays:
   relay-b: { listen_port: 9670, admin_port: 9671, upstream: relay-a }
 
 publishers:
-  pub: { connects_to: relay-a, namespace: moq-date }
+  pub: { connects_to: relay-a, asset: testsvc, listen_port: 4443,
+         fingerprint_port: 8081 }
 
 subscribers:
-  sub: { connects_to: relay-b, namespace: moq-date, track: date }
+  sub: { connects_to: relay-b, namespace: msf/clear, track: video/s2 }
 
 routers:
   rt-1: {}

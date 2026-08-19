@@ -81,9 +81,9 @@ def _topology() -> TopologyConfig:
                 "relay-c": {"listen_port": 9672, "admin_port": 9673, "upstream": "relay-b"},
             },
             "startup": {"relay_warmup_s": 0.5, "publisher_warmup_s": 1.25},
-            "publishers": {"pub": {"connects_to": "relay-a", "namespace": "moq-date"}},
+            "publishers": {"pub": {"connects_to": "relay-a"}},
             "subscribers": {
-                "sub": {"connects_to": "relay-c", "namespace": "moq-date", "track": "date"}
+                "sub": {"connects_to": "relay-c", "namespace": "msf/clear", "track": "video/s2"}
             },
         }
     )
@@ -96,9 +96,9 @@ def _routed_topology() -> TopologyConfig:
             "relays": {
                 "relay-a": {"listen_port": 9668, "admin_port": 9669, "upstream": None},
             },
-            "publishers": {"pub": {"connects_to": "relay-a", "namespace": "moq-date"}},
+            "publishers": {"pub": {"connects_to": "relay-a"}},
             "subscribers": {
-                "sub": {"connects_to": "relay-a", "namespace": "moq-date", "track": "date"}
+                "sub": {"connects_to": "relay-a", "namespace": "msf/clear", "track": "video/s2"}
             },
             "routers": {"rt-1": {}},
             "links": [
@@ -169,7 +169,7 @@ def test_native_media_readiness_accepts_first_group_log():
     )
 
 
-def test_launches_relays_before_pub_sub(monkeypatch):
+def test_launches_media_origin_before_relays_and_subscriber(monkeypatch):
     topology = _topology()
     fake_net = _FakeNet(["relay-a", "relay-b", "relay-c", "pub", "sub"])
     record = ContainernetRunRecord(
@@ -185,17 +185,21 @@ def test_launches_relays_before_pub_sub(monkeypatch):
         "moqlab.orchestrator.containernet_backend.time.sleep",
         lambda seconds: sleeps.append(seconds),
     )
+    monkeypatch.setattr(
+        "moqlab.orchestrator.containernet_backend._await_containernet_media_ready",
+        lambda *_args: None,
+    )
 
     ContainernetBackend._launch_node_binaries(fake_net, topology, record, lambda _: None)
 
     launched_nodes = [node_id for node_id, _ in fake_net.calls]
-    assert launched_nodes == ["relay-a", "relay-b", "relay-c", "pub", "sub"]
-    assert sleeps == [0.5, 1.25]
-    assert fake_net.calls[0][1].startswith(
+    assert launched_nodes == ["pub", "relay-a", "relay-b", "relay-c", "sub"]
+    assert sleeps == [1.25, 0.5]
+    assert fake_net.calls[0][1].startswith("/usr/local/bin/mlmpub")
+    assert fake_net.calls[1][1].startswith(
         "/usr/local/bin/moqx --config /etc/moqx/relay.yaml"
     )
-    assert fake_net.calls[3][1].startswith("/usr/local/bin/moqdateserver")
-    assert fake_net.calls[4][1].startswith("/usr/local/bin/moqtextclient")
+    assert fake_net.calls[4][1].startswith("/usr/local/bin/moqlab-media-sub")
 
 
 def test_launches_media_origin_before_relays_and_browser(monkeypatch):
@@ -381,6 +385,7 @@ def test_build_raises_clear_error_when_link_subnet_pool_exhausted():
             "relays": {
                 "relay-a": {"listen_port": 9668, "admin_port": 9669, "upstream": None}
             },
+            "publishers": {"pub": {"connects_to": "relay-a"}},
             "subscribers": {
                 f"sub-{idx}": {
                     "connects_to": "relay-a",
@@ -390,8 +395,11 @@ def test_build_raises_clear_error_when_link_subnet_pool_exhausted():
                 for idx in range(subscriber_count)
             },
             "links": [
-                {"from": f"sub-{idx}", "to": "relay-a"}
-                for idx in range(subscriber_count)
+                {"from": "pub", "to": "relay-a"},
+                *(
+                    {"from": f"sub-{idx}", "to": "relay-a"}
+                    for idx in range(subscriber_count)
+                ),
             ],
         }
     )

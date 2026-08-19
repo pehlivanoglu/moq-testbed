@@ -15,7 +15,6 @@ relays:
 
 publishers:
   pub:
-    kind: media
     connects_to: relay-a
     asset: testsvc
     listen_port: 4443
@@ -23,502 +22,402 @@ publishers:
 
 subscribers:
   load-1:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-2:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-3:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-4:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-5:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-6:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-7:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-8:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-9:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-10:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-11:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-12:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-13:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-14:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-15:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-16:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-17:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-18:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-19:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-20:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-21:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-22:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-23:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-24:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-25:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-26:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-27:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-28:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-29:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-30:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-31:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-32:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-33:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-34:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-35:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-36:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-37:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-38:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-39:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-40:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-41:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-42:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-43:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-44:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-45:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-46:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-47:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-48:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-49:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-50:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-51:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-52:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-53:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-54:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-55:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-56:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-57:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-58:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-59:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-60:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-61:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-62:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-63:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-64:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-65:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-66:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-67:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-68:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-69:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-70:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-71:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-72:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-73:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-74:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-75:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-76:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-77:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-78:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-79:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-80:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-81:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-82:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-83:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-84:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-85:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-86:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-87:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-88:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-89:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-90:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-91:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-92:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-93:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-94:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-95:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-96:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-97:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-98:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-99:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2
   load-100:
-    kind: media
     connects_to: relay-a
     namespace: msf/clear
     track: video/s2

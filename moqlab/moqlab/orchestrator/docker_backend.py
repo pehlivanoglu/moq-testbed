@@ -115,9 +115,7 @@ class DockerBackend:
 
         try:
             # Media origins serve upstream relays, so they must bind first.
-            for pid, publisher in topology.publishers.items():
-                if publisher.kind != "media":
-                    continue
+            for pid in topology.publishers:
                 container = self._run_publisher(
                     topology, pid, network, common_labels, tls_dir
                 )
@@ -149,30 +147,6 @@ class DockerBackend:
                 "after launching relays",
             )
 
-            # Text publishers, then all subscribers. The configured publisher
-            # warmup lets PUBLISH_NAMESPACE reach relays before the first
-            # subscriber asks for that namespace.
-            text_publishers = []
-            for pid, publisher in topology.publishers.items():
-                if publisher.kind != "text":
-                    continue
-                container = self._run_publisher(
-                    topology=topology,
-                    publisher_id=pid,
-                    network=network,
-                    labels=common_labels,
-                    tls_dir=tls_dir,
-                )
-                publishers[pid] = container.id
-                text_publishers.append(pid)
-                self._await_running(container, readiness_timeout_s)
-
-            if text_publishers and topology.subscribers:
-                self._sleep_if_configured(
-                    topology.startup.publisher_warmup_s,
-                    "after launching publishers",
-                )
-
             subscriber_containers: dict[str, Container] = {}
             for sid in topology.subscribers:
                 container = self._run_subscriber(
@@ -189,17 +163,16 @@ class DockerBackend:
             # This lets every browser catch one of the publisher's initial
             # catalog copies instead of serializing startup behind readiness.
             for sid, container in subscriber_containers.items():
-                if topology.subscribers[sid].kind == "media":
-                    if topology.subscriber_media_client(sid) == "chrome":
-                        self._await_media_ready(
-                            container, topology.startup.media_ready_timeout_s
-                        )
-                    else:
-                        self._await_native_media_ready(
-                            container,
-                            topology.startup.media_ready_timeout_s,
-                            topology.subscribers[sid].track,
-                        )
+                if topology.subscriber_media_client(sid) == "chrome":
+                    self._await_media_ready(
+                        container, topology.startup.media_ready_timeout_s
+                    )
+                else:
+                    self._await_native_media_ready(
+                        container,
+                        topology.startup.media_ready_timeout_s,
+                        topology.subscribers[sid].track,
+                    )
         except Exception:
             self._teardown(run_id, swallow=True)
             raise
@@ -351,7 +324,7 @@ class DockerBackend:
             LABEL_NODE_ID: publisher_id,
         }
         volumes = None
-        if topology.publishers[publisher_id].kind == "media" and tls_dir is not None:
+        if tls_dir is not None:
             volumes = {str(tls_dir.resolve()): {"bind": TLS_MOUNT, "mode": "ro"}}
         return self._run_container(
             image=image,
@@ -379,10 +352,7 @@ class DockerBackend:
         subscriber = topology.subscribers[subscriber_id]
         volumes = None
         environment = None
-        chrome = (
-            subscriber.kind == "media"
-            and topology.subscriber_media_client(subscriber_id) == "chrome"
-        )
+        chrome = topology.subscriber_media_client(subscriber_id) == "chrome"
         if chrome and subscriber.browser_mode == "x11":
             display = os.environ.get("DISPLAY")
             if not display:

@@ -181,6 +181,7 @@ def test_designer_assets_include_editor_controls_and_valid_javascript() -> None:
     assert "function inheritedNodeValues" in app.read_text()
     assert "function allocatePort" in app.read_text()
     assert "function portCollisionErrors" in app.read_text()
+    assert '["publisher", "subscriber"].includes(role) ? ["kind"]' in app.read_text()
     assert "function addTrafficLoad" in app.read_text()
     assert 'heading("Traffic load")' in app.read_text()
     if node := shutil.which("node"):

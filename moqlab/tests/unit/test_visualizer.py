@@ -51,13 +51,13 @@ def _topology() -> TopologyConfig:
                 "relay-a": {"listen_port": 9668, "admin_port": 9669},
             },
             "publishers": {
-                "pub": {"connects_to": "relay-a", "namespace": "moq-date"},
+                "pub": {"connects_to": "relay-a"},
             },
             "subscribers": {
                 "sub": {
                     "connects_to": "relay-a",
-                    "namespace": "moq-date",
-                    "track": "date",
+                    "namespace": "msf/clear",
+                    "track": "video/s2",
                 }
             },
             "links": [
@@ -113,7 +113,7 @@ def test_topology_snapshot_places_router_between_endpoints():
     topology = TopologyConfig.model_validate(
         {
             "relays": {"relay-a": {"listen_port": 9668, "admin_port": 9669}},
-            "publishers": {"pub": {"connects_to": "relay-a", "namespace": "n"}},
+            "publishers": {"pub": {"connects_to": "relay-a"}},
             "subscribers": {
                 "sub": {"connects_to": "relay-a", "namespace": "n", "track": "t"}
             },
@@ -239,12 +239,12 @@ def test_node_metrics_resolves_containernet_name_and_staleness():
     assert result["status"] == "stale"
 
 
-def test_node_metrics_handles_non_media_and_unknown_nodes():
+def test_node_metrics_handles_unregistered_and_unknown_nodes():
     server = VisualizerHTTPServer(
         ("127.0.0.1", 0), _topology(), backend="docker", metrics_reader=lambda _id: None
     )
     try:
-        assert server.node_metrics("sub")["reason"] == "player metrics unavailable"
+        assert server.node_metrics("sub")["reason"] == "container not registered"
         assert server.node_metrics("missing")["reason"] == "unknown node"
     finally:
         server.server_close()

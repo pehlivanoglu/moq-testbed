@@ -18,8 +18,9 @@ CheckStatus = Literal["ok", "warn", "fail"]
 
 _DEFAULT_IMAGE_TAGS = (
     "moqlab-relay",
-    "moqlab-pub",
-    "moqlab-sub",
+    "moqlab-media-pub",
+    "moqlab-media-sub",
+    "moqlab-media-native-sub",
     "moqlab-router",
     "moqlab-traffic",
 )
@@ -277,9 +278,7 @@ def _image_tags(topology: TopologyConfig | None) -> set[str]:
 
 
 def _has_media(topology: TopologyConfig) -> bool:
-    return any(p.kind == "media" for p in topology.publishers.values()) or any(
-        s.kind == "media" for s in topology.subscribers.values()
-    )
+    return bool(topology.publishers or topology.subscribers)
 
 
 def _openssl_check() -> CheckResult:

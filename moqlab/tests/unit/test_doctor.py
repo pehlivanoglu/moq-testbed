@@ -28,9 +28,9 @@ def test_doctor_uses_custom_image_names_from_config(monkeypatch: pytest.MonkeyPa
                 "relays:",
                 "  relay-a: { listen_port: 9668, admin_port: 9669, image: custom-relay }",
                 "publishers:",
-                "  pub: { connects_to: relay-a, namespace: moq-date, image: custom-pub }",
+                "  pub: { connects_to: relay-a, image: custom-pub }",
                 "subscribers:",
-                "  sub: { connects_to: relay-a, namespace: moq-date, track: date, image: custom-sub }",
+                "  sub: { connects_to: relay-a, namespace: msf/clear, track: video/s2, image: custom-sub }",
             ]
         )
     )

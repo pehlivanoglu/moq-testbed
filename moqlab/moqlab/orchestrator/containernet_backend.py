@@ -60,14 +60,12 @@ from moqlab.runtime import (
 _log = logging.getLogger(__name__)
 
 # Paths to the binaries inside each node image. Match the ENTRYPOINT in
-# moqlab/docker/Dockerfile.{relay,pub,sub}. Containernet wipes the image
+# moqlab Dockerfiles. Containernet wipes the image
 # ENTRYPOINT at container-create time AND never invokes Docker.start() during
 # net.start(), so we have to launch every binary explicitly via `host.cmd()`
 # after `net.start()`.
 _RELAY_BINARY = "/usr/local/bin/moqx"
 _RELAY_CONFIG_PATH = "/etc/moqx/relay.yaml"
-_PUB_BINARY = "/usr/local/bin/moqdateserver"
-_SUB_BINARY = "/usr/local/bin/moqtextclient"
 _MEDIA_PUB_BINARY = "/usr/local/bin/mlmpub"
 _MEDIA_SUB_BINARY = "/usr/local/bin/moqlab-media-sub"
 _NATIVE_MEDIA_SUB_BINARY = "/usr/local/bin/mlmsub"
@@ -296,9 +294,7 @@ class ContainernetBackend:
         # spawn the binary explicitly in `_launch_node_binaries` after
         # net.start(). Routers intentionally run nothing.
         for pid in topology.publishers:
-            volumes = []
-            if topology.publishers[pid].kind == "media":
-                volumes.append(f"{(record.run_dir / 'tls').resolve()}:{TLS_MOUNT}:ro")
+            volumes = [f"{(record.run_dir / 'tls').resolve()}:{TLS_MOUNT}:ro"]
             nodes[pid] = net.addDocker(
                 pid,
                 dimage=topology.publisher_image(pid),
@@ -310,10 +306,7 @@ class ContainernetBackend:
         for sid in topology.subscribers:
             subscriber = topology.subscribers[sid]
             extra_kwargs = {}
-            chrome = (
-                subscriber.kind == "media"
-                and topology.subscriber_media_client(sid) == "chrome"
-            )
+            chrome = topology.subscriber_media_client(sid) == "chrome"
             if chrome and subscriber.browser_mode == "x11":
                 display = os.environ.get("DISPLAY")
                 if not display:
@@ -477,7 +470,7 @@ class ContainernetBackend:
     def _launch_node_binaries(
         net, topology: TopologyConfig, record: ContainernetRunRecord, info
     ) -> None:
-        """Start moqx / moqdateserver / moqtextclient inside each container.
+        """Start moqx and media clients inside each container.
 
         Containernet wipes the image ENTRYPOINT at container create time AND
         does NOT invoke Docker.start() during net.start() (despite the
@@ -486,27 +479,19 @@ class ContainernetBackend:
         binary explicitly here, after `net.start()` and the network
         configuration. Routers run no binary at all.
 
-        Order: relays upstream-first → configured pause → publishers →
-        configured pause → subscribers. This gives moqx time to bind and gives
-        publishers time to announce namespaces before subscribers ask for them.
+        Order: media origins, configured pause, relays upstream-first, then
+        subscribers.
 
         stdout/stderr go to `/tmp/<node>.log` inside each container; tail
         from the Mininet CLI with `<node> tail -f /tmp/<node>.log`.
         """
-        media_publishers = [
-            pid for pid in record.publishers if topology.publishers[pid].kind == "media"
-        ]
-        text_publishers = [
-            pid for pid in record.publishers if topology.publishers[pid].kind == "text"
-        ]
-
-        for pid in media_publishers:
+        for pid in record.publishers:
             argv = synthesize_publisher_command(topology, pid)
             cmd_line = " ".join([_MEDIA_PUB_BINARY] + _shell_quote_argv(argv))
             info(f"*** launching media publisher {pid}: {cmd_line}\n")
             net.get(pid).cmd(f"{cmd_line} > /tmp/{pid}.log 2>&1 &")
 
-        if media_publishers:
+        if record.publishers:
             _sleep_if_configured(
                 topology.startup.publisher_warmup_s,
                 "for media origins to bind listeners",
@@ -514,7 +499,10 @@ class ContainernetBackend:
             )
 
         for rid in relay_order(topology):
-            cmd_line = f"{_RELAY_BINARY} --config {_RELAY_CONFIG_PATH}"
+            cmd_line = (
+                f"{_RELAY_BINARY} --config {_RELAY_CONFIG_PATH} "
+                "--logtostderr --v=4"
+            )
             info(f"*** launching relay {rid}: {cmd_line}\n")
             net.get(rid).cmd(f"{cmd_line} > /tmp/{rid}.log 2>&1 &")
 
@@ -524,25 +512,9 @@ class ContainernetBackend:
             info,
         )
 
-        for pid in text_publishers:
-            argv = synthesize_publisher_command(topology, pid)
-            cmd_line = " ".join([_PUB_BINARY] + _shell_quote_argv(argv))
-            info(f"*** launching publisher {pid}: {cmd_line}\n")
-            net.get(pid).cmd(f"{cmd_line} > /tmp/{pid}.log 2>&1 &")
-
-        if text_publishers and record.subscribers:
-            _sleep_if_configured(
-                topology.startup.publisher_warmup_s,
-                "for publishers to announce namespaces",
-                info,
-            )
-
         for sid in record.subscribers:
             argv = synthesize_subscriber_command(topology, sid)
-            subscriber = topology.subscribers[sid]
-            if subscriber.kind == "text":
-                binary = _SUB_BINARY
-            elif topology.subscriber_media_client(sid) == "native":
+            if topology.subscriber_media_client(sid) == "native":
                 binary = _NATIVE_MEDIA_SUB_BINARY
             else:
                 binary = _MEDIA_SUB_BINARY
@@ -551,16 +523,15 @@ class ContainernetBackend:
             net.get(sid).cmd(f"{cmd_line} > /tmp/{sid}.log 2>&1 &")
 
         for sid in record.subscribers:
-            if topology.subscribers[sid].kind == "media":
-                if topology.subscriber_media_client(sid) == "chrome":
-                    _await_containernet_media_ready(
-                        net.get(sid), sid, topology.startup.media_ready_timeout_s, info
-                    )
-                else:
-                    _await_containernet_native_media_ready(
-                        net.get(sid), sid, topology.subscribers[sid].track,
-                        topology.startup.media_ready_timeout_s, info
-                    )
+            if topology.subscriber_media_client(sid) == "chrome":
+                _await_containernet_media_ready(
+                    net.get(sid), sid, topology.startup.media_ready_timeout_s, info
+                )
+            else:
+                _await_containernet_native_media_ready(
+                    net.get(sid), sid, topology.subscribers[sid].track,
+                    topology.startup.media_ready_timeout_s, info
+                )
 
         if topology.traffic is not None:
             receiver = topology.traffic.receiver.id
