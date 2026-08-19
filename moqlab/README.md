@@ -282,8 +282,10 @@ python -m moqlab design --port 8765
 ```
 
 Open the printed localhost URL. Drag or click relays, routers, publishers,
-subscribers, and traffic endpoints onto the canvas; connect physical links;
-then configure application references, directional shaping, and traffic loads
+subscribers, and traffic endpoints onto the canvas. Right-click a node, then
+select another node to connect them with a physical link; the palette link
+button remains available for keyboard-first use. Then configure application
+references, directional shaping, and traffic loads
 in the inspector. Each load combines its path and traffic pattern in one place;
 named reusable routes remain under Advanced routes. Bundled examples, bulk
 node duplication, undo/redo, automatic layout, server-side validation, YAML
@@ -374,7 +376,8 @@ shared relay can all attach before that catalog is forwarded.
 
 `media_client: chrome` opens Chromium directly on host X display. Backend mounts
 `/tmp/.X11-unix` and forwards `DISPLAY`. Grant only root
-local-display access, preserve `DISPLAY` through sudo, then revoke access:
+local-display access, preserve `DISPLAY` through sudo, then revoke access.
+`moqlab run` prints this reminder whenever the topology contains headed Chrome:
 
 ```bash
 xhost +SI:localuser:root

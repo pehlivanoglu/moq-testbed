@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import atexit
+import shlex
 import sys
 import threading
 import time
@@ -355,6 +356,8 @@ def _run_topology(
 ) -> None:
     backend = backend.lower()
     try:
+        topology = load_topology(config)
+        _warn_headed_chrome(topology, config, backend, visualize)
         ensure_run_ready(config, backend)
     except MoqlabError as e:
         raise click.ClickException(str(e)) from e
@@ -374,6 +377,31 @@ def _run_topology(
     else:
         _stop_visualizer(visualizer)
         raise click.ClickException(f"unknown backend: {backend}")
+
+
+def _warn_headed_chrome(topology, config: Path, backend: str, visualize: bool) -> None:
+    headed = [
+        sid
+        for sid in topology.subscribers
+        if topology.subscriber_media_client(sid) == "chrome"
+    ]
+    if not headed:
+        return
+    python = (
+        "../../../containernet/venv/bin/python3"
+        if backend == "containernet"
+        else shlex.quote(sys.executable)
+    )
+    sudo = "sudo --preserve-env=DISPLAY " if backend == "containernet" else ""
+    visualize_flag = " --visualize" if visualize else ""
+    click.echo(f"WARNING: headed Chrome subscriber(s): {', '.join(headed)}", err=True)
+    click.echo("Grant X11 access and run:", err=True)
+    click.echo("  xhost +SI:localuser:root", err=True)
+    click.echo(f"  {sudo}{python} -m moqlab run \\", err=True)
+    click.echo(
+        f"    -c {shlex.quote(str(config))} --backend {backend}{visualize_flag}",
+        err=True,
+    )
 
 
 def _up_docker(
