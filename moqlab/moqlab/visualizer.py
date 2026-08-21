@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 import time
 from collections import deque
 from dataclasses import dataclass
@@ -11,7 +12,10 @@ from pathlib import Path
 from typing import Callable
 from urllib.parse import unquote, urlparse
 
+from pydantic import ValidationError
+
 from moqlab.config.schema import DirectionSpec, TopologyConfig, load_topology
+from moqlab.exceptions import OrchestratorError
 from moqlab.runtime import (
     containernet_edge_interfaces,
     relay_depths,
@@ -43,8 +47,17 @@ class _EdgeCounterSample:
 
 CounterReader = Callable[[str, str], InterfaceCounters | None]
 MetricsReader = Callable[[str], bytes | None]
+LinkUpdater = Callable[[int, str, DirectionSpec, DirectionSpec], None]
 _METRICS_PATH = "/tmp/moqlab-player-metrics.json"
 _METRICS_STALE_MS = 3000
+_MAX_REQUEST_BYTES = 64 * 1024
+
+
+class LinkUpdateError(Exception):
+    def __init__(self, status: HTTPStatus, message: str) -> None:
+        self.status = status
+        self.message = message
+        super().__init__(message)
 
 
 def _direction_payload(spec: DirectionSpec) -> dict[str, object]:
@@ -274,9 +287,51 @@ class VisualizerHTTPServer(ThreadingHTTPServer):
         self.backend = backend
         self.metrics_reader = metrics_reader or _read_container_metrics
         self.subscriber_containers: dict[str, str] = {}
+        self.link_updater: LinkUpdater | None = None
+        self._link_update_lock = threading.Lock()
 
     def register_subscriber_containers(self, containers: dict[str, str]) -> None:
         self.subscriber_containers = dict(containers)
+
+    def register_link_updater(self, updater: LinkUpdater) -> None:
+        self.link_updater = updater
+
+    def update_link(self, link_id: str, direction: str, raw: object) -> dict[str, object]:
+        if self.backend != "containernet" or self.link_updater is None:
+            raise LinkUpdateError(
+                HTTPStatus.CONFLICT,
+                "live link editing requires an active Containernet run",
+            )
+        if direction not in {"forward", "reverse"}:
+            raise LinkUpdateError(HTTPStatus.NOT_FOUND, "unknown link direction")
+        if not isinstance(raw, dict):
+            raise LinkUpdateError(HTTPStatus.BAD_REQUEST, "direction must be a JSON object")
+        try:
+            spec = DirectionSpec.model_validate(raw)
+        except ValidationError as error:
+            raise LinkUpdateError(HTTPStatus.UNPROCESSABLE_ENTITY, str(error)) from error
+
+        with self._link_update_lock:
+            for index, link in enumerate(self.topology.links):
+                if f"{link.from_}--{link.to}" != link_id:
+                    continue
+                egress = link.from_ if direction == "forward" else link.to
+                if spec.aqm is not None and egress not in self.topology.routers:
+                    raise LinkUpdateError(
+                        HTTPStatus.UNPROCESSABLE_ENTITY,
+                        f"aqm is only valid on router egress; {egress!r} is not a router",
+                    )
+                previous = getattr(link, direction)
+                if spec != previous:
+                    try:
+                        self.link_updater(index, direction, spec, previous)
+                    except OrchestratorError as error:
+                        raise LinkUpdateError(
+                            HTTPStatus.INTERNAL_SERVER_ERROR, str(error)
+                        ) from error
+                    setattr(link, direction, spec)
+                return _direction_payload(spec)
+        raise LinkUpdateError(HTTPStatus.NOT_FOUND, "unknown link")
 
     def node_metrics(self, node_id: str) -> dict[str, object]:
         subscriber = self.topology.subscribers.get(node_id)
@@ -331,7 +386,9 @@ class _VisualizerHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         path = urlparse(self.path).path
         if path == "/api/snapshot":
-            self._send_json(snapshot_with_rates(self.server.topology, self.server.sampler))
+            snapshot = snapshot_with_rates(self.server.topology, self.server.sampler)
+            snapshot["links_editable"] = self.server.link_updater is not None
+            self._send_json(snapshot)
             return
         prefix = "/api/nodes/"
         suffix = "/metrics"
@@ -345,12 +402,46 @@ class _VisualizerHandler(BaseHTTPRequestHandler):
             return
         self.send_error(HTTPStatus.NOT_FOUND)
 
+    def do_PUT(self) -> None:
+        path = urlparse(self.path).path
+        prefix = "/api/links/"
+        if not path.startswith(prefix):
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
+        parts = path[len(prefix):].rsplit("/", 1)
+        if len(parts) != 2:
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "-1"))
+        except ValueError:
+            self._send_json({"error": "invalid Content-Length"}, HTTPStatus.BAD_REQUEST)
+            return
+        if length < 0:
+            self._send_json({"error": "Content-Length required"}, HTTPStatus.LENGTH_REQUIRED)
+            return
+        if length > _MAX_REQUEST_BYTES:
+            self._send_json({"error": "request too large"}, HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
+            return
+        try:
+            raw = json.loads(self.rfile.read(length))
+            payload = self.server.update_link(unquote(parts[0]), parts[1], raw)
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            self._send_json({"error": f"invalid JSON: {error}"}, HTTPStatus.BAD_REQUEST)
+            return
+        except LinkUpdateError as error:
+            self._send_json({"error": error.message}, error.status)
+            return
+        self._send_json({"direction": payload})
+
     def log_message(self, fmt: str, *args: object) -> None:
         _log.debug("visualizer: " + fmt, *args)
 
-    def _send_json(self, payload: object) -> None:
+    def _send_json(
+        self, payload: object, status: HTTPStatus = HTTPStatus.OK
+    ) -> None:
         body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
-        self._send_response_body(HTTPStatus.OK, "application/json", body)
+        self._send_response_body(status, "application/json", body)
 
     def _send_static(self, filename: str, content_type: str) -> None:
         path = _STATIC_ROOT / filename

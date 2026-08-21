@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from moqlab.config.schema import TopologyConfig
 from moqlab.visualizer import (
     InterfaceCounters,
+    LinkUpdateError,
     ThroughputSampler,
     _VisualizerHandler,
     VisualizerHTTPServer,
@@ -27,7 +30,9 @@ def test_browser_assets_live_outside_python_package():
     assert 'classList.toggle("selected"' in app
     assert "function updateNodeMetrics(payload)" in app
     assert "updateNodeMetrics(await response.json())" in app
-    assert app.count("nodeDetails.replaceChildren()") == 1
+    assert "function selectLink(link)" in app
+    assert 'method: "PUT"' in app
+    assert app.count("nodeDetails.replaceChildren()") == 2
 
 
 def test_response_write_ignores_broken_pipe():
@@ -107,6 +112,30 @@ def test_topology_snapshot_includes_directional_links():
             "reverse": _unshaped(),
         },
     ]
+
+
+def test_live_link_update_validates_and_calls_registered_updater():
+    server = VisualizerHTTPServer(("127.0.0.1", 0), _topology())
+    calls = []
+    server.register_link_updater(
+        lambda index, direction, spec, previous: calls.append(
+            (index, direction, spec, previous)
+        )
+    )
+    try:
+        result = server.update_link(
+            "pub--relay-a",
+            "forward",
+            {"bandwidth_mbps": 25, "delay_ms": 3, "loss_pct": 1},
+        )
+        with pytest.raises(LinkUpdateError, match="router egress"):
+            server.update_link("pub--relay-a", "forward", {"aqm": "dualpi2"})
+    finally:
+        server.server_close()
+
+    assert result["bandwidth_mbps"] == 25
+    assert calls[0][0:2] == (0, "forward")
+    assert server.topology.links[0].forward.loss_pct == 1
 
 
 def test_topology_snapshot_places_router_between_endpoints():

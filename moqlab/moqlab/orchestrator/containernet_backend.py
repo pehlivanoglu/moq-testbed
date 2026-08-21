@@ -34,9 +34,10 @@ import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable
 
 from moqlab.certs import TLS_MOUNT, generate_run_tls
-from moqlab.config.schema import TopologyConfig, load_topology
+from moqlab.config.schema import DirectionSpec, TopologyConfig, load_topology
 from moqlab.config.synth import (
     synthesize_publisher_command,
     synthesize_relay_configs,
@@ -157,6 +158,7 @@ class ContainernetBackend:
         self,
         config_path: str | Path,
         run_id: str | None = None,
+        on_running: Callable[[TopologyConfig], None] | None = None,
     ) -> ContainernetRunRecord:
         topology = load_topology(config_path)
         if not topology.links:
@@ -229,6 +231,8 @@ class ContainernetBackend:
             self._configure_network(net, topology, record, info)
             self._sanity_ping(net, topology, record, info)
             self._launch_node_binaries(net, topology, record, info)
+            if on_running is not None:
+                on_running(topology)
 
             info(f"\n*** Containernet run_id={run_id}\n")
             info("***   Try: <node> ping <other_node>\n")
@@ -642,6 +646,57 @@ def _containernet_media_logs(node, node_id: str) -> str:
     if network:
         sections.append(f"network/process state:\n{network}")
     return "\n".join(sections) or "subscriber produced no diagnostic logs"
+
+
+def apply_live_link_shaping(
+    topology: TopologyConfig,
+    link_index: int,
+    direction: str,
+    spec: DirectionSpec,
+    previous: DirectionSpec,
+    command_runner: Callable[[str, str], tuple[int, str]] | None = None,
+) -> None:
+    """Replace one running Containernet link direction's qdisc chain."""
+    edge = containernet_edge_interfaces(topology)[link_index]
+    node_id, iface = (
+        (edge.a, edge.a_iface) if direction == "forward" else (edge.b, edge.b_iface)
+    )
+    run = command_runner or _run_containernet_command
+
+    def apply(value: DirectionSpec) -> None:
+        commands = shaping_commands(iface, value)
+        if not commands:
+            commands = [f"tc qdisc del dev {iface} root"]
+        for command in commands:
+            status, output = run(node_id, command)
+            if status:
+                raise OrchestratorError(
+                    f"{node_id}: {command!r} failed: {output.strip() or f'exit {status}'}"
+                )
+
+    try:
+        apply(spec)
+    except OrchestratorError:
+        try:
+            apply(previous)
+        except OrchestratorError as rollback_error:
+            _log.error("failed to restore %s %s shaping: %s", node_id, iface, rollback_error)
+        raise
+
+
+def _run_containernet_command(node_id: str, command: str) -> tuple[int, str]:
+    try:
+        import docker
+        from docker.errors import DockerException, NotFound
+    except ImportError as error:
+        raise OrchestratorError("docker SDK unavailable for live link update") from error
+
+    try:
+        client = docker.from_env()
+        result = client.containers.get(f"mn.{node_id}").exec_run(["sh", "-c", command])
+    except (DockerException, NotFound) as error:
+        raise OrchestratorError(f"could not update running node {node_id!r}: {error}") from error
+    return result.exit_code, result.output.decode("utf-8", errors="replace")
 
 
 def _modprobe_aqm_modules(topology: TopologyConfig) -> None:
