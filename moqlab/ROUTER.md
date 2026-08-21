@@ -47,7 +47,9 @@ can never teach an endpoint to bypass the emulated path.
 
 ## Per-direction shaping
 
-`links:` entries carry `forward:` (from→to) and `reverse:` (to→from) blocks.
+`links:` entries carry `forward:` (from→to) and `reverse:` (to→from) blocks
+for rate, delay, jitter, and loss. Each router carries one optional `aqm`;
+that AQM is appended to every egress chain owned by the router.
 Each block compiles to an egress qdisc chain on the owning interface
 (`orchestrator/shaping.py`), with fixed handles so `tc -s qdisc show` is
 always readable: htb `5:`/class `5:1`, netem `10:`, AQM `20:`.
@@ -70,8 +72,7 @@ that every link inherits, so each `links:` entry states only what differs.
 Inheritance is per-field, not per-block: a link setting `bandwidth_mbps` keeps
 an inherited `delay_ms`. Defaults are folded in during config validation, so
 `link.forward` / `link.reverse` are already the effective specs everywhere
-downstream — and an inherited `aqm` is policed by the router-egress rule just
-like a hand-written one.
+downstream.
 
 Three states, not two — `null` is not `0`:
 
@@ -82,15 +83,15 @@ Three states, not two — `null` is not `0`:
 | `delay_ms: null` | cleared — no netem at all |
 
 `null` is what a bottleneck link uses to drop inherited delay and keep its
-chain at htb → AQM.
+router-owned chain at htb → AQM.
 
 Caveat: in the htb → netem → AQM chain the delay sits upstream of the AQM on
 the same interface. For the cleanest L4S experiments, put propagation delay
 on the endpoint sides of links and the rate+AQM bottleneck on the router
 egress — the shipped examples follow that pattern.
 
-`aqm` (currently `dualpi2`) is only accepted on directions whose egress node
-is a router. This is an iproute2-version constraint, not a philosophical one:
+`aqm` (currently `dualpi2`) is configured once on a router and applies to all
+its egress interfaces. This is also an iproute2-version constraint:
 endpoint images ship distro iproute2, while `Dockerfile.router` builds a
 pinned modern iproute2 whose tc knows dualpi2. The kernel side
 (`sch_dualpi2`) comes from the host kernel; the backend runs `modprobe`
@@ -103,8 +104,10 @@ and marking granularity.
 
 ## Runtime tweaks
 
-Initial qdiscs come from the YAML. To change shaping mid-run, exec into the
-owning container, e.g.:
+Initial qdiscs come from the YAML. With `moqlab run --visualize`, select a
+link to change rate/netem fields or select a router to change its AQM on all
+egress interfaces. These runtime changes do not rewrite YAML. Direct `tc`
+inspection remains available, e.g.:
 
 ```bash
 docker exec mn.rt-1 tc qdisc show dev rt-1-eth1
@@ -127,6 +130,6 @@ Two different meanings of routing in this testbed:
 
 The testbed plumbing (dualpi2 marking CE at the bottleneck) is necessary but
 not sufficient for L4S results: the QUIC transport must send ECT(1) and react
-to CE. Relay-side tunables exist in the moqx config (`src/config/Config.h`,
-L4S section); verifying that the transport actually negotiates and reads ECN
-is a separate workstream from this topology layer.
+to CE. Set `l4s_ce_target` to a value in `(0, 1)` on a relay to enable mvfst
+L4S ECN for connections accepted by that relay; omitting it leaves ECN
+disabled. Transport-level ECN counters are not yet exported by moqx.

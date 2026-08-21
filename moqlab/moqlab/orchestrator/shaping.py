@@ -30,7 +30,7 @@ TCIntf issued an unconditional `qdisc del root`).
 
 from __future__ import annotations
 
-from moqlab.config.schema import DirectionSpec
+from moqlab.config.schema import AqmKind, DirectionSpec
 
 # netem's default queue is 1000 packets; at high bandwidth-delay products it
 # overflows and drops before the AQM ever sees pressure, silently becoming
@@ -56,14 +56,16 @@ def _netem_args(spec: DirectionSpec) -> str:
     return " ".join(parts)
 
 
-def shaping_commands(iface: str, spec: DirectionSpec) -> list[str]:
+def shaping_commands(
+    iface: str, spec: DirectionSpec, aqm: AqmKind | None = None
+) -> list[str]:
     """Ordered tc commands building the egress qdisc chain for one direction.
 
     Run them inside the node that owns `iface`. An all-None spec yields [].
     """
     has_rate = spec.bandwidth_mbps is not None
     has_netem = spec.delay_ms is not None or spec.loss_pct is not None
-    has_aqm = spec.aqm is not None
+    has_aqm = aqm is not None
 
     cmds: list[str] = []
     parent: str | None = None  # None → the next qdisc becomes the root
@@ -86,11 +88,11 @@ def shaping_commands(iface: str, spec: DirectionSpec) -> list[str]:
         parent = "10:1"
 
     if has_aqm:
-        aqm = spec.aqm.value  # type: ignore[union-attr]
+        aqm_name = aqm.value  # type: ignore[union-attr]
         if parent is None:
-            cmds.append(f"tc qdisc replace dev {iface} root handle 20: {aqm}")
+            cmds.append(f"tc qdisc replace dev {iface} root handle 20: {aqm_name}")
         else:
-            cmds.append(f"tc qdisc add dev {iface} parent {parent} handle 20: {aqm}")
+            cmds.append(f"tc qdisc add dev {iface} parent {parent} handle 20: {aqm_name}")
 
     return cmds
 

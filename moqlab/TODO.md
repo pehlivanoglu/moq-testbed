@@ -118,8 +118,9 @@ These become tractable once Phase 4 lands.
       current edge-list `links:` shape? Named networks may make scenario files
       much cleaner.
 - [x] Should ECN/L4S/AQM scenario support require a router/link-emulator
-      backend mode? Resolved 2026-06-12: AQMs only attach on router egress
-      (router image carries the modern tc); endpoint-side netem/HTB remains
+      backend mode? Resolved 2026-06-12, updated 2026-08-21: AQM is selected
+      per router and attaches to all its egress interfaces (router image
+      carries the modern tc); endpoint-side netem/HTB remains
       available. See `ROUTER.md`.
 - [ ] Should publisher/subscriber definitions support a generic `flags: [...]`
       escape hatch for moxygen flags we have not first-classed? Useful for
@@ -197,7 +198,8 @@ These become tractable once Phase 4 lands.
   in the console.
 - 2026-06-12: Replaced per-edge OVS switches + `TCLink` with explicit router
   containers and direct veth links. Hard-broke the `links:` schema to
-  per-direction `forward:`/`reverse:` shaping with `aqm: dualpi2` support,
+  per-direction `forward:`/`reverse:` rate/netem shaping and router-owned
+  `aqm: dualpi2` support,
   added per-node /32 loopbacks + static routes, a dedicated `moqlab-router`
   image (pinned iproute2 build), and pure `shaping.py`/`routing.py` modules.
   The Docker backend now refuses router topologies.

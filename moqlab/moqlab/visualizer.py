@@ -14,7 +14,7 @@ from urllib.parse import unquote, urlparse
 
 from pydantic import ValidationError
 
-from moqlab.config.schema import DirectionSpec, TopologyConfig, load_topology
+from moqlab.config.schema import AqmKind, DirectionSpec, TopologyConfig, load_topology
 from moqlab.exceptions import OrchestratorError
 from moqlab.runtime import (
     containernet_edge_interfaces,
@@ -48,6 +48,7 @@ class _EdgeCounterSample:
 CounterReader = Callable[[str, str], InterfaceCounters | None]
 MetricsReader = Callable[[str], bytes | None]
 LinkUpdater = Callable[[int, str, DirectionSpec, DirectionSpec], None]
+RouterUpdater = Callable[[str, AqmKind | None, AqmKind | None], None]
 _METRICS_PATH = "/tmp/moqlab-player-metrics.json"
 _METRICS_STALE_MS = 3000
 _MAX_REQUEST_BYTES = 64 * 1024
@@ -66,7 +67,6 @@ def _direction_payload(spec: DirectionSpec) -> dict[str, object]:
         "delay_ms": spec.delay_ms,
         "jitter_ms": spec.jitter_ms,
         "loss_pct": spec.loss_pct,
-        "aqm": spec.aqm.value if spec.aqm is not None else None,
     }
 
 
@@ -113,12 +113,13 @@ def topology_snapshot(topology: TopologyConfig) -> dict[str, object]:
                 "upstream": relay.upstream,
             }
         )
-    for rid in topology.routers:
+    for rid, router in topology.routers.items():
         nodes.append(
             {
                 "id": rid,
                 "role": "router",
                 "level": _level(rid, 1),
+                "aqm": router.aqm.value if router.aqm else None,
             }
         )
     for pid, publisher in topology.publishers.items():
@@ -288,6 +289,7 @@ class VisualizerHTTPServer(ThreadingHTTPServer):
         self.metrics_reader = metrics_reader or _read_container_metrics
         self.subscriber_containers: dict[str, str] = {}
         self.link_updater: LinkUpdater | None = None
+        self.router_updater: RouterUpdater | None = None
         self._link_update_lock = threading.Lock()
 
     def register_subscriber_containers(self, containers: dict[str, str]) -> None:
@@ -295,6 +297,9 @@ class VisualizerHTTPServer(ThreadingHTTPServer):
 
     def register_link_updater(self, updater: LinkUpdater) -> None:
         self.link_updater = updater
+
+    def register_router_updater(self, updater: RouterUpdater) -> None:
+        self.router_updater = updater
 
     def update_link(self, link_id: str, direction: str, raw: object) -> dict[str, object]:
         if self.backend != "containernet" or self.link_updater is None:
@@ -315,12 +320,6 @@ class VisualizerHTTPServer(ThreadingHTTPServer):
             for index, link in enumerate(self.topology.links):
                 if f"{link.from_}--{link.to}" != link_id:
                     continue
-                egress = link.from_ if direction == "forward" else link.to
-                if spec.aqm is not None and egress not in self.topology.routers:
-                    raise LinkUpdateError(
-                        HTTPStatus.UNPROCESSABLE_ENTITY,
-                        f"aqm is only valid on router egress; {egress!r} is not a router",
-                    )
                 previous = getattr(link, direction)
                 if spec != previous:
                     try:
@@ -332,6 +331,30 @@ class VisualizerHTTPServer(ThreadingHTTPServer):
                     setattr(link, direction, spec)
                 return _direction_payload(spec)
         raise LinkUpdateError(HTTPStatus.NOT_FOUND, "unknown link")
+
+    def update_router(self, router_id: str, raw: object) -> dict[str, object]:
+        if self.backend != "containernet" or self.router_updater is None:
+            raise LinkUpdateError(
+                HTTPStatus.CONFLICT,
+                "live router editing requires an active Containernet run",
+            )
+        if not isinstance(raw, dict) or set(raw) != {"aqm"}:
+            raise LinkUpdateError(HTTPStatus.BAD_REQUEST, "expected only an aqm field")
+        try:
+            aqm = AqmKind(raw["aqm"]) if raw["aqm"] is not None else None
+        except (TypeError, ValueError) as error:
+            raise LinkUpdateError(HTTPStatus.UNPROCESSABLE_ENTITY, "unknown AQM kind") from error
+        with self._link_update_lock:
+            router = self.topology.routers.get(router_id)
+            if router is None:
+                raise LinkUpdateError(HTTPStatus.NOT_FOUND, "unknown router")
+            if aqm != router.aqm:
+                try:
+                    self.router_updater(router_id, aqm, router.aqm)
+                except OrchestratorError as error:
+                    raise LinkUpdateError(HTTPStatus.INTERNAL_SERVER_ERROR, str(error)) from error
+                router.aqm = aqm
+        return {"aqm": aqm.value if aqm else None}
 
     def node_metrics(self, node_id: str) -> dict[str, object]:
         subscriber = self.topology.subscribers.get(node_id)
@@ -388,6 +411,7 @@ class _VisualizerHandler(BaseHTTPRequestHandler):
         if path == "/api/snapshot":
             snapshot = snapshot_with_rates(self.server.topology, self.server.sampler)
             snapshot["links_editable"] = self.server.link_updater is not None
+            snapshot["routers_editable"] = self.server.router_updater is not None
             self._send_json(snapshot)
             return
         prefix = "/api/nodes/"
@@ -404,12 +428,16 @@ class _VisualizerHandler(BaseHTTPRequestHandler):
 
     def do_PUT(self) -> None:
         path = urlparse(self.path).path
-        prefix = "/api/links/"
-        if not path.startswith(prefix):
+        link_prefix = "/api/links/"
+        router_prefix = "/api/routers/"
+        if not path.startswith((link_prefix, router_prefix)):
             self.send_error(HTTPStatus.NOT_FOUND)
             return
-        parts = path[len(prefix):].rsplit("/", 1)
-        if len(parts) != 2:
+        if path.startswith(link_prefix):
+            parts = path[len(link_prefix):].rsplit("/", 1)
+        else:
+            parts = []
+        if path.startswith(link_prefix) and len(parts) != 2:
             self.send_error(HTTPStatus.NOT_FOUND)
             return
         try:
@@ -425,14 +453,20 @@ class _VisualizerHandler(BaseHTTPRequestHandler):
             return
         try:
             raw = json.loads(self.rfile.read(length))
-            payload = self.server.update_link(unquote(parts[0]), parts[1], raw)
+            if path.startswith(link_prefix):
+                payload = self.server.update_link(unquote(parts[0]), parts[1], raw)
+                response = {"direction": payload}
+            else:
+                router_id = unquote(path[len(router_prefix):]).strip("/")
+                payload = self.server.update_router(router_id, raw)
+                response = {"router": payload}
         except (UnicodeDecodeError, json.JSONDecodeError) as error:
             self._send_json({"error": f"invalid JSON: {error}"}, HTTPStatus.BAD_REQUEST)
             return
         except LinkUpdateError as error:
             self._send_json({"error": error.message}, error.status)
             return
-        self._send_json({"direction": payload})
+        self._send_json(response)
 
     def log_message(self, fmt: str, *args: object) -> None:
         _log.debug("visualizer: " + fmt, *args)

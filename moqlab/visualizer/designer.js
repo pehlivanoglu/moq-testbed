@@ -1105,7 +1105,7 @@ function renderNodeInspector() {
     ? ["asset", "listen_port", "fingerprint_port"]
     : role === "subscriber"
       ? ["namespace", "track", "media_client", ...(nativeSubscriber ? ["native_playback"] : []), ...(bufferedSubscriber ? ["minimal_buffer_ms", "target_latency_ms"] : [])]
-      : ["kind", "namespace", "track"];
+      : role === "router" ? ["aqm"] : ["kind", "namespace", "track"];
   renderObjectEditor(editor, nodeDefinition(role), config, (next) => commit(() => {
     if (role.startsWith("traffic-")) draft.traffic[role.slice(8)] = next;
     else draft[propertyForRole(role)][id] = normalizedNodeConfig(role, next);

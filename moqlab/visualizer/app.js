@@ -15,10 +15,12 @@ let selectedLinkId = null;
 let nodesById = new Map();
 let linksById = new Map();
 let linksEditable = false;
+let routersEditable = false;
 let metricsRequestNodeId = null;
 let renderedNodeId = null;
 let renderedLinkId = null;
 let renderedLinksEditable = false;
+let renderedRoutersEditable = false;
 let metricFields = new Map();
 let metricsStatus;
 let metricsReason;
@@ -62,6 +64,7 @@ function renderNodeDetails(node) {
   nodeDetails.replaceChildren();
   renderedNodeId = node?.id ?? null;
   renderedLinkId = null;
+  renderedRoutersEditable = routersEditable;
   metricFields = new Map();
   metricsStatus = undefined;
   metricsReason = undefined;
@@ -82,6 +85,10 @@ function renderNodeDetails(node) {
   identity.textContent = [node.role, node.media_client, node.native_playback]
     .filter(Boolean).join(" · ");
   nodeDetails.append(name, identity);
+  if (node.role === "router") {
+    nodeDetails.append(routerAqmEditor(node));
+    return;
+  }
   if (node.role !== "subscriber" || node.kind !== "media") {
     const unavailable = document.createElement("p");
     unavailable.textContent = "Player metrics unavailable.";
@@ -176,6 +183,46 @@ function selectNode(node) {
   void refreshNodeMetrics();
 }
 
+function routerAqmEditor(node) {
+  const form = document.createElement("form");
+  form.className = "router-form";
+  const label = document.createElement("label");
+  label.textContent = "AQM on all router egress";
+  const select = document.createElement("select");
+  select.append(new Option("None", ""), new Option("dualpi2", "dualpi2"));
+  select.value = node.aqm || "";
+  select.disabled = !routersEditable;
+  const apply = document.createElement("button");
+  apply.type = "submit";
+  apply.textContent = "Apply";
+  apply.disabled = !routersEditable;
+  const status = document.createElement("span");
+  status.className = "link-update-status";
+  label.append(select);
+  form.append(label, apply, status);
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    apply.disabled = true;
+    status.textContent = "Applying…";
+    try {
+      const response = await fetch(`/api/routers/${encodeURIComponent(node.id)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ aqm: select.value || null }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+      node.aqm = result.router.aqm;
+      status.textContent = "Applied";
+    } catch (error) {
+      status.textContent = error.message;
+    } finally {
+      apply.disabled = !routersEditable;
+    }
+  });
+  return form;
+}
+
 function linkField(form, name, labelText, value, options = {}) {
   const label = document.createElement("label");
   label.textContent = labelText;
@@ -205,16 +252,6 @@ function directionEditor(link, direction) {
   linkField(form, "jitter_ms", "Jitter (ms)", spec.jitter_ms, { min: 0 });
   linkField(form, "loss_pct", "Loss (%)", spec.loss_pct, { min: 0, max: 100 });
 
-  const aqmLabel = document.createElement("label");
-  aqmLabel.textContent = "AQM";
-  const aqm = document.createElement("select");
-  aqm.name = "aqm";
-  aqm.append(new Option("None", ""), new Option("dualpi2", "dualpi2"));
-  aqm.value = spec.aqm || "";
-  aqm.disabled = !linksEditable || nodesById.get(from)?.role !== "router";
-  aqmLabel.append(aqm);
-  form.append(aqmLabel);
-
   const apply = document.createElement("button");
   apply.type = "submit";
   apply.textContent = "Apply";
@@ -232,7 +269,6 @@ function directionEditor(link, direction) {
     for (const name of ["bandwidth_mbps", "delay_ms", "jitter_ms", "loss_pct"]) {
       payload[name] = data.get(name) === "" ? null : Number(data.get(name));
     }
-    payload.aqm = data.get("aqm") || null;
     try {
       const response = await fetch(`/api/links/${encodeURIComponent(link.id)}/${direction}`, {
         method: "PUT",
@@ -288,7 +324,6 @@ function directionText(spec, arrow) {
   if (spec.delay_ms != null) parts.push(`${spec.delay_ms} ms`);
   if (spec.jitter_ms != null) parts.push(`${spec.jitter_ms} ms jitter`);
   if (spec.loss_pct != null) parts.push(`${spec.loss_pct}% loss`);
-  if (spec.aqm != null) parts.push(spec.aqm);
   return parts.length ? `${arrow} ${parts.join(", ")}` : null;
 }
 
@@ -338,9 +373,12 @@ function draw(data) {
   nodesById = new Map(data.nodes.map((node) => [node.id, node]));
   linksById = new Map(data.links.map((link) => [link.id, link]));
   linksEditable = Boolean(data.links_editable);
+  routersEditable = Boolean(data.routers_editable);
   if (selectedNodeId && !nodesById.has(selectedNodeId)) {
     selectedNodeId = null;
     renderNodeDetails(null);
+  } else if (selectedNodeId && nodesById.get(selectedNodeId)?.role === "router" && renderedRoutersEditable !== routersEditable) {
+    renderNodeDetails(nodesById.get(selectedNodeId));
   }
   if (selectedLinkId && !linksById.has(selectedLinkId)) {
     selectedLinkId = null;

@@ -189,8 +189,8 @@ subscribers:
   sub:     { connects_to: relay-c, namespace: moq-date, track: date }
 
 routers:                     # Containernet only; Docker backend refuses
-  rt-ab: {}                  # image defaults to defaults.router.image (moqlab-router)
-  rt-bc: {}
+  rt-ab: { aqm: dualpi2 }    # AQM applies to every rt-ab egress
+  rt-bc: { aqm: dualpi2 }
 
 traffic:                     # optional; exactly one sender + one receiver
   sender: { id: traffic-tx }
@@ -212,7 +212,7 @@ links:                       # Containernet only; physical wiring + shaping
     reverse: { delay_ms: 10 }
   - from: rt-ab
     to: relay-b
-    forward: { bandwidth_mbps: 50, aqm: dualpi2 }   # bottleneck on router egress
+    forward: { bandwidth_mbps: 50 }   # bottleneck on router egress
     reverse: { delay_ms: 10 }
   - { from: traffic-tx, to: rt-ab }
   - { from: rt-ab, to: traffic-rx }
@@ -224,9 +224,9 @@ and react to CE feedback. Omit it to leave ECN disabled. This affects
 connections accepted by that relay, such as relay-to-subscriber traffic.
 
 Per direction (`forward` = from→to, `reverse` = to→from) you can set
-`bandwidth_mbps` (HTB rate), `delay_ms` / `jitter_ms` / `loss_pct` (netem),
-and `aqm` (currently `dualpi2`). The qdisc chains these compile to are
-documented in [ROUTER.md](ROUTER.md).
+`bandwidth_mbps` (HTB rate) and `delay_ms` / `jitter_ms` / `loss_pct`
+(netem). Set `aqm` (currently `dualpi2`) on a router; it applies to every
+egress interface owned by that router. See [ROUTER.md](ROUTER.md).
 
 Invariants the schema enforces:
 
@@ -240,7 +240,7 @@ Invariants the schema enforces:
 | Startup warmups are non-negative seconds | Keeps relay bind and publisher namespace timing config-driven. |
 | Each undirected link appears at most once | Prevents accidental double-shaping. |
 | When `links:`/`routers:` are declared, every `upstream`/`connects_to` pair must have a path through the link graph | A relay that cannot reach its upstream would only fail at run time. |
-| `aqm` only on directions whose egress node is a router | Endpoint images ship an iproute2 too old for modern AQMs; the router image carries its own. |
+| `aqm` belongs to a router and applies to all its egress links | Keeps queue policy on the node that owns those interfaces. |
 | Every declared router appears in at least one link | An unwired router is a config bug. |
 | Traffic paths start at sender, end at receiver, use routers internally, and follow declared links | Makes selected routes explicit and reproducible. |
 | `jitter_ms` requires `delay_ms` | netem expresses jitter as a variation of delay. |
@@ -440,7 +440,7 @@ needs the four runtime deps installed (see "Running it").
 | `python -m moqlab build images` | n/a | Build `moqlab-relay`, `moqlab-router`, and `moqlab-traffic`. |
 | `python -m moqlab build media-images [--publisher-context PATH] [--player-context PATH]` | n/a | Build `moqlab-media-pub`, `moqlab-media-sub`, and `moqlab-media-native-sub` from local contexts. Environment equivalents: `MOQLAB_MEDIA_PUBLISHER_CONTEXT` and `MOQLAB_MEDIA_PLAYER_CONTEXT`. |
 | `python -m moqlab validate -c <config>` | both | Parse + validate, no side effects. |
-| `python -m moqlab run -c <config> [--backend docker\|containernet] [--run-id N] [--publish-ports] [--vis\|--visualize]` | both | Run topology. Defaults to `containernet`. With `--visualize`, also serves `http://127.0.0.1:8765/` showing a pannable/zoomable topology graph and link rates. During a Containernet run, select a link to change its per-direction capacity, delay, jitter, loss, or AQM live; these runtime edits do not rewrite topology YAML. Docker-backend runs remain read-only because their shared bridge has no per-topology-link interface. |
+| `python -m moqlab run -c <config> [--backend docker\|containernet] [--run-id N] [--publish-ports] [--vis\|--visualize]` | both | Run topology. Defaults to `containernet`. With `--visualize`, also serves `http://127.0.0.1:8765/` showing a pannable/zoomable topology graph and link rates. During a Containernet run, select a link to change its per-direction capacity, delay, jitter, or loss; select a router to change AQM on all its egress interfaces. Runtime edits do not rewrite topology YAML. Docker-backend runs remain read-only because their shared bridge has no per-topology-link interface. |
 | `python -m moqlab down --run-id <name>` | docker | Stop and remove containers + network. |
 | `python -m moqlab ls` | docker | List active runs. |
 | `python -m moqlab logs --run-id <name> [-f] [-n N] <node_id>` | docker | Container logs for one node. |
@@ -448,7 +448,7 @@ needs the four runtime deps installed (see "Running it").
 
 > **Note:** Live link editing requires the Containernet backend. Each
 > Containernet link has its own veth pair, so the visualizer can change its
-> capacity, delay, jitter, loss, and AQM. Docker uses one shared bridge with no
+> capacity, delay, jitter, and loss. Router AQM is also editable there. Docker uses one shared bridge with no
 > separate interface per topology link, so its visualizer is read-only.
 
 Global option: `--runs-dir <path>` (or `MOQLAB_RUNS_DIR=…`). Default:
@@ -466,7 +466,7 @@ suite lives and which directory is the import root; the `moqlab/` package on
 that root is picked up automatically without any install step.
 
 Coverage: schema validation (uniqueness, upstream resolution, cycles, port
-collisions, link dedup, link-graph reachability, router/aqm placement rules,
+collisions, link dedup, link-graph reachability, router-owned AQM,
 mode gating, log-level validation), tc qdisc chain synthesis, static-route
 computation, relay YAML synthesis (DNS URLs, override inheritance,
 multi-relay file emission), publisher and subscriber argv synthesis (flag

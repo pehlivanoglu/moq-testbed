@@ -13,8 +13,7 @@ Schema invariants enforced here:
   - links reference known nodes, each undirected pair appears at most once
   - when links/routers are declared, every application edge (each
     upstream / connects_to pair) must have a path through the link graph
-  - per-direction `aqm` only where the egress node is a router (endpoint
-    images ship an iproute2 too old for modern AQMs)
+  - AQM is configured per router and applies to every router egress
   - every declared router appears in at least one link
   - generative mode rejected (v1 explicit only)
 
@@ -112,6 +111,12 @@ class SubscriberDefaults(_StrictBase):
         return self
 
 
+class AqmKind(str, Enum):
+    """AQM qdiscs moqlab can synthesize tc commands for."""
+
+    dualpi2 = "dualpi2"
+
+
 class RouterDefaults(_StrictBase):
     image: str = "moqlab-router"
 
@@ -178,6 +183,7 @@ class RouterConfig(_StrictBase):
     """An IP-forwarding node that owns link queues (AQM/ECN); runs no MoQ binary."""
 
     image: str | None = None
+    aqm: AqmKind | None = None
 
 
 class TrafficEndpointConfig(_StrictBase):
@@ -278,12 +284,6 @@ class SubscriberConfig(_StrictBase):
 # ── links (Containernet-only shaping) ──────────────────────────────────────
 
 
-class AqmKind(str, Enum):
-    """AQM qdiscs moqlab can synthesize tc commands for (see orchestrator/shaping.py)."""
-
-    dualpi2 = "dualpi2"
-
-
 class DirectionSpec(_StrictBase):
     """Shaping for one direction of a link: the egress qdisc chain on one interface."""
 
@@ -291,7 +291,6 @@ class DirectionSpec(_StrictBase):
     delay_ms: float | None = Field(default=None, ge=0)
     jitter_ms: float | None = Field(default=None, ge=0)
     loss_pct: float | None = Field(default=None, ge=0, le=100)
-    aqm: AqmKind | None = None
 
     @model_validator(mode="after")
     def _check_jitter_requires_delay(self) -> "DirectionSpec":
@@ -307,7 +306,6 @@ class DirectionSpec(_StrictBase):
             and self.delay_ms is None
             and self.jitter_ms is None
             and self.loss_pct is None
-            and self.aqm is None
         )
 
     def merged_over(self, base: "DirectionSpec") -> "DirectionSpec":
@@ -316,8 +314,7 @@ class DirectionSpec(_StrictBase):
         Per-field, not per-block: a link that sets only `bandwidth_mbps` still
         inherits `delay_ms` from the default. `model_fields_set` — not a
         truthiness or None test — decides what "explicitly set" means, so
-        `delay_ms: 0` overrides a nonzero default and an explicit `aqm: null`
-        clears an inherited one.
+        `delay_ms: 0` overrides a nonzero default.
         """
         merged = base.model_dump()
         merged.update(self.model_dump(include=self.model_fields_set))
@@ -386,8 +383,7 @@ class TopologyConfig(_StrictBase):
 
         Done here rather than in an accessor so `link.forward` / `link.reverse`
         are the effective specs for every consumer — the shaping backend, the
-        visualizer, and the aqm-egress rule in `_check` below, which must see a
-        default-supplied aqm to police it. Validators declared with mode="after"
+        visualizer, and runtime shaping. Validators declared with mode="after"
         run in definition order, so this precedes `_check`.
         """
         for link in self.links:
@@ -552,8 +548,7 @@ class TopologyConfig(_StrictBase):
                         f"media subscriber {sid!r} is not in the media publisher tree"
                     )
         # Links are the physical wiring: endpoints must exist, each undirected
-        # pair appears once, and `aqm` may only sit on a router's egress
-        # because endpoint images ship an iproute2 too old for modern AQMs.
+        # pair appears once.
         seen_links: set[tuple[str, str]] = set()
         linked_nodes: set[str] = set()
         for link in self.links:
@@ -569,17 +564,6 @@ class TopologyConfig(_StrictBase):
                 )
             seen_links.add(key)
             linked_nodes.update(key)
-            if link.forward.aqm is not None and link.from_ not in self.routers:
-                raise ValueError(
-                    f"link {link.from_!r}->{link.to!r}: forward.aqm requires "
-                    f"the egress node {link.from_!r} to be a router"
-                )
-            if link.reverse.aqm is not None and link.to not in self.routers:
-                raise ValueError(
-                    f"link {link.from_!r}->{link.to!r}: reverse.aqm requires "
-                    f"the egress node {link.to!r} to be a router"
-                )
-
         for rid in self.routers:
             if rid not in linked_nodes:
                 raise ValueError(f"router {rid!r} does not appear in any link")

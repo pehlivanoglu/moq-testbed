@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from moqlab.config.schema import DirectionSpec, TopologyConfig
+from moqlab.config.schema import AqmKind, DirectionSpec, TopologyConfig
 from moqlab.exceptions import OrchestratorError
 from moqlab.orchestrator.containernet_backend import (
     ContainernetBackend,
@@ -21,6 +21,7 @@ from moqlab.orchestrator.containernet_backend import (
     _await_containernet_native_media_ready,
     _write_etc_hosts_via_docker,
     apply_live_link_shaping,
+    apply_live_router_aqm,
 )
 from moqlab.runtime import node_loopback_ips
 
@@ -101,14 +102,14 @@ def _routed_topology() -> TopologyConfig:
             "subscribers": {
                 "sub": {"connects_to": "relay-a", "namespace": "msf/clear", "track": "video/s2"}
             },
-            "routers": {"rt-1": {}},
+            "routers": {"rt-1": {"aqm": "dualpi2"}},
             "links": [
                 {"from": "pub", "to": "relay-a", "forward": {"delay_ms": 5}},
                 {"from": "relay-a", "to": "rt-1"},
                 {
                     "from": "rt-1",
                     "to": "sub",
-                    "forward": {"bandwidth_mbps": 20, "aqm": "dualpi2"},
+                    "forward": {"bandwidth_mbps": 20},
                     "reverse": {"delay_ms": 1},
                 },
             ],
@@ -175,6 +176,22 @@ def test_live_link_shaping_replaces_and_clears_one_direction():
         "tc qdisc replace dev rt-1-eth1 root handle 5: htb default 1",
     )
     assert ("sub", "tc qdisc del dev sub-eth0 root") in calls
+
+
+def test_live_router_aqm_updates_every_router_egress():
+    topology = _routed_topology()
+    calls = []
+    run = lambda node, command: calls.append((node, command)) or (0, "")
+
+    apply_live_router_aqm(
+        topology, "rt-1", None, AqmKind.dualpi2, run
+    )
+
+    assert {command.split()[4] for node, command in calls if node == "rt-1"} == {
+        "rt-1-eth0",
+        "rt-1-eth1",
+    }
+    assert topology.routers["rt-1"].aqm is None
 
 
 def _record_for(topology: TopologyConfig) -> ContainernetRunRecord:

@@ -38,12 +38,12 @@ ergonomics. This is research infrastructure, not a demo script.
 
 - **Schema** (`moqlab/config/schema.py`) - Pydantic v2 topology model:
   `defaults`, `startup`, `relays`, `publishers`, `subscribers`, `routers`, `traffic`,
-  and `links` (per-direction `forward`/`reverse` shaping incl. `aqm`). Pub/sub
+  and `links` (per-direction `forward`/`reverse` rate/netem shaping; router-owned AQM). Pub/sub
   nodes are media-only and model `mlmpub`, Chromium WARP Player, and native
   `mlmsub` subscribers. It is
   strict (`extra="forbid"`) and validates node ids, relay references, port
   collisions, cycles, duplicate links, link-graph reachability of every
-  app edge, aqm-on-router-egress, and orphan routers.
+  app edge and orphan routers.
 - **External traffic** (`moqlab/trafficgen.py`) - one custom Python sender and
   one receiver generate bulk TCP, paced CBR UDP, and scripted segmented TCP.
   Named paths get generated `/32` alias pairs and explicit symmetric routes;
@@ -183,7 +183,7 @@ subscribers:
   sub: { connects_to: relay-b, namespace: msf/clear, track: video/s2 }
 
 routers:
-  rt-1: {}
+  rt-1: { aqm: dualpi2 }
 
 traffic:
   sender: { id: traffic-tx }
@@ -205,7 +205,7 @@ links:
     reverse: { delay_ms: 20 }
   - from: rt-1
     to: relay-b
-    forward: { bandwidth_mbps: 50, aqm: dualpi2 }
+    forward: { bandwidth_mbps: 50 }
     reverse: { delay_ms: 20 }
   - from: relay-b
     to: sub
@@ -226,8 +226,8 @@ Implemented invariants:
 - `links` reference known nodes and may not duplicate an undirected pair.
 - When `links`/`routers` are declared, every `upstream`/`connects_to` pair
   must be connected through the link graph.
-- `aqm` is only valid on directions whose egress node is a router; every
-  declared router must appear in at least one link; `jitter_ms` requires
+- `aqm` is configured on a router and applies to all its egress interfaces;
+  every declared router must appear in at least one link; `jitter_ms` requires
   `delay_ms`.
 - Unknown fields are rejected.
 - Traffic uses exactly two endpoint containers. Named paths must follow

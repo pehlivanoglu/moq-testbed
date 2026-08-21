@@ -456,6 +456,7 @@ def _up_containernet(
     from moqlab.orchestrator.containernet_backend import (
         ContainernetBackend,
         apply_live_link_shaping,
+        apply_live_router_aqm,
     )
 
     try:
@@ -467,6 +468,11 @@ def _up_containernet(
                 visualizer.register_link_updater(
                     lambda index, direction, spec, previous: apply_live_link_shaping(
                         topology, index, direction, spec, previous
+                    )
+                )
+                visualizer.register_router_updater(
+                    lambda router_id, aqm, previous: apply_live_router_aqm(
+                        topology, router_id, aqm, previous
                     )
                 )
             on_running = register_link_updater
