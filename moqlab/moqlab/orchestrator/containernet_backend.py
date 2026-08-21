@@ -37,7 +37,7 @@ from pathlib import Path
 from typing import Callable
 
 from moqlab.certs import TLS_MOUNT, generate_run_tls
-from moqlab.config.schema import DirectionSpec, TopologyConfig, load_topology
+from moqlab.config.schema import AqmKind, DirectionSpec, TopologyConfig, load_topology
 from moqlab.config.synth import (
     synthesize_publisher_command,
     synthesize_relay_configs,
@@ -444,7 +444,8 @@ class ContainernetBackend:
                 (edge.b, edge.b_iface, link.reverse),
             ):
                 node = net.get(nid)
-                for cmd in shaping_commands(iface, spec):
+                aqm = topology.routers[nid].aqm if nid in topology.routers else None
+                for cmd in shaping_commands(iface, spec, aqm):
                     out = node.cmd(cmd)
                     if out and out.strip():
                         _log.warning("%s: %r printed: %s", nid, cmd, out.strip())
@@ -664,7 +665,8 @@ def apply_live_link_shaping(
     run = command_runner or _run_containernet_command
 
     def apply(value: DirectionSpec) -> None:
-        commands = shaping_commands(iface, value)
+        aqm = topology.routers[node_id].aqm if node_id in topology.routers else None
+        commands = shaping_commands(iface, value, aqm)
         if not commands:
             commands = [f"tc qdisc del dev {iface} root"]
         for command in commands:
@@ -682,6 +684,47 @@ def apply_live_link_shaping(
         except OrchestratorError as rollback_error:
             _log.error("failed to restore %s %s shaping: %s", node_id, iface, rollback_error)
         raise
+
+
+def apply_live_router_aqm(
+    topology: TopologyConfig,
+    router_id: str,
+    aqm: AqmKind | None,
+    previous: AqmKind | None,
+    command_runner: Callable[[str, str], tuple[int, str]] | None = None,
+) -> None:
+    """Replace every egress qdisc chain owned by one running router."""
+    run = command_runner or _run_containernet_command
+    edges = containernet_edge_interfaces(topology)
+
+    def apply(value: AqmKind | None) -> None:
+        for edge, link in zip(edges, topology.links):
+            if edge.a == router_id:
+                iface, spec = edge.a_iface, link.forward
+            elif edge.b == router_id:
+                iface, spec = edge.b_iface, link.reverse
+            else:
+                continue
+            commands = shaping_commands(iface, spec, value)
+            if not commands:
+                commands = [f"tc qdisc del dev {iface} root"]
+            for command in commands:
+                status, output = run(router_id, command)
+                if status:
+                    raise OrchestratorError(
+                        f"{router_id}: {command!r} failed: "
+                        f"{output.strip() or f'exit {status}'}"
+                    )
+
+    try:
+        apply(aqm)
+    except OrchestratorError:
+        try:
+            apply(previous)
+        except OrchestratorError as rollback_error:
+            _log.error("failed to restore %s AQM: %s", router_id, rollback_error)
+        raise
+    topology.routers[router_id].aqm = aqm
 
 
 def _run_containernet_command(node_id: str, command: str) -> tuple[int, str]:
@@ -706,12 +749,7 @@ def _modprobe_aqm_modules(topology: TopologyConfig) -> None:
     be explicit: we already run as root on the host, and a missing module
     should surface before shaping commands run.
     """
-    kinds = {
-        direction.aqm.value
-        for link in topology.links
-        for direction in (link.forward, link.reverse)
-        if direction.aqm is not None
-    }
+    kinds = {router.aqm.value for router in topology.routers.values() if router.aqm}
     for kind in sorted(kinds):
         module = f"sch_{kind}"
         try:

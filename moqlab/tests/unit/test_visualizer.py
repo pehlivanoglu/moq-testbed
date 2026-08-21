@@ -79,7 +79,6 @@ def _unshaped(**overrides) -> dict:
         "delay_ms": None,
         "jitter_ms": None,
         "loss_pct": None,
-        "aqm": None,
     }
     payload.update(overrides)
     return payload
@@ -128,7 +127,7 @@ def test_live_link_update_validates_and_calls_registered_updater():
             "forward",
             {"bandwidth_mbps": 25, "delay_ms": 3, "loss_pct": 1},
         )
-        with pytest.raises(LinkUpdateError, match="router egress"):
+        with pytest.raises(LinkUpdateError, match="Extra inputs"):
             server.update_link("pub--relay-a", "forward", {"aqm": "dualpi2"})
     finally:
         server.server_close()
@@ -136,6 +135,29 @@ def test_live_link_update_validates_and_calls_registered_updater():
     assert result["bandwidth_mbps"] == 25
     assert calls[0][0:2] == (0, "forward")
     assert server.topology.links[0].forward.loss_pct == 1
+
+
+def test_live_router_update_calls_registered_updater():
+    topology = TopologyConfig.model_validate(
+        {
+            "relays": {"relay-a": {"listen_port": 9668, "admin_port": 9669}},
+            "routers": {"rt-1": {}},
+            "links": [{"from": "relay-a", "to": "rt-1"}],
+        }
+    )
+    server = VisualizerHTTPServer(("127.0.0.1", 0), topology)
+    calls = []
+    server.register_router_updater(
+        lambda router_id, aqm, previous: calls.append((router_id, aqm, previous))
+    )
+    try:
+        result = server.update_router("rt-1", {"aqm": "dualpi2"})
+    finally:
+        server.server_close()
+
+    assert result == {"aqm": "dualpi2"}
+    assert calls[0][0] == "rt-1"
+    assert server.topology.routers["rt-1"].aqm.value == "dualpi2"
 
 
 def test_topology_snapshot_places_router_between_endpoints():
@@ -146,14 +168,14 @@ def test_topology_snapshot_places_router_between_endpoints():
             "subscribers": {
                 "sub": {"connects_to": "relay-a", "namespace": "n", "track": "t"}
             },
-            "routers": {"rt-1": {}},
+            "routers": {"rt-1": {"aqm": "dualpi2"}},
             "links": [
                 {"from": "pub", "to": "relay-a"},
                 {"from": "relay-a", "to": "rt-1"},
                 {
                     "from": "rt-1",
                     "to": "sub",
-                    "forward": {"bandwidth_mbps": 20, "aqm": "dualpi2"},
+                    "forward": {"bandwidth_mbps": 20},
                 },
             ],
         }
@@ -166,8 +188,8 @@ def test_topology_snapshot_places_router_between_endpoints():
     roles = {node["id"]: node["role"] for node in snapshot["nodes"]}
     assert roles["rt-1"] == "router"
     assert levels["pub"] < levels["relay-a"] < levels["rt-1"] < levels["sub"]
-    aqm_link = next(l for l in snapshot["links"] if l["id"] == "rt-1--sub")
-    assert aqm_link["forward"]["aqm"] == "dualpi2"
+    router = next(node for node in snapshot["nodes"] if node["id"] == "rt-1")
+    assert router["aqm"] == "dualpi2"
 
 
 def test_media_snapshot_includes_chrome_mode():

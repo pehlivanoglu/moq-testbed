@@ -179,7 +179,8 @@ main {
   margin: 0 0 4px;
 }
 
-.link-form {
+.link-form,
+.router-form {
   border-top: 3px solid #0f8f76;
   display: grid;
   gap: 8px;
@@ -197,7 +198,8 @@ main {
   margin: 0;
 }
 
-.link-form label {
+.link-form label,
+.router-form label {
   color: #586970;
   display: grid;
   font-size: 12px;
@@ -205,7 +207,8 @@ main {
 }
 
 .link-form input,
-.link-form select {
+.link-form select,
+.router-form select {
   border: 1px solid #bdc8cc;
   border-radius: 5px;
   font: inherit;
@@ -214,7 +217,8 @@ main {
   width: 100%;
 }
 
-.link-form button {
+.link-form button,
+.router-form button {
   background: #ffffff;
   border: 1px solid #8a9aa2;
   border-radius: 5px;
@@ -224,9 +228,15 @@ main {
 
 .link-form button:disabled,
 .link-form input:disabled,
-.link-form select:disabled {
+.link-form select:disabled,
+.router-form button:disabled,
+.router-form select:disabled {
   cursor: not-allowed;
   opacity: .55;
+}
+
+.router-form {
+  grid-template-columns: 1fr auto;
 }
 
 .link-update-status {

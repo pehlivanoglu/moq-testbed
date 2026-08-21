@@ -36,7 +36,7 @@ def test_loads_linear_3r_1s_example():
     assert t.subscribers["sub"].connects_to == "relay-c"
     bottleneck = t.link_for("rt-ab", "relay-b")
     assert bottleneck is not None
-    assert bottleneck.forward.aqm is not None
+    assert t.routers["rt-ab"].aqm is not None
     assert bottleneck.forward.bandwidth_mbps == 50
     assert t.router_image("rt-ab") == "moqlab-router"
 
@@ -511,63 +511,24 @@ def test_no_link_defaults_leaves_links_untouched():
     assert t.links[0].reverse.is_noop()
 
 
-def test_inherited_aqm_still_policed_to_router_egress():
-    # Resolution runs before validation, so a default-supplied aqm cannot
-    # smuggle dualpi2 onto an endpoint's egress.
-    raw = {
-        "relays": _minimal_relays(),
-        "defaults": {"link": {"forward": {"aqm": "dualpi2"}}},
-        "links": [{"from": "relay-a", "to": "relay-b"}],
-    }
-    with pytest.raises(Exception, match="forward.aqm requires the egress node"):
-        TopologyConfig.model_validate(raw)
-
-
-def test_link_can_clear_inherited_aqm():
-    raw = {
-        "relays": _minimal_relays(),
-        "routers": {"rt-1": {}},
-        "defaults": {"link": {"forward": {"aqm": "dualpi2"}}},
-        "links": [
-            {"from": "rt-1", "to": "relay-a"},
-            {"from": "relay-b", "to": "rt-1", "forward": {"aqm": None}},
-        ],
-    }
-    t = TopologyConfig.model_validate(raw)
-    assert t.links[0].forward.aqm is not None
-    assert t.links[1].forward.aqm is None
-
-
 # ── routers ────────────────────────────────────────────────────────────────
 
 
-def test_aqm_on_endpoint_egress_rejected():
-    raw = {
-        "relays": _minimal_relays(),
-        "links": [
-            {"from": "relay-a", "to": "relay-b", "forward": {"aqm": "dualpi2"}},
-        ],
-    }
-    with pytest.raises(Exception, match="forward.aqm requires the egress node"):
-        TopologyConfig.model_validate(raw)
-
-
-def test_aqm_on_router_egress_accepted_both_orientations():
+def test_aqm_is_router_owned():
     t = TopologyConfig.model_validate(
         {
             "relays": _minimal_relays(),
-            "routers": {"rt-1": {}},
+            "routers": {"rt-1": {"aqm": "dualpi2"}},
             "links": [
-                {"from": "rt-1", "to": "relay-a", "forward": {"aqm": "dualpi2"}},
-                {"from": "relay-b", "to": "rt-1", "reverse": {"aqm": "dualpi2"}},
+                {"from": "rt-1", "to": "relay-a"},
+                {"from": "relay-b", "to": "rt-1"},
             ],
         }
     )
-    assert t.links[0].forward.aqm is not None
-    assert t.links[1].reverse.aqm is not None
+    assert t.routers["rt-1"].aqm.value == "dualpi2"
 
 
-def test_aqm_toward_router_on_endpoint_egress_rejected():
+def test_aqm_is_rejected_from_link_direction():
     raw = {
         "relays": _minimal_relays(),
         "routers": {"rt-1": {}},
@@ -576,7 +537,7 @@ def test_aqm_toward_router_on_endpoint_egress_rejected():
             {"from": "rt-1", "to": "relay-b"},
         ],
     }
-    with pytest.raises(Exception, match="forward.aqm requires the egress node"):
+    with pytest.raises(Exception, match="Extra inputs are not permitted"):
         TopologyConfig.model_validate(raw)
 
 

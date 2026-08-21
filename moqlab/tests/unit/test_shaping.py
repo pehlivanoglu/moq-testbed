@@ -51,14 +51,14 @@ def test_rate_plus_netem_chains_netem_under_htb():
 
 
 def test_rate_plus_aqm_chains_aqm_under_htb():
-    spec = DirectionSpec(bandwidth_mbps=20, aqm=AqmKind.dualpi2)
-    cmds = shaping_commands("r1-eth0", spec)
+    spec = DirectionSpec(bandwidth_mbps=20)
+    cmds = shaping_commands("r1-eth0", spec, AqmKind.dualpi2)
     assert cmds[2] == "tc qdisc add dev r1-eth0 parent 5:1 handle 20: dualpi2"
 
 
 def test_full_chain_uses_netem_child_slot_for_aqm():
-    spec = DirectionSpec(bandwidth_mbps=20, delay_ms=5, aqm=AqmKind.dualpi2)
-    cmds = shaping_commands("r1-eth0", spec)
+    spec = DirectionSpec(bandwidth_mbps=20, delay_ms=5)
+    cmds = shaping_commands("r1-eth0", spec, AqmKind.dualpi2)
     assert cmds[2] == (
         "tc qdisc add dev r1-eth0 parent 5:1 handle 10: netem delay 5ms limit 50000"
     )
@@ -66,15 +66,15 @@ def test_full_chain_uses_netem_child_slot_for_aqm():
 
 
 def test_aqm_only_is_root_aqm():
-    spec = DirectionSpec(aqm=AqmKind.dualpi2)
-    assert shaping_commands("r1-eth0", spec) == [
+    spec = DirectionSpec()
+    assert shaping_commands("r1-eth0", spec, AqmKind.dualpi2) == [
         "tc qdisc replace dev r1-eth0 root handle 20: dualpi2",
     ]
 
 
 def test_netem_plus_aqm_without_rate():
-    spec = DirectionSpec(delay_ms=10, aqm=AqmKind.dualpi2)
-    assert shaping_commands("r1-eth0", spec) == [
+    spec = DirectionSpec(delay_ms=10)
+    assert shaping_commands("r1-eth0", spec, AqmKind.dualpi2) == [
         "tc qdisc replace dev r1-eth0 root handle 10: netem delay 10ms limit 50000",
         "tc qdisc add dev r1-eth0 parent 10:1 handle 20: dualpi2",
     ]
@@ -84,9 +84,11 @@ def test_root_qdisc_always_uses_replace():
     for spec in (
         DirectionSpec(delay_ms=1),
         DirectionSpec(bandwidth_mbps=1),
-        DirectionSpec(aqm=AqmKind.dualpi2),
+        DirectionSpec(),
     ):
-        first = shaping_commands("x-eth0", spec)[0]
+        first = shaping_commands(
+            "x-eth0", spec, AqmKind.dualpi2 if spec.is_noop() else None
+        )[0]
         assert first.startswith("tc qdisc replace dev x-eth0 root ")
 
 
@@ -98,7 +100,6 @@ def test_jitter_without_delay_rejected_by_schema():
 def test_is_noop():
     assert DirectionSpec().is_noop()
     assert not DirectionSpec(delay_ms=0).is_noop()
-    assert not DirectionSpec(aqm=AqmKind.dualpi2).is_noop()
 
 
 def test_offload_disable_commands():
