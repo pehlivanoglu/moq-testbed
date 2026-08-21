@@ -11,9 +11,14 @@ let view = { x: 0, y: 0, scale: 1 };
 let dragging = false;
 let lastPointer;
 let selectedNodeId = null;
+let selectedLinkId = null;
 let nodesById = new Map();
+let linksById = new Map();
+let linksEditable = false;
 let metricsRequestNodeId = null;
 let renderedNodeId = null;
+let renderedLinkId = null;
+let renderedLinksEditable = false;
 let metricFields = new Map();
 let metricsStatus;
 let metricsReason;
@@ -56,6 +61,7 @@ function setMetric(key, value) {
 function renderNodeDetails(node) {
   nodeDetails.replaceChildren();
   renderedNodeId = node?.id ?? null;
+  renderedLinkId = null;
   metricFields = new Map();
   metricsStatus = undefined;
   metricsReason = undefined;
@@ -65,7 +71,7 @@ function renderNodeDetails(node) {
   nodeDetails.append(heading);
   if (!node) {
     const prompt = document.createElement("p");
-    prompt.textContent = "Select a node to inspect it.";
+    prompt.textContent = "Select a node or link to inspect it.";
     nodeDetails.append(prompt);
     return;
   }
@@ -161,11 +167,118 @@ async function refreshNodeMetrics() {
 
 function selectNode(node) {
   selectedNodeId = node.id;
+  selectedLinkId = null;
   for (const element of document.querySelectorAll(".node")) {
     element.classList.toggle("selected", element.dataset.nodeId === selectedNodeId);
   }
+  for (const element of document.querySelectorAll(".edge")) element.classList.remove("selected");
   if (renderedNodeId !== node.id) renderNodeDetails(node);
   void refreshNodeMetrics();
+}
+
+function linkField(form, name, labelText, value, options = {}) {
+  const label = document.createElement("label");
+  label.textContent = labelText;
+  const input = document.createElement("input");
+  input.name = name;
+  input.type = "number";
+  input.step = "any";
+  if (options.min != null) input.min = options.min;
+  if (options.max != null) input.max = options.max;
+  input.value = value ?? "";
+  input.disabled = !linksEditable;
+  label.append(input);
+  form.append(label);
+}
+
+function directionEditor(link, direction) {
+  const from = direction === "forward" ? link.source : link.target;
+  const to = direction === "forward" ? link.target : link.source;
+  const spec = link[direction] || {};
+  const form = document.createElement("form");
+  form.className = `link-form ${direction}`;
+  const title = document.createElement("h4");
+  title.textContent = `${from} to ${to}`;
+  form.append(title);
+  linkField(form, "bandwidth_mbps", "Capacity (Mbps)", spec.bandwidth_mbps, { min: 0.001 });
+  linkField(form, "delay_ms", "Delay (ms)", spec.delay_ms, { min: 0 });
+  linkField(form, "jitter_ms", "Jitter (ms)", spec.jitter_ms, { min: 0 });
+  linkField(form, "loss_pct", "Loss (%)", spec.loss_pct, { min: 0, max: 100 });
+
+  const aqmLabel = document.createElement("label");
+  aqmLabel.textContent = "AQM";
+  const aqm = document.createElement("select");
+  aqm.name = "aqm";
+  aqm.append(new Option("None", ""), new Option("dualpi2", "dualpi2"));
+  aqm.value = spec.aqm || "";
+  aqm.disabled = !linksEditable || nodesById.get(from)?.role !== "router";
+  aqmLabel.append(aqm);
+  form.append(aqmLabel);
+
+  const apply = document.createElement("button");
+  apply.type = "submit";
+  apply.textContent = "Apply";
+  apply.disabled = !linksEditable;
+  const status = document.createElement("span");
+  status.className = "link-update-status";
+  status.setAttribute("aria-live", "polite");
+  form.append(apply, status);
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    apply.disabled = true;
+    status.textContent = "Applying…";
+    const data = new FormData(form);
+    const payload = {};
+    for (const name of ["bandwidth_mbps", "delay_ms", "jitter_ms", "loss_pct"]) {
+      payload[name] = data.get(name) === "" ? null : Number(data.get(name));
+    }
+    payload.aqm = data.get("aqm") || null;
+    try {
+      const response = await fetch(`/api/links/${encodeURIComponent(link.id)}/${direction}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+      link[direction] = result.direction;
+      status.textContent = "Applied";
+    } catch (error) {
+      status.textContent = error.message;
+    } finally {
+      apply.disabled = !linksEditable;
+    }
+  });
+  return form;
+}
+
+function renderLinkDetails(link) {
+  nodeDetails.replaceChildren();
+  renderedNodeId = null;
+  renderedLinkId = link.id;
+  renderedLinksEditable = linksEditable;
+  const heading = document.createElement("h2");
+  heading.textContent = "Physical link";
+  const identity = document.createElement("p");
+  identity.textContent = `${link.source} ↔ ${link.target}`;
+  nodeDetails.append(heading, identity);
+  if (!linksEditable) {
+    const note = document.createElement("p");
+    note.className = "muted";
+    note.textContent = "Live editing unavailable until Containernet is running.";
+    nodeDetails.append(note);
+  }
+  nodeDetails.append(directionEditor(link, "forward"), directionEditor(link, "reverse"));
+}
+
+function selectLink(link) {
+  selectedLinkId = link.id;
+  selectedNodeId = null;
+  for (const element of document.querySelectorAll(".node")) element.classList.remove("selected");
+  for (const element of document.querySelectorAll(".edge")) {
+    element.classList.toggle("selected", element.dataset.linkId === selectedLinkId);
+  }
+  renderLinkDetails(link);
 }
 
 function directionText(spec, arrow) {
@@ -223,9 +336,17 @@ function layout(nodes) {
 
 function draw(data) {
   nodesById = new Map(data.nodes.map((node) => [node.id, node]));
+  linksById = new Map(data.links.map((link) => [link.id, link]));
+  linksEditable = Boolean(data.links_editable);
   if (selectedNodeId && !nodesById.has(selectedNodeId)) {
     selectedNodeId = null;
     renderNodeDetails(null);
+  }
+  if (selectedLinkId && !linksById.has(selectedLinkId)) {
+    selectedLinkId = null;
+    renderNodeDetails(null);
+  } else if (selectedLinkId && (renderedLinkId !== selectedLinkId || renderedLinksEditable !== linksEditable)) {
+    renderLinkDetails(linksById.get(selectedLinkId));
   }
   const { width, height, positions } = layout(data.nodes);
   svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
@@ -250,9 +371,15 @@ function draw(data) {
     line.setAttribute("y1", a.y);
     line.setAttribute("x2", b.x);
     line.setAttribute("y2", b.y);
-    line.setAttribute("class", rate > 0 ? "edge hot" : "edge");
+    line.setAttribute("class", `edge${rate > 0 ? " hot" : ""}${selectedLinkId === link.id ? " selected" : ""}`);
+    line.dataset.linkId = link.id;
     line.setAttribute("stroke-width", String(Math.max(3, Math.min(12, 3 + Math.log10(rate + 1)))));
+    line.addEventListener("click", (event) => { event.stopPropagation(); selectLink(link); });
     edgeLayer.append(line);
+    const hit = line.cloneNode();
+    hit.setAttribute("class", "edge-hit");
+    hit.addEventListener("click", (event) => { event.stopPropagation(); selectLink(link); });
+    edgeLayer.append(hit);
 
     const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
     label.setAttribute("x", (a.x + b.x) / 2);
@@ -300,11 +427,20 @@ function draw(data) {
   linksTable.innerHTML = "";
   for (const link of data.links) {
     const tr = document.createElement("tr");
+    tr.className = "link-row";
+    tr.tabIndex = 0;
     tr.innerHTML = `
       <td>${link.source} &lt;-&gt; ${link.target}</td>
       <td>${formatRate(link.throughput_bps, link.status)}</td>
       <td class="muted">${shapeText(link)}</td>
     `;
+    tr.addEventListener("click", () => selectLink(link));
+    tr.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        selectLink(link);
+      }
+    });
     linksTable.append(tr);
   }
 
@@ -353,7 +489,7 @@ function zoomAt(event) {
 
 function startPan(event) {
   if (event.button !== 0) return;
-  if (event.target.closest?.(".node")) return;
+  if (event.target.closest?.(".node, .edge, .edge-hit")) return;
   dragging = true;
   lastPointer = svgPoint(event);
   svg.setPointerCapture(event.pointerId);

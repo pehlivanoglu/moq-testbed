@@ -453,11 +453,24 @@ def _up_containernet(
     run_id: str | None,
     visualizer: VisualizerHTTPServer | None,
 ) -> None:
-    from moqlab.orchestrator.containernet_backend import ContainernetBackend
+    from moqlab.orchestrator.containernet_backend import (
+        ContainernetBackend,
+        apply_live_link_shaping,
+    )
 
     try:
         cn = ContainernetBackend(runs_dir=ctx.obj.get("runs_dir"))
-        record = cn.up(config_path=config, run_id=run_id)
+        if visualizer is None:
+            on_running = None
+        else:
+            def register_link_updater(topology) -> None:
+                visualizer.register_link_updater(
+                    lambda index, direction, spec, previous: apply_live_link_shaping(
+                        topology, index, direction, spec, previous
+                    )
+                )
+            on_running = register_link_updater
+        record = cn.up(config_path=config, run_id=run_id, on_running=on_running)
     except MoqlabError as e:
         raise click.ClickException(str(e)) from e
     finally:

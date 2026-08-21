@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from moqlab.config.schema import TopologyConfig
+from moqlab.config.schema import DirectionSpec, TopologyConfig
 from moqlab.exceptions import OrchestratorError
 from moqlab.orchestrator.containernet_backend import (
     ContainernetBackend,
@@ -20,6 +20,7 @@ from moqlab.orchestrator.containernet_backend import (
     _await_containernet_media_ready,
     _await_containernet_native_media_ready,
     _write_etc_hosts_via_docker,
+    apply_live_link_shaping,
 )
 from moqlab.runtime import node_loopback_ips
 
@@ -145,6 +146,35 @@ def _traffic_topology() -> TopologyConfig:
             ],
         }
     )
+
+
+def test_live_link_shaping_replaces_and_clears_one_direction():
+    topology = _routed_topology()
+    calls = []
+    run = lambda node, command: calls.append((node, command)) or (0, "")
+
+    apply_live_link_shaping(
+        topology,
+        2,
+        "forward",
+        DirectionSpec(bandwidth_mbps=10, loss_pct=2),
+        topology.links[2].forward,
+        run,
+    )
+    apply_live_link_shaping(
+        topology,
+        2,
+        "reverse",
+        DirectionSpec(),
+        topology.links[2].reverse,
+        run,
+    )
+
+    assert calls[0] == (
+        "rt-1",
+        "tc qdisc replace dev rt-1-eth1 root handle 5: htb default 1",
+    )
+    assert ("sub", "tc qdisc del dev sub-eth0 root") in calls
 
 
 def _record_for(topology: TopologyConfig) -> ContainernetRunRecord:

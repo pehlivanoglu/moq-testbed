@@ -142,7 +142,7 @@ def test_containernet_error_stops_visualizer_once(monkeypatch):
     stops = []
     server = object()
 
-    def fake_up(self, config_path, run_id):
+    def fake_up(self, config_path, run_id, on_running=None):
         raise OrchestratorError("containernet failed")
 
     monkeypatch.setattr(

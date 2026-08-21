@@ -84,12 +84,24 @@ main {
 }
 
 .edge {
+  cursor: pointer;
   stroke: #8a9aa2;
   stroke-linecap: round;
 }
 
+.edge-hit {
+  cursor: pointer;
+  stroke: transparent;
+  stroke-width: 18;
+}
+
 .edge.hot {
   stroke: #0f8f76;
+}
+
+.edge.selected {
+  stroke: #e8bf38;
+  stroke-width: 6;
 }
 
 .edge-label {
@@ -99,6 +111,7 @@ main {
   stroke: #ffffff;
   stroke-width: 5px;
   text-anchor: middle;
+  pointer-events: none;
 }
 
 .node circle {
@@ -164,6 +177,71 @@ main {
 #node-details h3 {
   font-size: 18px;
   margin: 0 0 4px;
+}
+
+.link-form {
+  border-top: 3px solid #0f8f76;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 1fr 1fr;
+  margin-top: 16px;
+  padding-top: 10px;
+}
+
+.link-form.reverse {
+  border-color: #3468c0;
+}
+
+.link-form h4 {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.link-form label {
+  color: #586970;
+  display: grid;
+  font-size: 12px;
+  gap: 3px;
+}
+
+.link-form input,
+.link-form select {
+  border: 1px solid #bdc8cc;
+  border-radius: 5px;
+  font: inherit;
+  min-width: 0;
+  padding: 6px;
+  width: 100%;
+}
+
+.link-form button {
+  background: #ffffff;
+  border: 1px solid #8a9aa2;
+  border-radius: 5px;
+  cursor: pointer;
+  padding: 6px 10px;
+}
+
+.link-form button:disabled,
+.link-form input:disabled,
+.link-form select:disabled {
+  cursor: not-allowed;
+  opacity: .55;
+}
+
+.link-update-status {
+  align-self: center;
+  color: #586970;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.link-row {
+  cursor: pointer;
+}
+
+.link-row:hover {
+  background: #f5f7f8;
 }
 
 .metric-grid {

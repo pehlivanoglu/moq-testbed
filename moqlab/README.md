@@ -440,11 +440,16 @@ needs the four runtime deps installed (see "Running it").
 | `python -m moqlab build images` | n/a | Build `moqlab-relay`, `moqlab-router`, and `moqlab-traffic`. |
 | `python -m moqlab build media-images [--publisher-context PATH] [--player-context PATH]` | n/a | Build `moqlab-media-pub`, `moqlab-media-sub`, and `moqlab-media-native-sub` from local contexts. Environment equivalents: `MOQLAB_MEDIA_PUBLISHER_CONTEXT` and `MOQLAB_MEDIA_PLAYER_CONTEXT`. |
 | `python -m moqlab validate -c <config>` | both | Parse + validate, no side effects. |
-| `python -m moqlab run -c <config> [--backend docker\|containernet] [--run-id N] [--publish-ports] [--vis\|--visualize]` | both | Run topology. Defaults to `containernet`. With `--visualize`, also serves `http://127.0.0.1:8765/` showing a pannable/zoomable topology graph and link rates. Live per-link throughput is available for Containernet runs, where every topology edge has its own interface. Docker-backend runs still render the correct topology, but Docker's single bridge interface is not split per topology link. |
+| `python -m moqlab run -c <config> [--backend docker\|containernet] [--run-id N] [--publish-ports] [--vis\|--visualize]` | both | Run topology. Defaults to `containernet`. With `--visualize`, also serves `http://127.0.0.1:8765/` showing a pannable/zoomable topology graph and link rates. During a Containernet run, select a link to change its per-direction capacity, delay, jitter, loss, or AQM live; these runtime edits do not rewrite topology YAML. Docker-backend runs remain read-only because their shared bridge has no per-topology-link interface. |
 | `python -m moqlab down --run-id <name>` | docker | Stop and remove containers + network. |
 | `python -m moqlab ls` | docker | List active runs. |
 | `python -m moqlab logs --run-id <name> [-f] [-n N] <node_id>` | docker | Container logs for one node. |
 | `python -m moqlab rm pycaches` | n/a | Remove project `__pycache__` dirs, `.pyc` / `.pyo` files, and `.pytest_cache`, skipping `.venv` and `.runs`. |
+
+> **Note:** Live link editing requires the Containernet backend. Each
+> Containernet link has its own veth pair, so the visualizer can change its
+> capacity, delay, jitter, loss, and AQM. Docker uses one shared bridge with no
+> separate interface per topology link, so its visualizer is read-only.
 
 Global option: `--runs-dir <path>` (or `MOQLAB_RUNS_DIR=…`). Default:
 `moqlab/.runs/`.
