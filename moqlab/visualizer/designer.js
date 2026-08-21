@@ -10,7 +10,6 @@ const summaryEl = document.querySelector("#summary");
 const backendBadge = document.querySelector("#backend-badge");
 const trafficItems = document.querySelector("#traffic-items");
 const routeItems = document.querySelector("#route-items");
-const linkItems = document.querySelector("#link-items");
 const linkPrompt = document.querySelector("#link-prompt");
 const undoButton = document.querySelector("#undo");
 const redoButton = document.querySelector("#redo");
@@ -996,7 +995,7 @@ graph.addEventListener("pointerup", (event) => {
 });
 
 graph.addEventListener("pointerdown", (event) => {
-  if (event.target.closest?.(".node") || event.button !== 0) return;
+  if (event.target.closest?.(".node, .edge, .edge-hit") || event.button !== 0) return;
   panState = { x: event.clientX, y: event.clientY };
   graph.setPointerCapture(event.pointerId);
   graph.classList.add("panning");
@@ -1364,17 +1363,6 @@ function renderRouteItems() {
   }
 }
 
-function renderLinkItems() {
-  linkItems.replaceChildren();
-  linkItems.className = "item-list";
-  (draft.links || []).forEach((link, index) => {
-    const button = document.createElement("button");
-    button.textContent = `${link.from} - ${link.to}`;
-    button.addEventListener("click", () => { selected = { kind: "link", index }; renderAll(); });
-    linkItems.append(button);
-  });
-}
-
 function renderSummary() {
   const parts = [
     `${Object.keys(draft.relays || {}).length} relays`,
@@ -1398,7 +1386,6 @@ function updateHistoryButtons() {
 function renderAll() {
   renderGraph();
   renderInspector();
-  renderLinkItems();
   renderTrafficItems();
   renderRouteItems();
   renderSummary();
