@@ -284,9 +284,10 @@ python -m moqlab design --port 8765
 Open the printed localhost URL. Drag or click relays, routers, publishers,
 subscribers, and traffic endpoints onto the canvas. Right-click a node, then
 select another node to connect them with a physical link; the palette link
-button remains available for keyboard-first use. Then configure application
-references, directional shaping, and traffic loads
-in the inspector. Each load combines its path and traffic pattern in one place;
+button remains available for keyboard-first use. Click a physical link on the
+canvas to select it and edit its endpoints or directional shaping in the
+right-side inspector. Configure application references and traffic loads there
+too. Each load combines its path and traffic pattern in one place;
 named reusable routes remain under Advanced routes. Bundled examples, bulk
 node duplication, undo/redo, automatic layout, server-side validation, YAML
 preview, and YAML download are built in. Draft data and node positions stay in
