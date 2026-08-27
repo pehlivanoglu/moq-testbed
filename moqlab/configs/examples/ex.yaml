@@ -6,6 +6,7 @@ relays:
     upstream: null
     image: moqlab-relay
     endpoint: /moq-relay
+    l4s_ce_target: 0.05
     tls:
       insecure: false
       generated: true
@@ -29,11 +30,23 @@ subscribers:
     track: video/s2
     image: moqlab-media-sub
     log_level: INFO
-    media_client: chrome-headless
+    media_client: chrome
     minimal_buffer_ms: 200
     target_latency_ms: 300
-routers: {}
-links: []
+routers:
+  router:
+    image: moqlab-router
+    aqm: dualpi2
+links:
+- from: relay
+  to: pub
+- from: relay
+  to: router
+- from: router
+  to: sub
+  forward:
+    bandwidth_mbps: 10000
+    loss_pct: 0
 defaults:
   relay:
     image: moqlab-relay

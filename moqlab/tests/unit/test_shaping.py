@@ -3,7 +3,11 @@
 import pytest
 
 from moqlab.config.schema import AqmKind, DirectionSpec
-from moqlab.orchestrator.shaping import offload_disable_commands, shaping_commands
+from moqlab.orchestrator.shaping import (
+    live_shaping_commands,
+    offload_disable_commands,
+    shaping_commands,
+)
 
 
 def test_empty_spec_yields_no_commands():
@@ -106,3 +110,45 @@ def test_offload_disable_commands():
     assert offload_disable_commands("sub-eth0") == [
         "ethtool -K sub-eth0 gso off tso off gro off",
     ]
+
+
+def test_live_changes_rate_and_netem_without_replacing_qdiscs():
+    previous = DirectionSpec(
+        bandwidth_mbps=20, delay_ms=0, jitter_ms=0, loss_pct=0
+    )
+    updated = DirectionSpec(
+        bandwidth_mbps=10, delay_ms=25, jitter_ms=3, loss_pct=1
+    )
+
+    assert live_shaping_commands("r1-eth0", previous, updated) == [
+        "tc class change dev r1-eth0 parent 5: classid 5:1 htb "
+        "rate 10mbit ceil 10mbit burst 15k quantum 1500",
+        "tc qdisc change dev r1-eth0 parent 5:1 handle 10: "
+        "netem delay 25ms 3ms loss 1% limit 50000",
+    ]
+
+
+def test_live_root_netem_change_preserves_qdisc():
+    previous = DirectionSpec(loss_pct=0)
+    updated = DirectionSpec(delay_ms=10, jitter_ms=2, loss_pct=0.5)
+
+    assert live_shaping_commands("r1-eth0", previous, updated) == [
+        "tc qdisc change dev r1-eth0 root handle 10: "
+        "netem delay 10ms 2ms loss 0.5% limit 50000",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("previous", "updated"),
+    [
+        (DirectionSpec(), DirectionSpec(bandwidth_mbps=10)),
+        (DirectionSpec(bandwidth_mbps=10), DirectionSpec()),
+        (
+            DirectionSpec(bandwidth_mbps=10),
+            DirectionSpec(bandwidth_mbps=10, loss_pct=1),
+        ),
+    ],
+)
+def test_live_structural_change_rejected(previous, updated):
+    with pytest.raises(ValueError, match="flush queued packets"):
+        live_shaping_commands("r1-eth0", previous, updated)

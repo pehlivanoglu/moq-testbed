@@ -106,8 +106,14 @@ and marking granularity.
 
 Initial qdiscs come from the YAML. With `moqlab run --visualize`, select a
 link to change rate/netem fields or select a router to change its AQM on all
-egress interfaces. These runtime changes do not rewrite YAML. Direct `tc`
-inspection remains available, e.g.:
+egress interfaces. Value-only link edits use `tc class change` for HTB and
+`tc qdisc change` for netem, preserving queued packets, qdisc statistics, and
+AQM state. A live edit that would add or remove HTB/netem is rejected because
+changing the qdisc hierarchy would flush queued packets. Preconfigure both a
+bandwidth and a zero-valued netem field when they must remain editable, e.g.
+`bandwidth_mbps: 100` plus `loss_pct: 0`; delay and jitter can then be changed
+without rebuilding the hierarchy. Runtime changes do not rewrite YAML. Direct
+`tc` inspection remains available, e.g.:
 
 ```bash
 docker exec mn.rt-1 tc qdisc show dev rt-1-eth1

@@ -149,7 +149,7 @@ def _traffic_topology() -> TopologyConfig:
     )
 
 
-def test_live_link_shaping_replaces_and_clears_one_direction():
+def test_live_link_shaping_changes_values_without_replacing_qdisc():
     topology = _routed_topology()
     calls = []
     run = lambda node, command: calls.append((node, command)) or (0, "")
@@ -158,7 +158,7 @@ def test_live_link_shaping_replaces_and_clears_one_direction():
         topology,
         2,
         "forward",
-        DirectionSpec(bandwidth_mbps=10, loss_pct=2),
+        DirectionSpec(bandwidth_mbps=10),
         topology.links[2].forward,
         run,
     )
@@ -166,16 +166,41 @@ def test_live_link_shaping_replaces_and_clears_one_direction():
         topology,
         2,
         "reverse",
-        DirectionSpec(),
+        DirectionSpec(delay_ms=5, jitter_ms=1, loss_pct=2),
         topology.links[2].reverse,
         run,
     )
 
     assert calls[0] == (
         "rt-1",
-        "tc qdisc replace dev rt-1-eth1 root handle 5: htb default 1",
+        "tc class change dev rt-1-eth1 parent 5: classid 5:1 htb "
+        "rate 10mbit ceil 10mbit burst 15k quantum 1500",
     )
-    assert ("sub", "tc qdisc del dev sub-eth0 root") in calls
+    assert calls[1] == (
+        "sub",
+        "tc qdisc change dev sub-eth0 root handle 10: "
+        "netem delay 5ms 1ms loss 2% limit 50000",
+    )
+    assert all(" qdisc replace " not in command for _, command in calls)
+    assert all(" qdisc del " not in command for _, command in calls)
+
+
+def test_live_link_shaping_rejects_structure_change_before_running_tc():
+    topology = _routed_topology()
+    calls = []
+    run = lambda node, command: calls.append((node, command)) or (0, "")
+
+    with pytest.raises(OrchestratorError, match="flush queued packets"):
+        apply_live_link_shaping(
+            topology,
+            2,
+            "forward",
+            DirectionSpec(bandwidth_mbps=10, loss_pct=2),
+            topology.links[2].forward,
+            run,
+        )
+
+    assert calls == []
 
 
 def test_live_router_aqm_updates_every_router_egress():

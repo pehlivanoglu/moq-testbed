@@ -104,6 +104,13 @@ echo "==> Installing to $INSTALL_DIR..."
 rm -rf "$INSTALL_DIR"
 cmake --install "$BUILD_DIR"
 
+# FetchContent's googletest install rules are not reachable from the
+# standalone root install script, but moqx tests consume GTest via
+# find_package after this prefix is installed.
+if [[ -f "$BUILD_DIR/_deps/googletest-build/cmake_install.cmake" ]]; then
+  cmake --install "$BUILD_DIR/_deps/googletest-build"
+fi
+
 # ── Write cmake_prefix_path.txt ───────────────────────────────────────────────
 
 mkdir -p "$SCRATCH"

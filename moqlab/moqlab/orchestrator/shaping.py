@@ -22,10 +22,10 @@ Chain composition by spec contents:
     aqm only                root aqm
     netem + aqm             netem -> aqm
 
-The root qdisc is installed with `tc qdisc replace`, which succeeds whether
-the interface still has its default qdisc or a leftover chain — no
-delete-the-old-root guard needed (the previous backend needed one because
-TCIntf issued an unconditional `qdisc del root`).
+Initial setup installs the root with `tc qdisc replace`. Live value edits do
+not reuse these construction commands: replacing an existing HTB root can
+fail and rebuilding any root would flush queued packets. They instead change
+the existing HTB class and netem qdisc in place.
 """
 
 from __future__ import annotations
@@ -93,6 +93,60 @@ def shaping_commands(
             cmds.append(f"tc qdisc replace dev {iface} root handle 20: {aqm_name}")
         else:
             cmds.append(f"tc qdisc add dev {iface} parent {parent} handle 20: {aqm_name}")
+
+    return cmds
+
+
+def live_shaping_commands(
+    iface: str, previous: DirectionSpec, updated: DirectionSpec
+) -> list[str]:
+    """Change shaping values without replacing qdiscs or flushing queues.
+
+    Adding/removing HTB or netem changes the qdisc tree. That cannot preserve
+    queued packets, so callers must reject such structural edits. Configure a
+    bandwidth and a zero-valued netem field in YAML when those values need to
+    remain editable throughout an experiment.
+    """
+    previous_has_rate = previous.bandwidth_mbps is not None
+    updated_has_rate = updated.bandwidth_mbps is not None
+    previous_has_netem = (
+        previous.delay_ms is not None or previous.loss_pct is not None
+    )
+    updated_has_netem = updated.delay_ms is not None or updated.loss_pct is not None
+
+    if (previous_has_rate, previous_has_netem) != (
+        updated_has_rate,
+        updated_has_netem,
+    ):
+        raise ValueError(
+            "live edit would change the qdisc structure and flush queued packets; "
+            "preconfigure bandwidth_mbps and loss_pct: 0 in YAML"
+        )
+
+    cmds: list[str] = []
+    if previous.bandwidth_mbps != updated.bandwidth_mbps:
+        rate = f"{updated.bandwidth_mbps:g}mbit"
+        cmds.append(
+            f"tc class change dev {iface} parent 5: classid 5:1 htb "
+            f"rate {rate} ceil {rate} burst 15k quantum {_HTB_QUANTUM_BYTES}"
+        )
+
+    previous_netem = (
+        previous.delay_ms,
+        previous.jitter_ms,
+        previous.loss_pct,
+    )
+    updated_netem = (
+        updated.delay_ms,
+        updated.jitter_ms,
+        updated.loss_pct,
+    )
+    if previous_netem != updated_netem:
+        parent = "parent 5:1" if updated_has_rate else "root"
+        cmds.append(
+            f"tc qdisc change dev {iface} {parent} handle 10: "
+            f"netem {_netem_args(updated)}"
+        )
 
     return cmds
 

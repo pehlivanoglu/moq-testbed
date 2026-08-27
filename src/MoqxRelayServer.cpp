@@ -117,6 +117,9 @@ buildTransportSettings(const config::QuicConfig& quic, const config::MvfstConfig
   cca.overrideBwShortBeta = mvfst.bbr2.overrideBwShortBeta;
 
   // L4S
+  const bool l4sEnabled = mvfst.l4s.ceTarget > 0.0f;
+  ts.enableEcnOnEgress = l4sEnabled;
+  ts.useL4sEcn = l4sEnabled;
   cca.l4sCETarget = mvfst.l4s.ceTarget;
   // TODO: wire defaultStreamPriority / defaultDatagramPriority for mvfst once
   // moxygen exposes a function to construct a PriorityQueue::Priority from an integer.

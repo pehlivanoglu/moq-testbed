@@ -96,6 +96,10 @@ Set under `listener_defaults.quic` (global defaults) or `listeners[n].quic`
 - `picoquic`: `bbr`, `bbr1`, `c4`, `cubic`, `dcubic`, `fast`, `newreno`,
 `prague`, `reno`
 
+For mvfst, setting `mvfst.l4s.ce_target` to a value in `(0, 1)` enables ECN
+on egress with ECT(1) and uses that target for CE response. Its default `0`
+leaves ECN disabled.
+
 ---
 
 ## Services

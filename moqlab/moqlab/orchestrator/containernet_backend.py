@@ -45,7 +45,11 @@ from moqlab.config.synth import (
 )
 from moqlab.exceptions import OrchestratorError
 from moqlab.orchestrator.routing import next_hops, route_commands
-from moqlab.orchestrator.shaping import offload_disable_commands, shaping_commands
+from moqlab.orchestrator.shaping import (
+    live_shaping_commands,
+    offload_disable_commands,
+    shaping_commands,
+)
 from moqlab.runtime import (
     all_node_ids,
     containernet_edge_interfaces,
@@ -657,19 +661,20 @@ def apply_live_link_shaping(
     previous: DirectionSpec,
     command_runner: Callable[[str, str], tuple[int, str]] | None = None,
 ) -> None:
-    """Replace one running Containernet link direction's qdisc chain."""
+    """Change one link direction in place without flushing its qdisc chain."""
     edge = containernet_edge_interfaces(topology)[link_index]
     node_id, iface = (
         (edge.a, edge.a_iface) if direction == "forward" else (edge.b, edge.b_iface)
     )
     run = command_runner or _run_containernet_command
 
-    def apply(value: DirectionSpec) -> None:
-        aqm = topology.routers[node_id].aqm if node_id in topology.routers else None
-        commands = shaping_commands(iface, value, aqm)
-        if not commands:
-            commands = [f"tc qdisc del dev {iface} root"]
-        for command in commands:
+    try:
+        commands = live_shaping_commands(iface, previous, spec)
+    except ValueError as error:
+        raise OrchestratorError(f"{node_id}: {error}") from error
+
+    def apply(pending: list[str]) -> None:
+        for command in pending:
             status, output = run(node_id, command)
             if status:
                 raise OrchestratorError(
@@ -677,10 +682,10 @@ def apply_live_link_shaping(
                 )
 
     try:
-        apply(spec)
+        apply(commands)
     except OrchestratorError:
         try:
-            apply(previous)
+            apply(live_shaping_commands(iface, spec, previous))
         except OrchestratorError as rollback_error:
             _log.error("failed to restore %s %s shaping: %s", node_id, iface, rollback_error)
         raise
