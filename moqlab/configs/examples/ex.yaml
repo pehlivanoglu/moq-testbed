@@ -28,11 +28,10 @@ subscribers:
     connects_to: relay
     namespace: msf/clear
     track: video/s2
-    image: moqlab-media-sub
+    image: moqlab-media-native-sub
     log_level: INFO
-    media_client: chrome
-    minimal_buffer_ms: 200
-    target_latency_ms: 300
+    media_client: native
+    native_playback: receive
 routers:
   router:
     image: moqlab-router

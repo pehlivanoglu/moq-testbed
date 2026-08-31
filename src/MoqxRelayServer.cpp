@@ -6,6 +6,7 @@
 
 #include "MoqxRelayServer.h"
 #include "stats/EventBaseStatsCollector.h"
+#include "stats/ClientNetworkMetrics.h"
 #include "stats/QuicStatsCollector.h"
 #include <moxygen/MoQRelaySession.h>
 #include <moxygen/events/MoQFollyExecutorImpl.h>
@@ -146,11 +147,20 @@ MoqxRelayServer::~MoqxRelayServer() {
 }
 
 void MoqxRelayServer::setStatsRegistry(std::shared_ptr<stats::StatsRegistry> registry) {
+  clientNetworkMetrics_ = registry->clientNetworkMetrics();
   context_->setStatsRegistry(registry);
   for (auto& ka : ioExecutor_->getAllEventBases()) {
     stats::EventBaseStatsCollector::create(registry, ka.get());
   }
   setQuicStatsFactory(std::make_unique<stats::QuicStatsCollector::Factory>(std::move(registry)));
+}
+
+void MoqxRelayServer::onNewQuicTransport(quic::QuicSocket& socket) {
+  if (!clientNetworkMetrics_) {
+    return;
+  }
+  socket.addObserver(std::make_shared<stats::ClientNetworkMetricsObserver>(
+      socket, clientNetworkMetrics_));
 }
 
 void MoqxRelayServer::start() {

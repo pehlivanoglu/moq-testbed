@@ -7,6 +7,7 @@ source "$(dirname "$0")/test_ports.sh"
 LISTEN_PORT=$TEST_ADMIN_METRICS_LISTEN
 ADMIN_PORT=$TEST_ADMIN_METRICS_ADMIN
 METRICS_URL="http://localhost:${ADMIN_PORT}/metrics"
+NETWORK_METRICS_URL="http://localhost:${ADMIN_PORT}/network-metrics"
 INFO_URL="http://localhost:${ADMIN_PORT}/info"
 
 if [[ ! -x "$BINARY" ]]; then
@@ -132,6 +133,14 @@ fi
 EVB_COUNT=$(grep '^moqx_evbLoopBusy_microseconds_count ' <<<"$RESPONSE" | awk '{print $2}' | head -1)
 if [[ -z "$EVB_COUNT" ]] || [[ "$EVB_COUNT" -eq 0 ]]; then
   echo "FAIL: moqx_evbLoopBusy_microseconds_count is zero or missing (expected > 0)" >&2
+  exit 1
+fi
+
+# Per-connection transport samples use JSON because their connection IDs and
+# peer addresses are consumed directly by the bottleneck controller/UI.
+NETWORK_RESPONSE=$(curl -fsS "$NETWORK_METRICS_URL")
+if ! jq -e '.clients | type == "array"' <<<"$NETWORK_RESPONSE" >/dev/null; then
+  echo "FAIL: /network-metrics did not return a clients array" >&2
   exit 1
 fi
 

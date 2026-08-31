@@ -45,6 +45,8 @@ public:
   ) override;
 
 protected:
+  void onNewQuicTransport(quic::QuicSocket& socket) override;
+
   std::shared_ptr<moxygen::MoQSession> createSession(
       folly::MaybeManagedPtr<proxygen::WebTransport> wt,
       std::shared_ptr<moxygen::MoQExecutor> executor
@@ -54,6 +56,7 @@ private:
   config::ListenerConfig listenerCfg_;
   std::shared_ptr<MoqxRelayContext> context_;
   folly::IOThreadPoolExecutor* ioExecutor_;
+  std::shared_ptr<stats::ClientNetworkMetricsStore> clientNetworkMetrics_;
 };
 
 } // namespace openmoq::moqx

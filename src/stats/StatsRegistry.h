@@ -22,6 +22,8 @@
 
 namespace openmoq::moqx::stats {
 
+class ClientNetworkMetricsStore;
+
 // Latency buckets in microseconds (SLO: < 1000 µs = 1 ms per spec 4.1).
 inline constexpr std::array<uint64_t, 11> kLatencyBucketsUs =
     {10, 50, 100, 250, 500, 1000, 2000, 5000, 10000, 50000, 100000};
@@ -287,7 +289,7 @@ class EventBaseStatsCollector;
 
 class StatsRegistry {
 public:
-  StatsRegistry() = default;
+  StatsRegistry();
   ~StatsRegistry() = default;
 
   void registerCollector(std::shared_ptr<StatsCollectorBase> collector);
@@ -303,9 +305,14 @@ public:
 
   folly::coro::Task<StatsSnapshot> aggregateAsync();
 
+  std::shared_ptr<ClientNetworkMetricsStore> clientNetworkMetrics() const {
+    return clientNetworkMetrics_;
+  }
+
 private:
   std::vector<std::weak_ptr<StatsCollectorBase>> collectors_;
   mutable folly::EventBaseLocal<std::weak_ptr<EventBaseStatsCollector>> evbCollectors_;
+  std::shared_ptr<ClientNetworkMetricsStore> clientNetworkMetrics_;
 };
 
 } // namespace openmoq::moqx::stats

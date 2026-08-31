@@ -6,16 +6,21 @@
 
 #include "admin/MetricsHandler.h"
 
+#include <algorithm>
+#include <chrono>
 #include <folly/CancellationToken.h>
 #include <folly/coro/Task.h>
 #include <folly/coro/WithCancellation.h>
 #include <folly/io/IOBuf.h>
+#include <folly/io/IOBufQueue.h>
 #include <folly/io/async/EventBaseManager.h>
 #include <folly/logging/xlog.h>
 #include <proxygen/httpserver/ResponseBuilder.h>
 #include <proxygen/lib/http/HTTPMessage.h>
 
 #include "admin/AdminServer.h"
+#include "admin/JsonWriter.h"
+#include "stats/ClientNetworkMetrics.h"
 #include "stats/StatsRegistry.h"
 
 namespace openmoq::moqx::admin {
@@ -27,8 +32,7 @@ void registerMetricsRoute(
   adminServer.addRoute(
       "GET",
       "/metrics",
-      [registry = std::move(registry
-       )](auto /*req*/, auto /*body*/, auto* downstream, folly::CancellationToken cancelToken) {
+      [registry](auto /*req*/, auto /*body*/, auto* downstream, folly::CancellationToken cancelToken) {
         auto* evb = folly::EventBaseManager::get()->getEventBase();
 
         folly::coro::co_withCancellation(
@@ -64,6 +68,62 @@ void registerMetricsRoute(
             .start();
       }
   );
+
+  adminServer.addRoute(
+      "GET",
+      "/network-metrics",
+      [registry = std::move(registry)](
+          auto /*req*/,
+          auto /*body*/,
+          auto* downstream,
+          folly::CancellationToken cancelToken) {
+        if (cancelToken.isCancellationRequested()) {
+          return;
+        }
+        folly::IOBufQueue queue{folly::IOBufQueue::cacheChainLength()};
+        folly::io::QueueAppender app(&queue, 2048);
+        JsonWriter json(app);
+        json.beginObject();
+        json.key("clients");
+        json.beginArray();
+        const auto now = std::chrono::steady_clock::now();
+        for (const auto& m : registry->clientNetworkMetrics()->snapshot()) {
+          const auto ageMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                 now - m.updatedAt)
+                                 .count();
+          json.beginObject();
+          json.field("connection_id", m.connectionId);
+          json.field("peer", m.peer);
+          json.field("active", m.active);
+          json.field("sample_age_ms", static_cast<uint64_t>(std::max<int64_t>(0, ageMs)));
+          json.field("app_limited", m.appLimited);
+          json.field("ecn_capable", m.ecnCapable);
+          json.field("srtt_us", m.srttUs);
+          json.field("rttvar_us", m.rttVarUs);
+          json.field("min_rtt_us", m.minRttUs);
+          json.field("queue_delay_us", m.queueDelayUs);
+          json.field("cwnd_bytes", m.cwndBytes);
+          json.field("inflight_bytes", m.inflightBytes);
+          json.field("writable_bytes", m.writableBytes);
+          json.field("acked_rate_bps", m.ackedRateBps);
+          json.field("pacing_rate_bps", m.pacingRateBps);
+          json.field("lost_packets", m.lostPackets);
+          json.field("retransmitted_packets", m.retransmittedPackets);
+          json.field("ect0", m.ect0);
+          json.field("ect1", m.ect1);
+          json.field("ce", m.ce);
+          json.field("ce_fraction", m.ceFraction);
+          json.field("l4s_weight", m.l4sWeight);
+          json.endObject();
+        }
+        json.endArray();
+        json.endObject();
+        proxygen::ResponseBuilder(downstream)
+            .status(200, proxygen::HTTPMessage::getDefaultReason(200))
+            .header("Content-Type", "application/json")
+            .body(queue.move())
+            .sendWithEOM();
+      });
 }
 
 } // namespace openmoq::moqx::admin

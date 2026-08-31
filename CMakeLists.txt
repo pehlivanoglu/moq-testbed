@@ -130,6 +130,7 @@ add_library(moqx_core STATIC
   src/admin/MetricsHandler.cpp
   src/admin/StateHandler.cpp
   src/stats/StatsRegistry.cpp
+  src/stats/ClientNetworkMetrics.cpp
   src/stats/MoQStatsCollector.cpp
   src/stats/PicoQuicStatsCollector.cpp
   src/stats/QuicStatsCollector.cpp

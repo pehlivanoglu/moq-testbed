@@ -5,6 +5,7 @@
  */
 
 #include "stats/StatsRegistry.h"
+#include "stats/ClientNetworkMetrics.h"
 
 #include "stats/EventBaseStatsCollector.h"
 
@@ -19,6 +20,9 @@
 #include <folly/logging/xlog.h>
 
 namespace openmoq::moqx::stats {
+
+StatsRegistry::StatsRegistry()
+    : clientNetworkMetrics_(std::make_shared<ClientNetworkMetricsStore>()) {}
 
 StatsSnapshot& StatsSnapshot::operator+=(const StatsSnapshot& o) {
 #define ADD_FIELD(type, name) name += o.name;
