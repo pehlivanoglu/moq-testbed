@@ -55,6 +55,25 @@ protected:
 
 // --- validateAuthority ---
 
+TEST_F(MoqxRelayContextTest, ConnectionIdTracksLiveSession) {
+  MoqxRelayContext ctx({}, "test-relay");
+  auto first = makeSession(exec_, "live.example.com");
+  first->setTransportConnectionId("cid-1");
+  ctx.onNewSession(first);
+
+  EXPECT_EQ(ctx.findSessionByConnectionId("cid-1"), first);
+
+  // A late close from an older session must not remove its replacement.
+  auto replacement = makeSession(exec_, "live.example.com");
+  replacement->setTransportConnectionId("cid-1");
+  ctx.onNewSession(replacement);
+  ctx.onSessionEnd(first);
+  EXPECT_EQ(ctx.findSessionByConnectionId("cid-1"), replacement);
+
+  ctx.onSessionEnd(replacement);
+  EXPECT_EQ(ctx.findSessionByConnectionId("cid-1"), nullptr);
+}
+
 TEST_F(MoqxRelayContextTest, ValidateAuthority_Hit) {
   folly::F14FastMap<std::string, config::ServiceConfig> services = {
       {"svc", makeService("live.example.com")},

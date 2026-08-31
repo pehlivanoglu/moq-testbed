@@ -123,6 +123,14 @@ folly::coro::Task<size_t> MoqxRelayContext::purgeCache(
 }
 
 void MoqxRelayContext::onNewSession(std::shared_ptr<MoQSession> clientSession) {
+  const auto& connectionId = clientSession->getTransportConnectionId();
+  if (!connectionId.empty()) {
+    std::lock_guard lock(sessionsMutex_);
+    sessionsByConnectionId_.insert_or_assign(connectionId, clientSession);
+    XLOG(INFO) << "SESSION_MAP add connection_id=" << connectionId
+               << " peer=" << clientSession->getPeerAddress().describe();
+  }
+
   if (statsRegistry_) {
     if (!statsCollector_) {
       statsCollector_ = stats::MoQStatsCollector::create_moq_stats_collector(statsRegistry_);
@@ -136,12 +144,34 @@ void MoqxRelayContext::onNewSession(std::shared_ptr<MoQSession> clientSession) {
 
     statsCollector_->onSessionStart();
   }
+
+  
 }
 
-void MoqxRelayContext::onSessionEnd() {
+void MoqxRelayContext::onSessionEnd(const std::shared_ptr<MoQSession>& session) {
+  const auto& connectionId = session->getTransportConnectionId();
+  if (!connectionId.empty()) {
+    std::lock_guard lock(sessionsMutex_);
+    auto it = sessionsByConnectionId_.find(connectionId);
+    if (it != sessionsByConnectionId_.end()) {
+      auto mapped = it->second.lock();
+      if (!mapped || mapped == session) {
+        sessionsByConnectionId_.erase(it);
+        XLOG(INFO) << "SESSION_MAP remove connection_id=" << connectionId;
+      }
+    }
+  }
+
   if (statsCollector_) {
     statsCollector_->onSessionEnd();
   }
+}
+
+std::shared_ptr<MoQSession> MoqxRelayContext::findSessionByConnectionId(
+    std::string_view connectionId) const {
+  std::lock_guard lock(sessionsMutex_);
+  auto it = sessionsByConnectionId_.find(std::string(connectionId));
+  return it == sessionsByConnectionId_.end() ? nullptr : it->second.lock();
 }
 
 folly::Expected<folly::Unit, SessionCloseErrorCode> MoqxRelayContext::validateAuthority(

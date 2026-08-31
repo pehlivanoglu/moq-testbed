@@ -7,6 +7,8 @@
 #pragma once
 
 #include <memory>
+#include <mutex>
+#include <string>
 #include <string_view>
 
 #include "MoqxRelay.h"
@@ -99,7 +101,10 @@ public:
   // --- Delegation targets for MoqxRelayServer virtual overrides ---
 
   void onNewSession(std::shared_ptr<moxygen::MoQSession> session);
-  void onSessionEnd();
+  void onSessionEnd(const std::shared_ptr<moxygen::MoQSession>& session);
+
+  std::shared_ptr<moxygen::MoQSession>
+  findSessionByConnectionId(std::string_view connectionId) const;
 
   folly::Expected<folly::Unit, moxygen::SessionCloseErrorCode> validateAuthority(
       const moxygen::ClientSetup& clientSetup,
@@ -115,6 +120,9 @@ private:
   std::shared_ptr<stats::StatsRegistry> statsRegistry_;
   std::shared_ptr<stats::MoQStatsCollector> statsCollector_;
   folly::EventBase* workerEvb_{nullptr};
+  mutable std::mutex sessionsMutex_;
+  folly::F14FastMap<std::string, std::weak_ptr<moxygen::MoQSession>>
+      sessionsByConnectionId_;
 };
 
 } // namespace openmoq::moqx
