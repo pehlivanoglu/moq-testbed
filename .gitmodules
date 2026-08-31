@@ -1,5 +1,5 @@
 [submodule "deps/moxygen"]
 	path = deps/moxygen
-	url = https://github.com/openmoq/moxygen.git
-	branch = main
+	url = https://github.com/pehlivanoglu/moxygen.git
+	branch = moqx-network-metrics
 	ignore = untracked
