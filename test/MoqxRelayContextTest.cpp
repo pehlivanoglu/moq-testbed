@@ -57,21 +57,33 @@ protected:
 
 TEST_F(MoqxRelayContextTest, ConnectionIdTracksLiveSession) {
   MoqxRelayContext ctx({}, "test-relay");
+  auto statsRegistry = std::make_shared<stats::StatsRegistry>();
+  ctx.setStatsRegistry(statsRegistry);
+  statsRegistry->clientNetworkMetrics()->put(stats::ClientNetworkMetrics{
+      .connectionId = "cid-1",
+      .updatedAt = std::chrono::steady_clock::now(),
+  });
   auto first = makeSession(exec_, "live.example.com");
   first->setTransportConnectionId("cid-1");
   ctx.onNewSession(first);
 
   EXPECT_EQ(ctx.findSessionByConnectionId("cid-1"), first);
+  ASSERT_EQ(statsRegistry->clientNetworkMetrics()->snapshot().size(), 1);
+  EXPECT_TRUE(statsRegistry->clientNetworkMetrics()->snapshot().front().sessionMapped);
+  statsRegistry->clientNetworkMetrics()->addTrackSubscription("cid-1", "old/track");
 
   // A late close from an older session must not remove its replacement.
   auto replacement = makeSession(exec_, "live.example.com");
   replacement->setTransportConnectionId("cid-1");
   ctx.onNewSession(replacement);
+  EXPECT_TRUE(
+      statsRegistry->clientNetworkMetrics()->snapshot().front().trackSubscriptions.empty());
   ctx.onSessionEnd(first);
   EXPECT_EQ(ctx.findSessionByConnectionId("cid-1"), replacement);
 
   ctx.onSessionEnd(replacement);
   EXPECT_EQ(ctx.findSessionByConnectionId("cid-1"), nullptr);
+  EXPECT_FALSE(statsRegistry->clientNetworkMetrics()->snapshot().front().sessionMapped);
 }
 
 TEST_F(MoqxRelayContextTest, ValidateAuthority_Hit) {

@@ -23,7 +23,26 @@ publishers:
     fingerprint_port: 8081
     image: moqlab-media-pub
 subscribers:
-  sub:
+  sub-r:
+    kind: media
+    connects_to: relay
+    namespace: msf/clear
+    track: video/s2
+    image: moqlab-media-native-sub
+    log_level: INFO
+    media_client: native
+    native_playback: receive
+  sub-1:
+    kind: media
+    connects_to: relay
+    namespace: msf/clear
+    track: video/s2
+    image: moqlab-media-sub
+    log_level: INFO
+    media_client: chrome
+    minimal_buffer_ms: 200
+    target_latency_ms: 300
+  sub-2:
     kind: media
     connects_to: relay
     namespace: msf/clear
@@ -42,10 +61,14 @@ links:
 - from: relay
   to: router
 - from: router
-  to: sub
+  to: sub-r
   forward:
     bandwidth_mbps: 10000
     loss_pct: 0
+- from: sub-2
+  to: relay
+- from: sub-1
+  to: router
 defaults:
   relay:
     image: moqlab-relay

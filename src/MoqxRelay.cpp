@@ -152,6 +152,15 @@ std::shared_ptr<Subscriber::PublishNamespaceHandle> MoqxRelay::doPublishNamespac
       std::move(peerID),
       pubNs.requestID
   );
+  if (auto metrics = clientNetworkMetrics_.lock()) {
+    const auto trackNamespace = pubNs.trackNamespace.describe();
+    metrics->addPublishedNamespace(session->getTransportConnectionId(), trackNamespace);
+    if (replacedSession) {
+      metrics->removePublishedNamespace(
+          replacedSession->getTransportConnectionId(),
+          trackNamespace);
+    }
+  }
   if (replacedSession) {
     XLOG(WARNING) << "PublishNamespace: Existing session (" << replacedSession.get()
                   << ") has already published trackNamespace=" << pubNs.trackNamespace;
@@ -229,6 +238,11 @@ void MoqxRelay::doPublishNamespaceDone(
     }
     return;
   }
+  if (auto metrics = clientNetworkMetrics_.lock()) {
+    metrics->removePublishedNamespace(
+        session->getTransportConnectionId(),
+        trackNamespace.describe());
+  }
   // Draft <= 15: dispatch publishNamespaceDone on each subscriber's executor
   for (auto& [sess, handle] : result.value().legacyHandles) {
     sess->getExecutor()->add([h = handle] { h->publishNamespaceDone(); });
@@ -255,8 +269,18 @@ void MoqxRelay::onPublishNamespaceDone(const TrackNamespace& trackNamespace) {
   doPublishNamespaceDone(trackNamespace, MoQSession::getRequestSession());
 }
 
-void MoqxRelay::onPublishDone(const FullTrackName& ftn) {
+void MoqxRelay::onPublishDone(
+    const FullTrackName& ftn,
+    const std::shared_ptr<MoQSession>& publisherSession) {
   XLOG(DBG1) << __func__ << " ftn=" << ftn;
+
+  if (publisherSession) {
+    if (auto metrics = clientNetworkMetrics_.lock()) {
+      metrics->removePublishedTrack(
+          publisherSession->getTransportConnectionId(),
+          ftn.describe());
+    }
+  }
 
   auto upstreamView = registry_.getUpstreamView(ftn);
   if (upstreamView && upstreamView->isPublish) {
@@ -308,7 +332,9 @@ MoqxRelay::publish(PublishRequest pub, std::shared_ptr<Publisher::SubscriptionHa
       session,
       pub.requestID,
       std::move(handle),
-      [&](std::shared_ptr<MoQForwarder> f) { return buildFilterChain(pub.fullTrackName, f); }
+      [&, session](std::shared_ptr<MoQForwarder> f) {
+        return buildFilterChain(pub.fullTrackName, f, session);
+      }
   );
 
   if (publishEntry.evicted) {
@@ -371,6 +397,12 @@ MoqxRelay::publish(PublishRequest pub, std::shared_ptr<Publisher::SubscriptionHa
   // When subscribers join later via subscribeNamespace, forwardChanged() sends REQUEST_UPDATE.
   bool shouldForward = (nSubscribers > 0) || hasTrackFilterSub;
 
+  if (auto metrics = clientNetworkMetrics_.lock()) {
+    metrics->addPublishedTrack(
+        session->getTransportConnectionId(),
+        pub.fullTrackName.describe());
+  }
+
   return PublishConsumerAndReplyTask{
       publishEntry.consumer,
       folly::coro::makeTask<folly::Expected<PublishOk, PublishError>>(PublishOk{
@@ -399,6 +431,11 @@ folly::coro::Task<void> MoqxRelay::publishToSession(
   if (!subscriber) {
     XLOG(ERR) << "Subscribe failed: addSubscriber returned null for " << forwarder->fullTrackName();
     co_return;
+  }
+  if (auto metrics = clientNetworkMetrics_.lock()) {
+    metrics->addTrackSubscription(
+        session->getTransportConnectionId(),
+        forwarder->fullTrackName().describe());
   }
   // Direct subscribers are pinned (not evictable by PropertyRanking).
   // TRACK_FILTER subscribers are unpinned so onTrackEvicted can remove them.
@@ -436,16 +473,27 @@ public:
       std::shared_ptr<MoqxRelay> relay,
       std::shared_ptr<MoQSession> session,
       SubscribeNamespaceOk ok,
-      TrackNamespace trackNamespacePrefix
+      TrackNamespace trackNamespacePrefix,
+      std::weak_ptr<stats::ClientNetworkMetricsStore> metrics
   )
       : Publisher::SubscribeNamespaceHandle(std::move(ok)), relay_(std::move(relay)),
-        session_(std::move(session)), trackNamespacePrefix_(std::move(trackNamespacePrefix)) {}
+        session_(std::move(session)), trackNamespacePrefix_(std::move(trackNamespacePrefix)),
+        metrics_(std::move(metrics)), connectionId_(session_->getTransportConnectionId()) {
+    if (auto metrics = metrics_.lock()) {
+      metrics->addNamespaceSubscription(connectionId_, trackNamespacePrefix_.describe());
+    }
+  }
+
+  ~NamespaceSubscription() override {
+    stopTracking();
+  }
 
   void unsubscribeNamespace() override {
     if (relay_) {
       relay_->unsubscribeNamespace(trackNamespacePrefix_, std::move(session_));
       relay_.reset();
     }
+    stopTracking();
   }
 
   folly::coro::Task<RequestUpdateResult> requestUpdate(RequestUpdate reqUpdate) override {
@@ -457,9 +505,22 @@ public:
   }
 
 private:
+  void stopTracking() {
+    if (!tracked_) {
+      return;
+    }
+    tracked_ = false;
+    if (auto metrics = metrics_.lock()) {
+      metrics->removeNamespaceSubscription(connectionId_, trackNamespacePrefix_.describe());
+    }
+  }
+
   std::shared_ptr<MoqxRelay> relay_;
   std::shared_ptr<MoQSession> session_;
   TrackNamespace trackNamespacePrefix_;
+  std::weak_ptr<stats::ClientNetworkMetricsStore> metrics_;
+  std::string connectionId_;
+  bool tracked_{true};
 };
 
 // Filter TrackConsumer that intercepts publishDone to clean up relay state.
@@ -471,17 +532,18 @@ public:
   TerminationFilter(
       std::weak_ptr<MoqxRelay> relay,
       FullTrackName ftn,
+      std::shared_ptr<MoQSession> publisherSession,
       std::shared_ptr<TrackConsumer> downstream
   )
-      : TrackConsumerFilter(std::move(downstream)), relay_(std::move(relay)), ftn_(std::move(ftn)) {
-  }
+      : TrackConsumerFilter(std::move(downstream)), relay_(std::move(relay)), ftn_(std::move(ftn)),
+        publisherSession_(std::move(publisherSession)) {}
 
   folly::Expected<folly::Unit, MoQPublishError> publishDone(PublishDone pubDone) override {
     // Notify relay that publisher is done - this will:
     // 1. Remove from nodePtr->publishes
     // 2. Clear subscription.handle
     if (auto relay = relay_.lock()) {
-      relay->onPublishDone(ftn_);
+      relay->onPublishDone(ftn_, publisherSession_);
     }
     // Change the downstream code to something like "upstream ended"?
     return TrackConsumerFilter::publishDone(std::move(pubDone));
@@ -490,6 +552,7 @@ public:
 private:
   std::weak_ptr<MoqxRelay> relay_;
   FullTrackName ftn_;
+  std::shared_ptr<MoQSession> publisherSession_;
 };
 
 std::shared_ptr<TrackConsumer> MoqxRelay::getSubscribeWriteback(
@@ -499,18 +562,25 @@ std::shared_ptr<TrackConsumer> MoqxRelay::getSubscribeWriteback(
   auto baseConsumer =
       cache_ ? cache_->getSubscribeWriteback(ftn, std::move(consumer)) : std::move(consumer);
   auto termFilter =
-      std::make_shared<TerminationFilter>(shared_from_this(), ftn, std::move(baseConsumer));
+      std::make_shared<TerminationFilter>(shared_from_this(), ftn, nullptr, std::move(baseConsumer));
   return std::static_pointer_cast<TrackConsumer>(termFilter);
 }
 
 SubscriptionRegistry::FilterChainResult
-MoqxRelay::buildFilterChain(const FullTrackName& ftn, std::shared_ptr<MoQForwarder> forwarder) {
+MoqxRelay::buildFilterChain(
+    const FullTrackName& ftn,
+    std::shared_ptr<MoQForwarder> forwarder,
+    std::shared_ptr<MoQSession> publisherSession) {
   // Build chain: TopNFilter → TerminationFilter → (cache?) → Forwarder
   // This ensures property values are observed in both PUBLISH and SUBSCRIBE paths.
   auto baseConsumer = cache_ ? cache_->getSubscribeWriteback(ftn, forwarder)
                              : std::static_pointer_cast<TrackConsumer>(forwarder);
   auto terminationFilter =
-      std::make_shared<TerminationFilter>(shared_from_this(), ftn, std::move(baseConsumer));
+      std::make_shared<TerminationFilter>(
+          shared_from_this(),
+          ftn,
+          std::move(publisherSession),
+          std::move(baseConsumer));
   auto topNFilter =
       std::make_shared<TopNFilter>(ftn, std::static_pointer_cast<TrackConsumer>(terminationFilter));
   topNFilter->setActivityThreshold(activityThreshold_);
@@ -658,7 +728,8 @@ folly::coro::Task<Publisher::SubscribeNamespaceResult> MoqxRelay::subscribeNames
       shared_from_this(),
       std::move(session),
       SubscribeNamespaceOk{.requestID = subNs.requestID, .requestSpecificParams = {}},
-      subNs.trackNamespacePrefix
+      subNs.trackNamespacePrefix,
+      clientNetworkMetrics_
   );
 }
 
@@ -1013,6 +1084,32 @@ void MoqxRelay::newGroupRequested(MoQForwarder* forwarder, uint64_t group) {
   auto exec = upstreamView->upstream->getExecutor();
   auto handle = upstreamView->handle;
   co_withExecutor(exec, doNewGroupRequestUpdate(std::move(handle), group)).start();
+}
+
+void MoqxRelay::subscriberAdded(
+    MoQForwarder* forwarder,
+    const std::shared_ptr<MoQSession>& session) {
+  if (!session) {
+    return;
+  }
+  if (auto metrics = clientNetworkMetrics_.lock()) {
+    metrics->addTrackSubscription(
+        session->getTransportConnectionId(),
+        forwarder->fullTrackName().describe());
+  }
+}
+
+void MoqxRelay::subscriberRemoved(
+    MoQForwarder* forwarder,
+    const std::shared_ptr<MoQSession>& session) {
+  if (!session) {
+    return;
+  }
+  if (auto metrics = clientNetworkMetrics_.lock()) {
+    metrics->removeTrackSubscription(
+        session->getTransportConnectionId(),
+        forwarder->fullTrackName().describe());
+  }
 }
 
 // TRACK_FILTER support

@@ -95,6 +95,37 @@ void registerMetricsRoute(
           json.field("connection_id", m.connectionId);
           json.field("peer", m.peer);
           json.field("active", m.active);
+          json.field("session_mapped", m.sessionMapped);
+          json.field(
+              "publishing",
+              !m.publishedTracks.empty() || !m.publishedNamespaces.empty());
+          json.field(
+              "subscribing",
+              !m.trackSubscriptions.empty() || !m.namespaceSubscriptions.empty());
+          json.key("published_tracks");
+          json.beginArray();
+          for (const auto& track : m.publishedTracks) {
+            json.strVal(track);
+          }
+          json.endArray();
+          json.key("published_namespaces");
+          json.beginArray();
+          for (const auto& trackNamespace : m.publishedNamespaces) {
+            json.strVal(trackNamespace);
+          }
+          json.endArray();
+          json.key("track_subscriptions");
+          json.beginArray();
+          for (const auto& track : m.trackSubscriptions) {
+            json.strVal(track);
+          }
+          json.endArray();
+          json.key("namespace_subscriptions");
+          json.beginArray();
+          for (const auto& trackNamespace : m.namespaceSubscriptions) {
+            json.strVal(trackNamespace);
+          }
+          json.endArray();
           json.field("sample_age_ms", static_cast<uint64_t>(std::max<int64_t>(0, ageMs)));
           json.field("app_limited", m.appLimited);
           json.field("ecn_capable", m.ecnCapable);

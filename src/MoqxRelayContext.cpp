@@ -28,6 +28,10 @@ MoqxRelayContext::MoqxRelayContext(
 
 void MoqxRelayContext::setStatsRegistry(std::shared_ptr<stats::StatsRegistry> registry) {
   statsRegistry_ = std::move(registry);
+  auto clientMetrics = statsRegistry_ ? statsRegistry_->clientNetworkMetrics() : nullptr;
+  for (auto& [_, entry] : services_) {
+    entry.relay->setClientNetworkMetricsStore(clientMetrics);
+  }
 }
 
 namespace {
@@ -127,6 +131,9 @@ void MoqxRelayContext::onNewSession(std::shared_ptr<MoQSession> clientSession) {
   if (!connectionId.empty()) {
     std::lock_guard lock(sessionsMutex_);
     sessionsByConnectionId_.insert_or_assign(connectionId, clientSession);
+    if (statsRegistry_) {
+      statsRegistry_->clientNetworkMetrics()->registerSession(connectionId);
+    }
     XLOG(INFO) << "SESSION_MAP add connection_id=" << connectionId
                << " peer=" << clientSession->getPeerAddress().describe();
   }
@@ -157,6 +164,9 @@ void MoqxRelayContext::onSessionEnd(const std::shared_ptr<MoQSession>& session) 
       auto mapped = it->second.lock();
       if (!mapped || mapped == session) {
         sessionsByConnectionId_.erase(it);
+        if (statsRegistry_) {
+          statsRegistry_->clientNetworkMetrics()->unregisterSession(connectionId);
+        }
         XLOG(INFO) << "SESSION_MAP remove connection_id=" << connectionId;
       }
     }

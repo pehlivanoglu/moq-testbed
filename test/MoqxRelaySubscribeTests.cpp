@@ -8,7 +8,72 @@
 
 #include "MoqxRelayTestFixture.h"
 
+#include <algorithm>
+
 namespace moxygen::test {
+
+TEST_F(MoQRelayTest, ClientSessionMetadataTracksActivityLifecycle) {
+  auto metrics = std::make_shared<openmoq::moqx::stats::ClientNetworkMetricsStore>();
+  relay_->setClientNetworkMetricsStore(metrics);
+
+  auto publisherSession = createMockSession();
+  publisherSession->setTransportConnectionId("publisher-cid");
+  metrics->registerSession("publisher-cid");
+  metrics->put(openmoq::moqx::stats::ClientNetworkMetrics{
+      .connectionId = "publisher-cid",
+      .updatedAt = std::chrono::steady_clock::now(),
+  });
+
+  auto subscriberSession = createMockSession();
+  subscriberSession->setTransportConnectionId("subscriber-cid");
+  metrics->registerSession("subscriber-cid");
+  metrics->put(openmoq::moqx::stats::ClientNetworkMetrics{
+      .connectionId = "subscriber-cid",
+      .updatedAt = std::chrono::steady_clock::now(),
+  });
+
+  doPublishNamespace(publisherSession, kTestNamespace);
+  doPublishWithHandle(publisherSession, kTestTrackName, makePublishHandle());
+  auto trackSubscription = subscribeToTrack(
+      subscriberSession,
+      kTestTrackName,
+      createMockConsumer(),
+      RequestID(1),
+      /*addToState=*/false);
+  const TrackNamespace otherNamespace{{"test", "other"}};
+  auto namespaceSubscription =
+      doSubscribeNamespace(subscriberSession, otherNamespace, /*addToState=*/false);
+
+  auto findClient = [&](std::string_view connectionId) {
+    auto clients = metrics->snapshot();
+    return *std::find_if(clients.begin(), clients.end(), [&](const auto& client) {
+      return client.connectionId == connectionId;
+    });
+  };
+
+  auto publisher = findClient("publisher-cid");
+  EXPECT_TRUE(publisher.sessionMapped);
+  EXPECT_EQ(publisher.publishedNamespaces, std::vector<std::string>{"test/namespace"});
+  EXPECT_EQ(publisher.publishedTracks, std::vector<std::string>{"test/namespace/track1"});
+
+  auto subscriber = findClient("subscriber-cid");
+  EXPECT_TRUE(subscriber.sessionMapped);
+  EXPECT_EQ(subscriber.trackSubscriptions, std::vector<std::string>{"test/namespace/track1"});
+  EXPECT_EQ(subscriber.namespaceSubscriptions, std::vector<std::string>{"test/other"});
+
+  trackSubscription->unsubscribe();
+  namespaceSubscription->unsubscribeNamespace();
+  removeSession(publisherSession);
+
+  publisher = findClient("publisher-cid");
+  EXPECT_TRUE(publisher.publishedNamespaces.empty());
+  EXPECT_TRUE(publisher.publishedTracks.empty());
+  subscriber = findClient("subscriber-cid");
+  EXPECT_TRUE(subscriber.trackSubscriptions.empty());
+  EXPECT_TRUE(subscriber.namespaceSubscriptions.empty());
+
+  removeSession(subscriberSession);
+}
 
 // Test: forwardChanged must not crash when called after the publisher has
 // terminated (onPublishDone clears handle/upstream). We trigger forwardChanged

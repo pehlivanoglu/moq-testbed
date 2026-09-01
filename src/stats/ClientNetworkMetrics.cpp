@@ -23,12 +23,112 @@ std::vector<ClientNetworkMetrics> ClientNetworkMetricsStore::snapshot() const {
   std::vector<ClientNetworkMetrics> result;
   result.reserve(clients_.size());
   for (const auto& [_, metrics] : clients_) {
-    result.push_back(metrics);
+    auto copy = metrics;
+    if (auto it = sessions_.find(metrics.connectionId); it != sessions_.end()) {
+      const auto& session = it->second;
+      copy.sessionMapped = true;
+      copy.publishedTracks.assign(session.publishedTracks.begin(), session.publishedTracks.end());
+      copy.publishedNamespaces.assign(
+          session.publishedNamespaces.begin(),
+          session.publishedNamespaces.end());
+      copy.trackSubscriptions.assign(
+          session.trackSubscriptions.begin(),
+          session.trackSubscriptions.end());
+      copy.namespaceSubscriptions.assign(
+          session.namespaceSubscriptions.begin(),
+          session.namespaceSubscriptions.end());
+    }
+    result.push_back(std::move(copy));
   }
   std::sort(result.begin(), result.end(), [](const auto& a, const auto& b) {
     return a.connectionId < b.connectionId;
   });
   return result;
+}
+
+void ClientNetworkMetricsStore::registerSession(std::string connectionId) {
+  if (connectionId.empty()) {
+    return;
+  }
+  std::lock_guard lock(mutex_);
+  sessions_.insert_or_assign(std::move(connectionId), SessionMetadata{});
+}
+
+void ClientNetworkMetricsStore::unregisterSession(std::string_view connectionId) {
+  std::lock_guard lock(mutex_);
+  sessions_.erase(std::string(connectionId));
+}
+
+void ClientNetworkMetricsStore::addPublishedTrack(
+    std::string_view connectionId,
+    std::string track) {
+  std::lock_guard lock(mutex_);
+  if (auto it = sessions_.find(std::string(connectionId)); it != sessions_.end()) {
+    it->second.publishedTracks.insert(std::move(track));
+  }
+}
+
+void ClientNetworkMetricsStore::removePublishedTrack(
+    std::string_view connectionId,
+    std::string_view track) {
+  std::lock_guard lock(mutex_);
+  if (auto it = sessions_.find(std::string(connectionId)); it != sessions_.end()) {
+    it->second.publishedTracks.erase(std::string(track));
+  }
+}
+
+void ClientNetworkMetricsStore::addPublishedNamespace(
+    std::string_view connectionId,
+    std::string trackNamespace) {
+  std::lock_guard lock(mutex_);
+  if (auto it = sessions_.find(std::string(connectionId)); it != sessions_.end()) {
+    it->second.publishedNamespaces.insert(std::move(trackNamespace));
+  }
+}
+
+void ClientNetworkMetricsStore::removePublishedNamespace(
+    std::string_view connectionId,
+    std::string_view trackNamespace) {
+  std::lock_guard lock(mutex_);
+  if (auto it = sessions_.find(std::string(connectionId)); it != sessions_.end()) {
+    it->second.publishedNamespaces.erase(std::string(trackNamespace));
+  }
+}
+
+void ClientNetworkMetricsStore::addTrackSubscription(
+    std::string_view connectionId,
+    std::string track) {
+  std::lock_guard lock(mutex_);
+  if (auto it = sessions_.find(std::string(connectionId)); it != sessions_.end()) {
+    it->second.trackSubscriptions.insert(std::move(track));
+  }
+}
+
+void ClientNetworkMetricsStore::removeTrackSubscription(
+    std::string_view connectionId,
+    std::string_view track) {
+  std::lock_guard lock(mutex_);
+  if (auto it = sessions_.find(std::string(connectionId)); it != sessions_.end()) {
+    it->second.trackSubscriptions.erase(std::string(track));
+  }
+}
+
+void ClientNetworkMetricsStore::addNamespaceSubscription(
+    std::string_view connectionId,
+    std::string trackNamespace) {
+  std::lock_guard lock(mutex_);
+  if (auto it = sessions_.find(std::string(connectionId)); it != sessions_.end()) {
+    it->second.namespaceSubscriptions.insert(std::move(trackNamespace));
+  }
+}
+
+void ClientNetworkMetricsStore::removeNamespaceSubscription(
+    std::string_view connectionId,
+    std::string_view trackNamespace) {
+  std::lock_guard lock(mutex_);
+  if (auto it = sessions_.find(std::string(connectionId)); it != sessions_.end()) {
+    it->second.namespaceSubscriptions.erase(std::string(trackNamespace));
+  }
 }
 
 ClientNetworkMetricsObserver::ClientNetworkMetricsObserver(

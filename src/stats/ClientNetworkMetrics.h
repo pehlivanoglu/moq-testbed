@@ -9,7 +9,9 @@
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -44,6 +46,12 @@ struct ClientNetworkMetrics {
   double ceFraction{0.0};
   double l4sWeight{0.0};
   std::chrono::steady_clock::time_point updatedAt{};
+
+  bool sessionMapped{false};
+  std::vector<std::string> publishedTracks;
+  std::vector<std::string> publishedNamespaces;
+  std::vector<std::string> trackSubscriptions;
+  std::vector<std::string> namespaceSubscriptions;
 };
 
 // Thread-safe boundary between QUIC worker callbacks, the admin endpoint, and
@@ -53,9 +61,34 @@ public:
   void put(ClientNetworkMetrics metrics);
   std::vector<ClientNetworkMetrics> snapshot() const;
 
+  void registerSession(std::string connectionId);
+  void unregisterSession(std::string_view connectionId);
+  void addPublishedTrack(std::string_view connectionId, std::string track);
+  void removePublishedTrack(std::string_view connectionId, std::string_view track);
+  void addPublishedNamespace(std::string_view connectionId, std::string trackNamespace);
+  void removePublishedNamespace(
+      std::string_view connectionId,
+      std::string_view trackNamespace);
+  void addTrackSubscription(std::string_view connectionId, std::string track);
+  void removeTrackSubscription(std::string_view connectionId, std::string_view track);
+  void addNamespaceSubscription(
+      std::string_view connectionId,
+      std::string trackNamespace);
+  void removeNamespaceSubscription(
+      std::string_view connectionId,
+      std::string_view trackNamespace);
+
 private:
+  struct SessionMetadata {
+    std::set<std::string> publishedTracks;
+    std::set<std::string> publishedNamespaces;
+    std::set<std::string> trackSubscriptions;
+    std::set<std::string> namespaceSubscriptions;
+  };
+
   mutable std::mutex mutex_;
   std::unordered_map<std::string, ClientNetworkMetrics> clients_;
+  std::unordered_map<std::string, SessionMetadata> sessions_;
 };
 
 // Runs on the connection's EventBase.  It gathers on ACK/RTT/loss events and

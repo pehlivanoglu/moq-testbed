@@ -14,6 +14,7 @@
 #include "UpstreamProvider.h"
 #include "config/Config.h"
 #include "relay/PropertyRanking.h"
+#include "stats/ClientNetworkMetrics.h"
 #include <moxygen/MoQSession.h>
 #include <moxygen/relay/MoQForwarder.h>
 
@@ -124,6 +125,11 @@ public:
   // reciprocal subNs and namespace announcements route through MoqxRelay.
   void setUpstreamProvider(std::shared_ptr<UpstreamProvider> upstream) {
     upstream_ = std::move(upstream);
+  }
+
+  void setClientNetworkMetricsStore(
+      std::shared_ptr<stats::ClientNetworkMetricsStore> store) {
+    clientNetworkMetrics_ = std::move(store);
   }
 
   // Force-evicts a specific track unconditionally. Not thread-safe.
@@ -237,7 +243,9 @@ private:
       std::shared_ptr<moxygen::MoQSession> session
   );
 
-  void onPublishDone(const moxygen::FullTrackName& ftn);
+  void onPublishDone(
+      const moxygen::FullTrackName& ftn,
+      const std::shared_ptr<moxygen::MoQSession>& publisherSession = nullptr);
 
   void onPublishNamespaceDone(const moxygen::TrackNamespace& ns) override;
 
@@ -246,6 +254,12 @@ private:
   void onEmpty(moxygen::MoQForwarder* forwarder) override;
   void forwardChanged(moxygen::MoQForwarder* forwarder, bool forward) override;
   void newGroupRequested(moxygen::MoQForwarder* forwarder, uint64_t group) override;
+  void subscriberAdded(
+      moxygen::MoQForwarder* forwarder,
+      const std::shared_ptr<moxygen::MoQSession>& session) override;
+  void subscriberRemoved(
+      moxygen::MoQForwarder* forwarder,
+      const std::shared_ptr<moxygen::MoQSession>& session) override;
 
   folly::coro::Task<void> publishNamespaceToSession(
       std::shared_ptr<moxygen::MoQSession> session,
@@ -274,7 +288,8 @@ private:
   // forwarder. Used by both publish() and subscribe() paths to ensure consistent filter chain.
   SubscriptionRegistry::FilterChainResult buildFilterChain(
       const moxygen::FullTrackName& ftn,
-      std::shared_ptr<moxygen::MoQForwarder> forwarder
+      std::shared_ptr<moxygen::MoQForwarder> forwarder,
+      std::shared_ptr<moxygen::MoQSession> publisherSession = nullptr
   );
 
   // Get or create PropertyRanking for the given property type on a namespace node.
@@ -300,6 +315,7 @@ private:
   moxygen::TrackNamespace allowedNamespacePrefix_;
   std::string relayID_;
   std::shared_ptr<UpstreamProvider> upstream_;
+  std::weak_ptr<stats::ClientNetworkMetricsStore> clientNetworkMetrics_;
 
   // Holds the peer subNs handle for the upstream (initiating) direction.
   // Kept alive so the subscription is not cancelled when onUpstreamConnect returns.
