@@ -121,6 +121,18 @@ target_link_libraries(moqx_bounded_histogram_test PRIVATE
 )
 gtest_discover_tests(moqx_bounded_histogram_test)
 
+add_executable(moqx_client_network_metrics_test
+  stats/ClientNetworkMetricsTest.cpp
+)
+target_include_directories(moqx_client_network_metrics_test PRIVATE
+  ${PROJECT_SOURCE_DIR}/src
+)
+target_link_libraries(moqx_client_network_metrics_test PRIVATE
+  moqx_core
+  GTest::gtest_main
+)
+gtest_discover_tests(moqx_client_network_metrics_test)
+
 add_executable(moqx_pico_quic_stats_test
   stats/PicoQuicStatsCollectorTest.cpp
 )

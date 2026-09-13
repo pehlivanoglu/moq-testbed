@@ -138,6 +138,7 @@ void registerMetricsRoute(
           json.field("writable_bytes", m.writableBytes);
           json.field("acked_rate_bps", m.ackedRateBps);
           json.field("pacing_rate_bps", m.pacingRateBps);
+          json.field("acked_packets", m.ackedPackets);
           json.field("lost_packets", m.lostPackets);
           json.field("retransmitted_packets", m.retransmittedPackets);
           json.field("ect0", m.ect0);
@@ -145,6 +146,26 @@ void registerMetricsRoute(
           json.field("ce", m.ce);
           json.field("ce_fraction", m.ceFraction);
           json.field("l4s_weight", m.l4sWeight);
+          json.key("window");
+          json.beginObject();
+          json.field("samples", m.windowSamples);
+          json.field("duration_ms", m.windowDurationMs);
+          json.field("acked_packets", m.windowAckedPackets);
+          json.field("ect0", m.windowEct0);
+          json.field("ect1", m.windowEct1);
+          json.field("ce", m.windowCe);
+          json.field("lost_packets", m.windowLostPackets);
+          json.field("retransmitted_packets", m.windowRetransmittedPackets);
+          json.field("ce_fraction", m.windowCeFraction);
+          json.field("loss_rate", m.windowLossRate);
+          json.field("queue_delay_trend_us", m.windowQueueDelayTrendUs);
+          json.field("srtt_trend_us", m.windowSrttTrendUs);
+          json.field("acked_rate_trend_bps", m.windowAckedRateTrendBps);
+          json.field("cwnd_trend_bytes", m.windowCwndTrendBytes);
+          json.field("writable_blocked_fraction", m.windowWritableBlockedFraction);
+          json.field("app_limited_fraction", m.windowAppLimitedFraction);
+          json.field("counter_reset", m.windowCounterReset);
+          json.endObject();
           json.endObject();
         }
         json.endArray();

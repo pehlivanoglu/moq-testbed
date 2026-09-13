@@ -1,6 +1,6 @@
 # Client Network Measurement and Bottleneck Control Plan
 
-Last updated: 2026-08-31
+Last updated: 2026-09-01
 
 ## Purpose
 
@@ -48,7 +48,7 @@ ClientNetworkMetricsStore
     +--> GET /network-metrics
     |
     v
-short per-client history          [NEXT]
+short per-client history          [PARTIAL: live validation remains]
     |
     v
 ClientNetworkController           [PLANNED]
@@ -230,7 +230,23 @@ Verification completed:
 
 ## Phase 2: Short per-client metric history
 
-Status: **NEXT**
+Status: **PARTIAL**
+
+Implementation completed:
+
+- `ClientNetworkMetricsStore` retains at most one sample per 250 ms over a rolling 10-second
+  window using `std::deque` and no new dependency or worker thread.
+- Latest raw metrics continue updating at the existing observer cadence; history admission is
+  independently rate-limited.
+- Added cumulative acknowledged-packet count so recent loss rate has a packet-outcome denominator.
+- Added safe recent deltas for acknowledged packets, ECT(0), ECT(1), CE, loss, and retransmission.
+- Counter decreases produce zero delta and set `counter_reset`; they cannot underflow.
+- Added recent CE fraction, loss rate, RTT/queue/rate/CWND trends, writable-blocked fraction, and
+  app-limited fraction.
+- `/network-metrics` retains lifetime/latest fields at client level and exposes recent values in a
+  nested `window` object.
+- Old samples expire; history for inactive connections is cleared after the diagnostic retention
+  period.
 
 Extend `ClientNetworkMetricsStore` with a bounded history for every active connection.
 
@@ -318,6 +334,84 @@ Verification required:
 - Inactive connection history is eventually removed.
 - App-limited samples are identifiable.
 - Window CE/loss values respond to router changes and later decay.
+
+Verification completed:
+
+- Four focused `ClientNetworkMetricsStoreTest` tests passed: normal deltas/window calculations,
+  250 ms admission limit, reset/underflow handling, window expiry, and inactive cleanup.
+- All 38 existing `MoQRelayTest` tests passed.
+- All 6 existing `MoqxRelayContextTest` tests passed.
+- `admin_metrics_endpoint` passed.
+- `moqx` rebuilt successfully.
+
+Remaining verification:
+
+- Confirm live CE window values rise under DualPI2 marking.
+- Confirm CE and loss windows decay to zero within approximately ten seconds after recovery.
+
+Live loss-window verification:
+
+- In `ex.yaml`, client `10.99.0.4` moved from zero recent loss to 80/1,015 packet outcomes
+  (`7.3%`), then 132/1,105 (`11.9%`), and later 590/1,918 (`30.8%`) while its lifetime loss
+  reached 1,281 packets.
+- During loss onset, the same client showed roughly +38 ms RTT/queue trend, a 223 KB CWND
+  reduction, falling acknowledged rate, and increasing writable-blocked fraction.
+- Later negative queue-delay trend and positive CWND trend showed recovery beginning while recent
+  losses correctly remained in the rolling window.
+- The other two clients retained zero recent loss, confirming per-connection isolation.
+- Live windows contained 27-30 event-driven samples over roughly 9.3-9.7 seconds. Fewer than 40 is
+  expected because 250 ms is a maximum admission rate, not a periodic timer.
+- No recent ECT(1) or CE increments appeared in this run, so live ECN-window validation remains.
+- Follow-up relay logs identified the immediate ECN blocker: both native flows initially validated,
+  then mvfst observed `16/17` and `46/47` expected ECT(1)+CE echoes and disabled ECN; Chrome failed
+  with `0/10`. Afterward, router capture saw no ECT(1), explaining the frozen lifetime counters.
+- Router stats corroborated the transition: only 49 packets reached DualPI2's L4S queue versus
+  16,784 classic packets. The 4,330-packet backlog was held by HTB/netem while DualPI2 had zero
+  backlog, zero marking probability, and zero CE marks.
+- A clean rerun removed netem and verified the intended `HTB -> DualPI2` hierarchy. Captures were
+  armed before the new connections started. Both native connections first passed L4S validation,
+  then failed by exactly one echoed mark (`101/102` and `135/136`); Chrome still failed `0/10`.
+- One-second captures on router ingress and native-subscriber egress showed ECT(1) on both sides
+  before the failure, a mixed ECT(1)/Not-ECT transition interval, then Not-ECT on both sides after
+  mvfst disabled ECN. This rules out persistent router ECN bleaching in the observed path.
+- The native subscriber is `mlmsub` from `moqlivemock-svc`, using quic-go v0.60.0. quic-go counts
+  received ECN codepoints cumulatively and echoes them in ACK_ECN.
+- Repository and RFC follow-up found a smaller, stronger cause than missing per-packet metadata.
+  RFC 9000 section 13.4.2.1 says ECN validation MUST NOT fail while processing an ACK that does not
+  increase Largest Acknowledged, because reordered ACK frames can contain older ECN counters.
+  quic-go v0.60.0 implements this guard before calling its ECN tracker.
+- mvfst does not implement that guard: `processAckFrame()` updates the maximum echoed counters and
+  increments `minimumExpectedEcnMarksEchoed` for every newly acknowledged outstanding packet, even
+  when the ACK's Largest Acknowledged does not advance. `validateECNState()` then applies the strict
+  cumulative comparison after every receive batch. A reordered ACK can therefore newly fill one
+  old ACK hole, raise the minimum by one, retain an older echoed count, and produce the observed
+  `101/102` or `135/136` false failure.
+- This also explains intermittent success. In-order ACK timing or surplus echoed counts from packets
+  mvfst does not retain can keep the lower-bound check valid; a particular reordered ACK exposes the
+  one-packet deficit. More simultaneous clients can change timing without changing binaries.
+- openmoq/moxygen contains no separate ECN validator; standalone builds only pin and compile mvfst.
+  The working and failing local builds both used mvfst `c2a7995`, and current upstream mvfst retains
+  the same unguarded validation logic, so upgrading moxygen/mvfst alone does not fix this case.
+- Implemented the focused RFC-compatible fix in mvfst `AckHandlers.cpp`: ACK frames whose Largest
+  Acknowledged does not advance no longer update echoed ECN counters or the minimum expected ECN
+  mark count used by validation. Their ordinary ACK/loss processing is unchanged. This prevents a
+  reordered ACK with older ACK_ECN counters from causing a false one-packet validation deficit.
+- Added `ReorderedAckDoesNotAdvanceEcnValidation` regression coverage. The focused regression and
+  all 212 `AckHandlersTest` cases passed. The standalone mvfst/moxygen install and moqx rebuilt
+  successfully; all 48 relevant relay, context, and metric-history tests also passed.
+- A one-packet validation tolerance is not used.
+- Live verification showed the reordered-ACK guard was necessary but insufficient. Native flows
+  initially validated (`12/10`, `11/10`) and then failed (`12/14`, `44/45`). This exposed a second
+  accounting bug: mvfst counted every newly acknowledged outstanding packet as ECN-marked even if
+  that packet had actually been sent before ECN was enabled.
+- Implemented per-packet ECN accounting: `OutstandingPacketMetadata` now records the ECN codepoint
+  active when the packet is sent, and ACK processing increases the minimum expected echo count only
+  for packets recorded as ECT(0) or ECT(1). The ACK test now covers marked and unmarked packets in
+  the same ACK. All 212 ACK tests and all 48 relevant moqx tests pass.
+- Rebuilt and installed mvfst/moxygen, rebuilt moqx, and rebuilt `moqlab-relay:latest`.
+- Remaining ECN verification: start fresh connections, confirm native
+  clients remain ECN-capable beyond validation, then create a DualPI2 bottleneck and confirm recent
+  ECT(1)/CE window values rise and decay after recovery.
 
 ## Phase 3: ClientNetworkController
 
@@ -658,10 +752,12 @@ The goal is not merely detecting configured impairment. The detector must distin
 - [x] Commit parent repository's `.gitmodules` and moxygen submodule pointer.
 - [ ] Commit and push Phase 1 `MoQForwarder` lifecycle callbacks, then update parent submodule
   pointer.
-- [ ] Add bounded per-client history.
-- [ ] Add cumulative-counter delta calculations.
-- [ ] Add window-derived measurements.
-- [ ] Expose total versus window metrics clearly.
+- [x] Add bounded per-client history.
+- [x] Add cumulative-counter delta calculations.
+- [x] Add window-derived measurements.
+- [x] Expose total versus window metrics clearly.
+- [x] Validate live loss-window response.
+- [ ] Validate live CE-window response and CE/loss decay.
 - [x] Add publishing/subscription metadata to mapped session context.
 - [ ] Add logging-only `ClientNetworkController`.
 - [ ] Add individual bottleneck state machine and score.
@@ -715,3 +811,10 @@ wrapping handles or duplicating unsubscribe logic in moqx.
 
 Phase 1 maps connection, session, peer, and MoQ activity. A stable user ID will only be added when
 protocol authentication or application metadata provides one; peer IP and port are not substitutes.
+
+### 2026-08-31: Sample history every 250 ms
+
+The transport observer may update the latest value every 100 ms, but history admits at most four
+samples per second. This resolves persistent congestion quickly enough for media control, limits a
+10-second history to about 40 points per client, and avoids reacting to individual ACK noise. The
+interval is an initial experiment setting, not a QUIC requirement.

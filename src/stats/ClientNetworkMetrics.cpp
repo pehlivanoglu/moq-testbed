@@ -6,24 +6,160 @@
 #include "stats/ClientNetworkMetrics.h"
 
 #include <algorithm>
+#include <limits>
 
 namespace openmoq::moqx::stats {
 
 namespace {
 constexpr auto kPublishInterval = std::chrono::milliseconds(100);
+
+uint64_t delta(uint64_t current, uint64_t previous, bool& reset) {
+  if (current < previous) {
+    reset = true;
+    return 0;
+  }
+  return current - previous;
 }
+
+int64_t trend(uint64_t current, uint64_t previous) {
+  if (current >= previous) {
+    return static_cast<int64_t>(std::min<uint64_t>(
+        current - previous,
+        std::numeric_limits<int64_t>::max()));
+  }
+  return -static_cast<int64_t>(std::min<uint64_t>(
+      previous - current,
+      static_cast<uint64_t>(std::numeric_limits<int64_t>::max())));
+}
+}
+
+ClientNetworkMetricsStore::ClientNetworkMetricsStore(
+    std::chrono::milliseconds historyWindow,
+    std::chrono::milliseconds sampleInterval,
+    std::chrono::milliseconds inactiveRetention)
+    : historyWindow_(historyWindow),
+      sampleInterval_(sampleInterval),
+      inactiveRetention_(inactiveRetention) {}
 
 void ClientNetworkMetricsStore::put(ClientNetworkMetrics metrics) {
   std::lock_guard lock(mutex_);
+  if (metrics.updatedAt == std::chrono::steady_clock::time_point{}) {
+    metrics.updatedAt = std::chrono::steady_clock::now();
+  }
+
+  auto& history = histories_[metrics.connectionId];
+  const bool clockReset =
+      !history.empty() && metrics.updatedAt < history.back().metrics.updatedAt;
+  if (clockReset) {
+    history.clear();
+  }
+  const bool due = history.empty() || !metrics.active ||
+      metrics.updatedAt - history.back().metrics.updatedAt >= sampleInterval_;
+  if (due) {
+    HistorySample sample{metrics};
+    if (!history.empty()) {
+      const auto& previous = history.back().metrics;
+      sample.newAckedPackets =
+          delta(metrics.ackedPackets, previous.ackedPackets, sample.counterReset);
+      sample.newEct0 = delta(metrics.ect0, previous.ect0, sample.counterReset);
+      sample.newEct1 = delta(metrics.ect1, previous.ect1, sample.counterReset);
+      sample.newCe = delta(metrics.ce, previous.ce, sample.counterReset);
+      sample.newLostPackets =
+          delta(metrics.lostPackets, previous.lostPackets, sample.counterReset);
+      sample.newRetransmittedPackets = delta(
+          metrics.retransmittedPackets,
+          previous.retransmittedPackets,
+          sample.counterReset);
+    }
+    history.push_back(std::move(sample));
+
+    const auto cutoff = metrics.updatedAt - historyWindow_;
+    bool removed = false;
+    while (!history.empty() && history.front().metrics.updatedAt < cutoff) {
+      history.pop_front();
+      removed = true;
+    }
+    if (removed && !history.empty()) {
+      auto& first = history.front();
+      first.newAckedPackets = 0;
+      first.newEct0 = 0;
+      first.newEct1 = 0;
+      first.newCe = 0;
+      first.newLostPackets = 0;
+      first.newRetransmittedPackets = 0;
+      first.counterReset = false;
+    }
+  }
   clients_.insert_or_assign(metrics.connectionId, std::move(metrics));
 }
 
 std::vector<ClientNetworkMetrics> ClientNetworkMetricsStore::snapshot() const {
   std::lock_guard lock(mutex_);
+  const auto now = std::chrono::steady_clock::now();
   std::vector<ClientNetworkMetrics> result;
   result.reserve(clients_.size());
   for (const auto& [_, metrics] : clients_) {
     auto copy = metrics;
+    if (auto historyIt = histories_.find(metrics.connectionId);
+        historyIt != histories_.end()) {
+      auto& history = historyIt->second;
+      const auto cutoff = now - historyWindow_;
+      bool removed = false;
+      while (!history.empty() && history.front().metrics.updatedAt < cutoff) {
+        history.pop_front();
+        removed = true;
+      }
+      if (!metrics.active && now - metrics.updatedAt > inactiveRetention_) {
+        history.clear();
+      } else if (removed && !history.empty()) {
+        auto& first = history.front();
+        first.newAckedPackets = 0;
+        first.newEct0 = 0;
+        first.newEct1 = 0;
+        first.newCe = 0;
+        first.newLostPackets = 0;
+        first.newRetransmittedPackets = 0;
+        first.counterReset = false;
+      }
+
+      copy.windowSamples = history.size();
+      if (!history.empty()) {
+        const auto& first = history.front().metrics;
+        const auto& last = history.back().metrics;
+        copy.windowDurationMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                    last.updatedAt - first.updatedAt)
+                                    .count();
+        copy.windowQueueDelayTrendUs = trend(last.queueDelayUs, first.queueDelayUs);
+        copy.windowSrttTrendUs = trend(last.srttUs, first.srttUs);
+        copy.windowAckedRateTrendBps = trend(last.ackedRateBps, first.ackedRateBps);
+        copy.windowCwndTrendBytes = trend(last.cwndBytes, first.cwndBytes);
+        uint64_t blocked = 0;
+        uint64_t appLimited = 0;
+        for (const auto& sample : history) {
+          copy.windowAckedPackets += sample.newAckedPackets;
+          copy.windowEct0 += sample.newEct0;
+          copy.windowEct1 += sample.newEct1;
+          copy.windowCe += sample.newCe;
+          copy.windowLostPackets += sample.newLostPackets;
+          copy.windowRetransmittedPackets += sample.newRetransmittedPackets;
+          copy.windowCounterReset |= sample.counterReset;
+          blocked += sample.metrics.writableBytes == 0;
+          appLimited += sample.metrics.appLimited;
+        }
+        const auto windowEcn = copy.windowEct0 + copy.windowEct1 + copy.windowCe;
+        copy.windowCeFraction = windowEcn == 0
+            ? 0.0
+            : static_cast<double>(copy.windowCe) / windowEcn;
+        const auto packetOutcomes = copy.windowAckedPackets + copy.windowLostPackets;
+        copy.windowLossRate = packetOutcomes == 0
+            ? 0.0
+            : static_cast<double>(copy.windowLostPackets) / packetOutcomes;
+        copy.windowWritableBlockedFraction =
+            static_cast<double>(blocked) / history.size();
+        copy.windowAppLimitedFraction =
+            static_cast<double>(appLimited) / history.size();
+      }
+    }
     if (auto it = sessions_.find(metrics.connectionId); it != sessions_.end()) {
       const auto& session = it->second;
       copy.sessionMapped = true;
@@ -199,10 +335,12 @@ void ClientNetworkMetricsObserver::acksProcessed(
     quic::QuicSocketLite* socket,
     const AcksProcessedEvent& event) {
   for (const auto& ack : event.ackEvents) {
+    currentPacketsAcked_ += ack.ackedPackets.size();
     metrics_.ect0 = std::max(metrics_.ect0, ack.ecnECT0Count);
     metrics_.ect1 = std::max(metrics_.ect1, ack.ecnECT1Count);
     metrics_.ce = std::max(metrics_.ce, ack.ecnCECount);
   }
+  metrics_.ackedPackets = currentPacketsAcked_;
   metrics_.ecnCapable = metrics_.ect0 + metrics_.ect1 + metrics_.ce > 0;
   readTransportInfo(*socket);
   publish();
