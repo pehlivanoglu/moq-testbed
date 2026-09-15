@@ -6,7 +6,8 @@ config:
 
 - **`--backend containernet`** (default for `run`) — every node (including
   each router) is its own Containernet Docker host; every `links:` entry is a
-  direct host↔host veth pair (no switches). Routers forward IP and own the
+  direct host↔host veth pair. Optional Linux bridges provide shared LANs.
+  Routers forward IP and own the
   link queues: per-direction shaping (HTB rate, netem delay/jitter/loss, and
   L4S AQMs like `dualpi2`) is applied with explicit tc commands inside the
   owning container. Foreground; drops you into the Mininet CLI shell. Exit to
@@ -159,6 +160,15 @@ importable from the current Python, it exits before starting the topology and
 prints the next command to run.
 
 ## Topology schema
+
+`switches: { switch: {} }` adds an unmanaged Linux bridge on Containernet.
+Its image defaults to `defaults.router.image`; `image` can be overridden per
+switch. Connect one shaped router output to the switch, then subscribers to
+the switch to share that router's HTB -> DualPI2 bottleneck. See
+[ROUTER.md](ROUTER.md#shared-bottleneck-with-one-router) and `configs/examples/ex.yaml`.
+Bridge ports have no IP or router AQM; each switched LAN gets one subnet.
+Switch chains are allowed; Layer 2 loops and duplicate node attachments to
+one LAN are rejected. Designer and live visualizer support switches.
 
 ```yaml
 topology_mode: explicit
@@ -407,7 +417,8 @@ There is no bandwidth-estimation ABR, DRM, audio selection, or temporal SVC.
   `https://relay-c:9672/moq-relay` resolve via Docker DNS.
 - **Containernet backend**: requires explicit `links:` wiring. Each link is
   one direct host↔host veth pair with its own /24 out of `10.20.0.0/16`
-  (.1 = `from` side, .2 = `to` side); no switches, no controller. Long node
+  (.1 = `from` side, .2 = `to` side) for direct links, or one subnet per
+  switched LAN with unique IP endpoints; no controller. Long node
   ids get stable shortened veth names within Linux's 15-byte limit. Every node
   also gets a canonical /32 on `lo` out of `10.99.0.0/24`; `/etc/hosts` on
   every node maps all peer names to those /32s, and the backend installs

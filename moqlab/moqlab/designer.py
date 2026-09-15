@@ -35,6 +35,7 @@ UI_MANIFEST: dict[str, object] = {
         "publishers",
         "subscribers",
         "routers",
+        "switches",
         "traffic",
         "links",
     ],
@@ -44,6 +45,7 @@ UI_MANIFEST: dict[str, object] = {
         "publisher": {"property": "publishers", "definition": "PublisherConfig"},
         "subscriber": {"property": "subscribers", "definition": "SubscriberConfig"},
         "router": {"property": "routers", "definition": "RouterConfig"},
+        "switch": {"property": "switches", "definition": "SwitchConfig"},
     },
     "trafficEndpoints": ["sender", "receiver"],
     "flowKinds": {
@@ -61,6 +63,7 @@ UI_MANIFEST: dict[str, object] = {
         "TopologyConfig.properties.publishers",
         "TopologyConfig.properties.subscribers",
         "TopologyConfig.properties.routers",
+        "TopologyConfig.properties.switches",
         "TopologyConfig.properties.links",
         "TopologyConfig.$defs.TrafficConfig.properties.routes",
         "TopologyConfig.$defs.TrafficConfig.properties.flows",

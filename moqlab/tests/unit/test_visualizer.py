@@ -33,6 +33,7 @@ def test_browser_assets_live_outside_python_package():
     assert "function selectLink(link)" in app
     assert 'method: "PUT"' in app
     assert app.count("nodeDetails.replaceChildren()") == 2
+    assert 'node.media_client ? `${node.role} · ${node.media_client}` : node.role' in app
 
 
 def test_response_write_ignores_broken_pipe():

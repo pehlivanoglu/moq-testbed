@@ -85,12 +85,12 @@ class DockerBackend:
         readiness_timeout_s: float = 10.0,
     ) -> RunRecord:
         topology = load_topology(config_path)
-        if topology.routers or topology.traffic is not None:
+        if topology.routers or topology.switches or topology.traffic is not None:
             raise OrchestratorError(
-                "topology declares routers or external traffic; the docker backend is a flat "
+                "topology declares routers or external traffic or switches; the docker backend is a flat "
                 "bridge with no shaping or forwarding nodes, so running it "
                 "would silently drop the declared bottlenecks — use "
-                "`--backend containernet`, or remove the routers/traffic"
+                "`--backend containernet`, or remove the routers/traffic/switches"
             )
         run_id = run_id or default_run_id()
         validate_run_id(run_id)

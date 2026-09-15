@@ -83,6 +83,7 @@ def all_node_ids(topology: TopologyConfig) -> list[str]:
         *topology.routers,
         *topology.publishers,
         *topology.subscribers,
+        *topology.switches,
     ]
     if topology.traffic is not None:
         node_ids.extend([topology.traffic.sender.id, topology.traffic.receiver.id])
@@ -128,7 +129,7 @@ _LOOPBACK_POOL_PREFIX = "10.99.0."
 
 def node_loopback_ips(topology: TopologyConfig) -> dict[str, str]:
     """Canonical /32 loopback address per node, deterministic by declaration order."""
-    ordered = all_node_ids(topology)
+    ordered = [nid for nid in all_node_ids(topology) if nid not in topology.switches]
     if len(ordered) > 254:
         raise OrchestratorError(
             f"topology has {len(ordered)} nodes but the loopback pool "
@@ -145,6 +146,7 @@ def topology_image_tags(topology: TopologyConfig) -> set[str]:
         *(topology.publisher_image(pid) for pid in topology.publishers),
         *(topology.subscriber_image(sid) for sid in topology.subscribers),
         *(topology.router_image(rid) for rid in topology.routers),
+        *(topology.switch_image(sid) for sid in topology.switches),
     }
     if topology.traffic is not None:
         tags.update(

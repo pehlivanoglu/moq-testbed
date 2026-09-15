@@ -37,7 +37,7 @@ ergonomics. This is research infrastructure, not a demo script.
 ## Current Implementation
 
 - **Schema** (`moqlab/config/schema.py`) - Pydantic v2 topology model:
-  `defaults`, `startup`, `relays`, `publishers`, `subscribers`, `routers`, `traffic`,
+  `defaults`, `startup`, `relays`, `publishers`, `subscribers`, `routers`, `switches`, `traffic`,
   and `links` (per-direction `forward`/`reverse` rate/netem shaping; router-owned AQM). Pub/sub
   nodes are media-only and model `mlmpub`, Chromium WARP Player, and native
   `mlmsub` subscribers. It is
@@ -55,8 +55,9 @@ ergonomics. This is research infrastructure, not a demo script.
   state of truth.
 - **Containernet backend** (`moqlab/orchestrator/containernet_backend.py`) -
   creates Docker hosts inside Containernet (routers included, with forwarding
-  sysctls), wires one direct host↔host veth pair per `links:` entry (no
-  switches), assigns per-node /32 loopbacks + /etc/hosts + static routes,
+  sysctls), wires one veth pair per `links:` entry, creates optional Linux
+  bridges in switch containers, assigns per-IP-node /32 loopbacks +
+  /etc/hosts + static routes (one subnet per direct link or switched LAN),
   applies per-direction tc chains from `orchestrator/shaping.py`, starts node
   binaries explicitly after `net.start()`, opens `CLI(net)`, and tears down
   on CLI exit. Refuses topologies without `links:`.
@@ -268,6 +269,9 @@ Containernet specifics that matter in this repo:
   `net.start()`.
 - Keep Containernet imports lazy so Docker-only workflows still work on normal
   developer machines.
+- `switches:` use `addDocker` with the router image and an unnumbered `br0`.
+  Routes skip bridges as IP next hops. Reject Layer 2 cycles and repeated
+  attachments to one LAN. AQM stays router-owned.
 - Containernet runs foreground and tears down when `CLI(net)` exits.
 
 ## State And Runtime Outputs

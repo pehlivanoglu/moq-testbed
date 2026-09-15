@@ -2,13 +2,13 @@
 
 Runs the same `TopologyConfig` as the Docker backend, but as Mininet hosts
 inside Containernet. Wiring comes from `links:`: every link becomes one
-direct host↔host veth pair (no switches), routers are first-class Docker
+direct host↔host veth pair. Switch containers bridge their ports; routers are Docker
 hosts with IP forwarding enabled, and per-direction shaping is applied with
 explicit tc commands run inside the owning container (see
 orchestrator/shaping.py for the qdisc chains).
 
-Addressing: each link gets its own /24 from `_LINK_SUBNET_POOL` (.1 = from
-side, .2 = to side), and every node additionally gets a canonical /32 on lo
+Addressing: each direct link or switched LAN gets a /24 from `_LINK_SUBNET_POOL`.
+Bridge ports remain unnumbered; every IP node gets a canonical /32 on lo
 from the 10.99.0.0/24 pool. /etc/hosts maps node names to the /32s and the
 backend installs static /32 routes (BFS over the link graph), so application
 traffic between any two nodes follows the declared physical path no matter
@@ -25,7 +25,6 @@ the user actually runs `moqlab run --backend containernet`.
 
 from __future__ import annotations
 
-import ipaddress
 import json
 import logging
 import os
@@ -44,7 +43,7 @@ from moqlab.config.synth import (
     synthesize_subscriber_command,
 )
 from moqlab.exceptions import OrchestratorError
-from moqlab.orchestrator.routing import next_hops, route_commands
+from moqlab.orchestrator.routing import addressed_links, next_hops, route_commands
 from moqlab.orchestrator.shaping import (
     live_shaping_commands,
     offload_disable_commands,
@@ -77,7 +76,7 @@ _NATIVE_MEDIA_SUB_BINARY = "/usr/local/bin/mlmsub"
 _TRAFFIC_BINARY = "python3 /usr/local/bin/moqlab-traffic"
 _TRAFFIC_PLAN_PATH = "/etc/moqlab/traffic-plan.json"
 
-# We carve one /24 out of this /16 per topology link. Avoid Containernet's
+# We carve one /24 out of this /16 per direct link or switched LAN. Avoid Containernet's
 # default 10.0.0.0/8 pool so our explicit subnets don't collide with anything
 # Containernet auto-assigns.
 _LINK_SUBNET_POOL = "10.20.0.0/16"
@@ -197,8 +196,7 @@ class ContainernetBackend:
         _remove_stale_mn_containers(topology, info)
         _modprobe_aqm_modules(topology)
 
-        # No switches and therefore no controller: every link is a direct
-        # host↔host veth pair and routers do the forwarding.
+        # Linux bridges live inside Docker hosts; no OVS controller required.
         net = Containernet(controller=None)
         record = ContainernetRunRecord(
             run_id=run_id,
@@ -228,7 +226,10 @@ class ContainernetBackend:
                 node = net.get(nid)
                 for iface, ip_cidr in iface_ips:
                     node.cmd(f"ip link set {iface} up")
-                    node.cmd(f"ip addr replace {ip_cidr} dev {iface}")
+                    if ip_cidr:
+                        node.cmd(f"ip addr replace {ip_cidr} dev {iface}")
+                    else:
+                        node.cmd(f"ip addr flush dev {iface}")
 
             # Routes and shaping must exist before any moqx/pub/sub process
             # resolves and dials its peer.
@@ -266,14 +267,7 @@ class ContainernetBackend:
         info(f"*** moqlab containernet run_id={record.run_id}\n")
 
         edges = containernet_edge_interfaces(topology)
-        link_subnets = list(
-            ipaddress.ip_network(_LINK_SUBNET_POOL).subnets(new_prefix=24)
-        )
-        if len(edges) > len(link_subnets):
-            raise OrchestratorError(
-                f"topology has {len(edges)} links but link subnet pool "
-                f"{_LINK_SUBNET_POOL} only provides {len(link_subnets)} /24 subnets"
-            )
+        record.node_iface_ips, _ = addressed_links(topology, _LINK_SUBNET_POOL)
 
         for rid in relay_order(topology):
             cfg = relay_yaml_paths[rid].resolve()
@@ -295,6 +289,12 @@ class ContainernetBackend:
                 sysctls=dict(_ROUTER_SYSCTLS),
             )
             record.routers.append(rid)
+
+        for sid in topology.switches:
+            nodes[sid] = net.addDocker(
+                sid, dimage=topology.switch_image(sid),
+                sysctls=dict(_ENDPOINT_SYSCTLS),
+            )
 
         # No `dcmd` for publishers/subscribers: Containernet wipes the image
         # ENTRYPOINT at container create time, so passing argv flags here
@@ -343,30 +343,30 @@ class ContainernetBackend:
                 )
                 record.traffic_endpoints.append(endpoint.id)
 
-        # One /24 per link, direct host↔host veth pair, both sides addressed
-        # explicitly (multi-link nodes need one IP per interface, so we never
-        # rely on Containernet's auto-assignment).
-        subnet_iter = iter(link_subnets)
+        # Direct links and switched LANs have one subnet each. Bridge ports
+        # remain unnumbered; never rely on Containernet's auto-assignment.
+        interface_addresses = {
+            iface: address
+            for entries in record.node_iface_ips.values()
+            for iface, address in entries
+        }
         for edge in edges:
-            sub = next(subnet_iter)
-            a_ip = f"{sub.network_address + 1}/{sub.prefixlen}"
-            b_ip = f"{sub.network_address + 2}/{sub.prefixlen}"
+            a_ip = interface_addresses[edge.a_iface]
+            b_ip = interface_addresses[edge.b_iface]
 
             net.addLink(
                 nodes[edge.a],
                 nodes[edge.b],
                 intfName1=edge.a_iface,
                 intfName2=edge.b_iface,
-                params1={"ip": a_ip},
-                params2={"ip": b_ip},
+                params1={"ip": a_ip or None},
+                params2={"ip": b_ip or None},
             )
 
             record.edge_ips[(edge.a, edge.b)] = (
-                str(sub.network_address + 1),
-                str(sub.network_address + 2),
+                a_ip.split("/")[0],
+                b_ip.split("/")[0],
             )
-            record.node_iface_ips.setdefault(edge.a, []).append((edge.a_iface, a_ip))
-            record.node_iface_ips.setdefault(edge.b, []).append((edge.b_iface, b_ip))
 
     @staticmethod
     def _configure_network(
@@ -378,7 +378,16 @@ class ContainernetBackend:
         `_launch_node_binaries`, because moqx resolves and dials its upstream
         at startup.
         """
-        node_ids = all_node_ids(topology)
+        node_ids = list(record.loopback_ips)
+
+        for sid in topology.switches:
+            node = net.get(sid)
+            node.cmd("ip link add br0 type bridge stp_state 0")
+            for iface, _ in record.node_iface_ips[sid]:
+                node.cmd(f"ip addr flush dev {iface}")
+                node.cmd(f"ip link set {iface} master br0")
+                node.cmd(f"ip link set {iface} up")
+            node.cmd("ip link set br0 up")
 
         info("*** Assigning canonical /32 loopback addresses\n")
         for nid in node_ids:
@@ -400,12 +409,17 @@ class ContainernetBackend:
 
         info("*** Installing static /32 routes\n")
         edges = containernet_edge_interfaces(topology)
-        neighbor_addrs: dict[str, dict[str, tuple[str, str]]] = {}
-        for edge in edges:
-            a_ip, b_ip = record.edge_ips[(edge.a, edge.b)]
-            neighbor_addrs.setdefault(edge.a, {})[edge.b] = (b_ip, edge.a_iface)
-            neighbor_addrs.setdefault(edge.b, {})[edge.a] = (a_ip, edge.b_iface)
-        hops = next_hops(node_ids, [(edge.a, edge.b) for edge in edges])
+        if topology.switches:
+            _, neighbor_addrs = addressed_links(topology, _LINK_SUBNET_POOL)
+        else:
+            neighbor_addrs = {}
+            for edge in edges:
+                a_ip, b_ip = record.edge_ips[(edge.a, edge.b)]
+                neighbor_addrs.setdefault(edge.a, {})[edge.b] = (b_ip, edge.a_iface)
+                neighbor_addrs.setdefault(edge.b, {})[edge.a] = (a_ip, edge.b_iface)
+        hops = next_hops(node_ids, [
+            (node, peer) for node, peers in neighbor_addrs.items() for peer in peers
+        ])
         for nid in node_ids:
             node = net.get(nid)
             for cmd in route_commands(

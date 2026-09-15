@@ -125,6 +125,36 @@ def test_designer_schema_examples_validate_and_export_apis(designer_url: str) ->
     TopologyConfig.model_validate(yaml.safe_load(body))
 
 
+def test_designer_api_round_trips_switch_topology(designer_url: str) -> None:
+    config = {
+        **_valid_config(),
+        "routers": {"router": {}},
+        "switches": {"sw": {}},
+        "links": [
+            {"from": "relay-a", "to": "router"},
+            {"from": "router", "to": "sw"},
+        ],
+    }
+
+    status, _, body = _request(
+        designer_url,
+        "/api/designer/validate",
+        json.dumps(config).encode(),
+    )
+    assert status == 200
+    assert json.loads(body)["valid"] is True
+
+    status, _, body = _request(
+        designer_url,
+        "/api/designer/export",
+        json.dumps(config).encode(),
+    )
+    assert status == 200
+    exported = yaml.safe_load(body)
+    assert exported["switches"] == {"sw": {}}
+    TopologyConfig.model_validate(exported)
+
+
 def test_designer_api_reports_bad_and_invalid_input(designer_url: str) -> None:
     status, _, _ = _request(designer_url, "/api/designer/validate", b"not json")
     assert status == 400
@@ -174,20 +204,22 @@ def test_designer_assets_include_editor_controls_and_valid_javascript() -> None:
     assert 'id="add-load"' in html
     assert "Advanced routes" in html
     assert 'aria-label="Editable moqlab topology graph"' in html
-    assert "/api/designer/validate" in app.read_text()
-    assert 'selected = { kind: "link", index }' in app.read_text()
-    assert "function renderLinkItems" not in app.read_text()
-    assert "manifest.flowKinds" in app.read_text()
-    assert "event.button !== 0 || linkMode || routeBuild" in app.read_text()
-    assert 'event.target.closest?.(".node, .edge, .edge-hit")' in app.read_text()
-    assert 'group.addEventListener("contextmenu"' in app.read_text()
-    assert "linkStart = node.id" in app.read_text()
-    assert 'selected = { kind: "node", role: node.role, id: node.id }' in app.read_text()
-    assert "if (suppressGraphClick)" in app.read_text()
-    assert "function inheritedNodeValues" in app.read_text()
-    assert "function allocatePort" in app.read_text()
-    assert "function portCollisionErrors" in app.read_text()
-    assert '["publisher", "subscriber"].includes(role) ? ["kind"]' in app.read_text()
+    source = app.read_text()
+    assert "/api/designer/validate" in source
+    assert 'selected = { kind: "link", index }' in source
+    assert "function renderLinkItems" not in source
+    assert "manifest.flowKinds" in source
+    assert "event.button !== 0 || linkMode || routeBuild" in source
+    assert 'event.target.closest?.(".node, .edge, .edge-hit")' in source
+    assert 'group.addEventListener("contextmenu"' in source
+    assert "linkStart = node.id" in source
+    assert 'selected = { kind: "node", role: node.role, id: node.id }' in source
+    assert "if (suppressGraphClick)" in source
+    assert "function inheritedNodeValues" in source
+    assert "function allocatePort" in source
+    assert "function portCollisionErrors" in source
+    assert '["publisher", "subscriber"].includes(role) ? ["kind"]' in source
+    assert 'role === "switch" ? "switches" : `${role}s`' in source
     assert '"chrome-headless": "Chrome headless"' in app.read_text()
     assert '["media_client", ...(nativeSubscriber ? ["native_playback"] : [])]' in app.read_text()
     assert 'const bufferedSubscriber = role === "subscriber" && (!nativeSubscriber || simulatedNative)' in app.read_text()

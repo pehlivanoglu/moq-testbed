@@ -1,0 +1,18 @@
+topology_mode: explicit
+relays:
+  relay: { listen_port: 9668, admin_port: 9669 }
+routers:
+  router: { aqm: dualpi2 }
+traffic:
+  sender: { id: traffic-tx }
+  receiver: { id: traffic-rx }
+  routes:
+    main: { path: [traffic-tx, router, traffic-rx] }
+  flows:
+    - { id: bulk, kind: bulk, route: main, duration_s: 30, connections: 2 }
+links:
+  - { from: relay, to: router }
+  - { from: traffic-tx, to: router }
+  - from: router
+    to: traffic-rx
+    forward: { bandwidth_mbps: 10 }

@@ -122,6 +122,8 @@ def topology_snapshot(topology: TopologyConfig) -> dict[str, object]:
                 "aqm": router.aqm.value if router.aqm else None,
             }
         )
+    for sid in topology.switches:
+        nodes.append({"id": sid, "role": "switch", "level": _level(sid, 2)})
     for pid, publisher in topology.publishers.items():
         nodes.append(
             {
@@ -200,6 +202,7 @@ def topology_snapshot(topology: TopologyConfig) -> dict[str, object]:
         "summary": {
             "relays": len(topology.relays),
             "routers": len(topology.routers),
+            **({"switches": len(topology.switches)} if topology.switches else {}),
             "publishers": len(topology.publishers),
             "subscribers": len(topology.subscribers),
             "links": len(links),

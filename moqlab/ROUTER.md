@@ -7,7 +7,8 @@ direction sketch; the design below is implemented.
 ## Model
 
 The Containernet backend builds exactly what `links:` declares. Every link is
-one direct host↔host veth pair — there are no switches. Routers are declared
+one direct host↔host veth pair. Optional `switches:` join ports into Linux
+bridges for shared LANs. Routers are declared
 in `routers:` and are ordinary Docker hosts (image `moqlab-router`) with IP
 forwarding enabled; they run no MoQ binary. CDN relays, publishers, and
 subscribers stay application containers.
@@ -134,8 +135,99 @@ Two different meanings of routing in this testbed:
 
 ## ECN end-to-end
 
+### Shared bottleneck with one router
+
+`configs/examples/ex.yaml` uses `relay -> router -> switch -> subscribers`.
+Declare `switches: { switch: {} }` and connect the router to the switch, then
+the switch to each subscriber. Subscribers still `connects_to: relay`.
+The switch runs an unmanaged Linux bridge (`br0`) inside the existing router
+image; override its `image` if needed. It has no routed IP or router AQM.
+
+The example's shared HTB -> DualPI2 chain is on `router-eth1`. Start
+uncongested, then edit the router-to-switch forward bandwidth in the
+visualizer, or run:
+
+```bash
+docker exec mn.router tc class change dev router-eth1 parent 5: classid 5:1 htb rate 4mbit ceil 4mbit burst 15k quantum 1500
+docker exec mn.router tc -s qdisc show dev router-eth1
+```
+
+4 Mbps is aggregate capacity shared by all subscribers. Choose a rate below
+aggregate offered traffic to induce marking; excessive restriction causes
+loss. Restore `10000mbit` and check fresh per-client CE deltas decay while
+traffic continues. Lifetime CE counts do not reset.
+
+Bridge ports stay unnumbered. Connected switches form one /24 LAN, with
+unique addresses on attached IP nodes and unchanged canonical /32 identities.
+Routes skip bridges as next hops. Switch chains are supported; Layer 2 loops
+and duplicate node attachments to one LAN are rejected because STP is off.
+Each LAN supports 254 IP ports. Explicit external-traffic paths still require
+router intermediates. Switch topologies require Containernet.
+
+### Bandwidth, latency and jitter placement
+
+Set aggregate downstream bandwidth on `router -> switch` **forward**.
+Keep that interface's chain HTB -> DualPI2. For individual client delay,
+set netem on `switch -> subscriber` forward and/or reverse:
+
+```yaml
+- from: router
+  to: switch
+  forward: { bandwidth_mbps: 4 }
+- from: switch
+  to: sub-r
+  forward: { delay_ms: 10, jitter_ms: 2 }
+  reverse: { delay_ms: 10, jitter_ms: 2 }
+```
+
+Here forward delay runs on the switch output to `sub-r`; reverse delay runs
+on `sub-r`'s output to the switch. This adds about 20 ms mean RTT, with jitter
+in both directions. Repeat for other subscribers if their paths need delay.
+Optional bandwidth on a subscriber link adds a separate per-client bottleneck;
+omit it when testing only shared congestion.
+
+For common propagation delay before fan-out, use relay -> router forward
+(relay egress) and switch -> router (the reverse of router -> switch) instead.
+This keeps netem off the downstream shared AQM output. Do not duplicate delay
+on common and per-client links unless their sum is intended.
+
+Set `delay_ms: 0` and `jitter_ms: 0` on the desired directions before launch
+if you want live visualizer edits starting from zero. Live edits change values
+in place; adding a new netem layer after startup is intentionally rejected.
+
+Run the optional real bridge/routing/AQM check from `moqlab/`:
+
+```bash
+MOQLAB_INTEGRATION=1 .venv/bin/python -m pytest -q tests/integration/test_switch_bridge.py
+```
+
+It requires Docker, the router/relay/native media images and host `sch_dualpi2`.
+Temporary privileged containers execute actual backend commands. The `icmp`
+case verifies shared-queue CE marking; `native-quic` starts `ex.yaml`'s native
+media processes, checks fresh ECT(1) increments, CE feedback on every subscriber,
+and recovery with unchanged connection IDs and zero recent CE/loss.
+Per-phase JSON and process logs are retained in pytest's temporary directory.
+Use `-k icmp` or `-k native` to run one case. This exercises backend wiring and
+launch commands through a Docker adapter; it does not exercise Mininet's CLI.
+
+Native test capacity uses aggregate wire throughput measured over 12 seconds,
+with average-rate headroom so frame bursts induce CE. A single instantaneous
+ACK-rate sample can underestimate offered traffic and cause severe overload.
+Successful CE feedback alone does not establish healthy congestion control;
+check freshness, loss, media progress and recovery too.
+
+Validation on 2026-09-14: all 211 unit tests passed after restoring the two
+missing example fixtures. Native QUIC test passed using three subscribers:
+3.136 Mbps measured baseline, 3.920 Mbps shared capacity, and 985–1053 recent
+CE marks per subscriber under frame bursts. The same connection IDs remained
+fresh; 15 seconds after restoring capacity, recent CE and loss were zero and
+ECT(1) continued increasing. Congestion included retransmissions; this result
+does not establish loss-free operation. A stronger initial restriction caused
+stale samples, so its run was rejected rather than counted as recovery evidence.
+
 The testbed plumbing (dualpi2 marking CE at the bottleneck) is necessary but
 not sufficient for L4S results: the QUIC transport must send ECT(1) and react
 to CE. Set `l4s_ce_target` to a value in `(0, 1)` on a relay to enable mvfst
 L4S ECN for connections accepted by that relay; omitting it leaves ECN
-disabled. Transport-level ECN counters are not yet exported by moqx.
+disabled. Transport ECN counters are exported at `/network-metrics`, with
+recent values in each client's `window` object.

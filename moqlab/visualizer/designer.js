@@ -46,6 +46,7 @@ function blankDraft() {
     publishers: {},
     subscribers: {},
     routers: {},
+    switches: {},
     links: [],
   };
 }
@@ -141,6 +142,7 @@ function inheritedNodeValues(role, config) {
   const defaults = effectiveDefaults();
   if (role === "relay") return defaults.relay;
   if (role === "router") return defaults.router;
+  if (role === "switch") return { image: defaults.router.image };
   if (role === "publisher") {
     return {
       image: defaults.publisher.image,
@@ -313,7 +315,7 @@ function renderField(name, rawSchema, current, required, onChange, inherited) {
 
 function allNodes() {
   const nodes = [];
-  for (const [role, property] of [["relay", "relays"], ["router", "routers"], ["publisher", "publishers"], ["subscriber", "subscribers"]]) {
+  for (const [role, property] of [["relay", "relays"], ["router", "routers"], ["switch", "switches"], ["publisher", "publishers"], ["subscriber", "subscribers"]]) {
     for (const id of Object.keys(draft[property] || {})) nodes.push({ id, role });
   }
   for (const endpoint of ["sender", "receiver"]) {
@@ -420,6 +422,7 @@ function nodeDefaults(role) {
     };
   }
   if (role === "router") return { id: nextId("router"), config: { image: defaults.router.image } };
+  if (role === "switch") return { id: nextId("switch"), config: { image: defaults.router.image } };
   if (role === "publisher") {
     return {
       id: nextId("pub"),
@@ -469,7 +472,7 @@ function addNode(role, point) {
       draft.traffic ||= { routes: {}, flows: [] };
       draft.traffic[endpoint] = { id: value.id };
     } else {
-      const property = `${role}s`;
+      const property = propertyForRole(role);
       draft[property] ||= {};
       draft[property][value.id] = value.config;
     }
@@ -484,7 +487,7 @@ function nextCanvasPosition() {
 }
 
 function propertyForRole(role) {
-  return `${role}s`;
+  return role === "switch" ? "switches" : `${role}s`;
 }
 
 function nodeConfig(role, id) {
@@ -816,7 +819,7 @@ function addTrafficLoad() {
 
 function autoLayout(pushHistory = true) {
   const action = () => {
-    const groups = { publisher: 0, "traffic-sender": 0, relay: 1, router: 2, subscriber: 3, "traffic-receiver": 3 };
+    const groups = { publisher: 0, "traffic-sender": 0, relay: 1, router: 2, switch: 3, subscriber: 4, "traffic-receiver": 4 };
     const rows = new Map();
     for (const node of allNodes()) {
       const column = groups[node.role] ?? 1;
@@ -1105,7 +1108,7 @@ function renderNodeInspector() {
     ? ["asset", "listen_port", "fingerprint_port"]
     : role === "subscriber"
       ? ["namespace", "track", "media_client", ...(nativeSubscriber ? ["native_playback"] : []), ...(bufferedSubscriber ? ["minimal_buffer_ms", "target_latency_ms"] : [])]
-      : role === "router" ? ["aqm"] : ["kind", "namespace", "track"];
+      : role === "router" ? ["aqm"] : role === "switch" ? ["image"] : ["kind", "namespace", "track"];
   renderObjectEditor(editor, nodeDefinition(role), config, (next) => commit(() => {
     if (role.startsWith("traffic-")) draft.traffic[role.slice(8)] = next;
     else draft[propertyForRole(role)][id] = normalizedNodeConfig(role, next);
@@ -1367,13 +1370,14 @@ function renderSummary() {
   const parts = [
     `${Object.keys(draft.relays || {}).length} relays`,
     `${Object.keys(draft.routers || {}).length} routers`,
+    `${Object.keys(draft.switches || {}).length} switches`,
     `${Object.keys(draft.publishers || {}).length} publishers`,
     `${Object.keys(draft.subscribers || {}).length} subscribers`,
     `${(draft.links || []).length} links`,
   ];
   summaryEl.textContent = parts.join(", ");
   const shaped = (draft.links || []).some((link) => [link.forward, link.reverse].some((value) => value && Object.values(value).some((field) => field !== null && field !== undefined)));
-  const containernet = Object.keys(draft.routers || {}).length || draft.traffic || shaped;
+  const containernet = Object.keys(draft.routers || {}).length || Object.keys(draft.switches || {}).length || draft.traffic || shaped;
   backendBadge.textContent = containernet ? "Containernet required" : "Docker compatible";
   backendBadge.classList.toggle("containernet", Boolean(containernet));
 }

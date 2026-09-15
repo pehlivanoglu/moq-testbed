@@ -76,6 +76,7 @@ aside section { border-bottom: 1px solid #e3e8ea; padding: 0 0 14px; margin-bott
 .node .role { fill: #586970; font-size: 11px; }
 .node.relay circle { fill: #24343b; }
 .node.router circle { fill: #5a8f5d; }
+.node.switch circle { fill: #408b92; }
 .node.publisher circle { fill: #2f7dd1; }
 .node.subscriber circle { fill: #d08b2f; }
 .node.traffic-sender circle, .node.traffic-receiver circle { fill: #f6c453; }

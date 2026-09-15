@@ -37,38 +37,42 @@ subscribers:
     connects_to: relay
     namespace: msf/clear
     track: video/s2
+    image: moqlab-media-native-sub
+    log_level: INFO
+    media_client: native
+    native_playback: receive
+  sub:
+    kind: media
+    connects_to: relay
+    namespace: msf/clear
+    track: video/s2
     image: moqlab-media-sub
     log_level: INFO
     media_client: chrome
     minimal_buffer_ms: 200
     target_latency_ms: 300
-  sub-2:
-    kind: media
-    connects_to: relay
-    namespace: msf/clear
-    track: video/s2
-    image: moqlab-media-native-sub
-    log_level: INFO
-    media_client: native
-    native_playback: receive
 routers:
   router:
     image: moqlab-router
     aqm: dualpi2
+switches:
+  switch:
+    image: moqlab-router
 links:
 - from: relay
   to: pub
 - from: relay
   to: router
 - from: router
-  to: sub-r
+  to: switch
   forward:
     bandwidth_mbps: 10000
-    loss_pct: 0
-- from: sub-2
-  to: relay
-- from: sub-1
-  to: router
+- from: switch
+  to: sub-r
+- from: switch
+  to: sub-1
+- from: switch
+  to: sub
 defaults:
   relay:
     image: moqlab-relay

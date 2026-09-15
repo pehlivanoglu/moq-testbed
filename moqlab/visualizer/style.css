@@ -153,6 +153,8 @@ main {
   fill: #d08b2f;
 }
 
+.switch circle { fill: #408b92; }
+
 .router circle {
   fill: #5a8f5d;
 }

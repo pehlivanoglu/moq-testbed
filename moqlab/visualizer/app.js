@@ -456,7 +456,7 @@ function draw(data) {
     const role = document.createElementNS("http://www.w3.org/2000/svg", "text");
     role.setAttribute("class", "role");
     role.setAttribute("y", "70");
-    role.textContent = `${node.role} · ${node.media_client || "media"}`;
+    role.textContent = node.media_client ? `${node.role} · ${node.media_client}` : node.role;
     group.append(role);
 
     nodeLayer.append(group);
@@ -483,7 +483,7 @@ function draw(data) {
   }
 
   const s = data.summary;
-  summary.textContent = `${s.relays} relays, ${s.routers} routers, ${s.publishers} publishers, ${s.subscribers} subscribers${s.traffic_endpoints ? `, ${s.traffic_endpoints} traffic endpoints` : ""}, ${s.links} links`;
+  summary.textContent = `${s.relays} relays, ${s.routers} routers${s.switches ? `, ${s.switches} switches` : ""}, ${s.publishers} publishers, ${s.subscribers} subscribers${s.traffic_endpoints ? `, ${s.traffic_endpoints} traffic endpoints` : ""}, ${s.links} links`;
   updated.textContent = `Updated ${new Date(data.sampled_at_unix_s * 1000).toLocaleTimeString()}`;
 }
 

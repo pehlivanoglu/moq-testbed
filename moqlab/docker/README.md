@@ -8,7 +8,7 @@ defined in YAML under [../configs/](../configs/) and brought up with
 | File | Image | Binary | Used by |
 |---|---|---|---|
 | `Dockerfile.relay` | `moqlab-relay` | `/usr/local/bin/moqx` | Every `relays:` entry |
-| `Dockerfile.router` | `moqlab-router` | none (IP forwarding + tc only) | Every `routers:` entry |
+| `Dockerfile.router` | `moqlab-router` | none (IP forwarding, bridge, tc) | Routers and default switch image |
 | `Dockerfile.traffic` | `moqlab-traffic` | Python stdlib traffic runtime | Optional sender + receiver |
 | `Dockerfile.media-pub` | `moqlab-media-pub` | `/usr/local/bin/mlmpub` | Every publisher |
 | `Dockerfile.media-sub` | `moqlab-media-sub` | Chromium + WARP Player runner | Chrome subscribers |
@@ -19,6 +19,10 @@ a pinned modern iproute2 from source (multi-stage) because distro tc is too
 old to know L4S AQMs like `dualpi2`, and ships `ethtool`, `tcpdump`, and
 `ping` for in-path debugging. The build fails if the compiled tc does not
 recognize `dualpi2`.
+
+Switch containers reuse this image for an unmanaged Linux bridge (`br0`).
+No separate switch image or Open vSwitch dependency is required. Shaping and
+DualPI2 for shared subscriber congestion stay on the router-to-switch output.
 
 The relay image expects its config bind-mounted at `/etc/moqx/relay.yaml`. The
 orchestrator synthesizes that file from the topology config at run time.

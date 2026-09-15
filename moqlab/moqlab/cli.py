@@ -240,6 +240,7 @@ def validate(config: Path) -> None:
     click.echo(
         f"  relays={len(topology.relays)} "
         f"routers={len(topology.routers)} "
+        f"switches={len(topology.switches)} "
         f"publishers={len(topology.publishers)} "
         f"subscribers={len(topology.subscribers)} "
         f"traffic_endpoints={2 if topology.traffic is not None else 0} "
@@ -253,6 +254,8 @@ def validate(config: Path) -> None:
         )
     for rid in topology.routers:
         click.echo(f"  router     {rid:14}  image={topology.router_image(rid)}")
+    for sid in topology.switches:
+        click.echo(f"  switch     {sid:14}  image={topology.switch_image(sid)}")
     for pid, p in topology.publishers.items():
         click.echo(f"  publisher  {pid:14}  -> {p.connects_to}  asset={p.asset}")
     for sid, s in topology.subscribers.items():

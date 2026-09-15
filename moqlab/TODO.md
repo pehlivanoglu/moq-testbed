@@ -19,6 +19,13 @@ cut from current versions, not bugs or oversights.
 
 ## Now-Shippable Cleanups
 
+- [x] Add unmanaged Linux bridge switches, shared-LAN addressing, designer
+      support, and one-router shared DualPI2 example. See `ROUTER.md`.
+- [x] Restore `linear_3r_1s.yaml` and `external_traffic.yaml` examples used by
+      schema and designer API tests.
+- [ ] Extend explicit external-traffic route selection through switches;
+      those named paths currently require router intermediates.
+
 - [x] Add one external traffic sender and one receiver with explicit named
       router paths, bulk TCP, paced CBR UDP, scripted segmented TCP, resolved
       plans, and JSONL runtime logs.

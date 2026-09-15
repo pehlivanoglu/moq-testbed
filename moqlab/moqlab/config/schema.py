@@ -186,6 +186,12 @@ class RouterConfig(_StrictBase):
     aqm: AqmKind | None = None
 
 
+class SwitchConfig(_StrictBase):
+    """Unmanaged Linux bridge; image defaults to the router image."""
+
+    image: str | None = None
+
+
 class TrafficEndpointConfig(_StrictBase):
     id: str
     image: str | None = None
@@ -374,6 +380,7 @@ class TopologyConfig(_StrictBase):
     publishers: dict[str, PublisherConfig] = Field(default_factory=dict)
     subscribers: dict[str, SubscriberConfig] = Field(default_factory=dict)
     routers: dict[str, RouterConfig] = Field(default_factory=dict)
+    switches: dict[str, SwitchConfig] = Field(default_factory=dict)
     traffic: TrafficConfig | None = None
     links: list[LinkSpec] = Field(default_factory=list)
 
@@ -404,6 +411,7 @@ class TopologyConfig(_StrictBase):
             ("publisher", self.publishers),
             ("subscriber", self.subscribers),
             ("router", self.routers),
+            ("switch", self.switches),
         ):
             for nid in group:
                 if not _NODE_ID_RE.match(nid):
@@ -568,6 +576,32 @@ class TopologyConfig(_StrictBase):
             if rid not in linked_nodes:
                 raise ValueError(f"router {rid!r} does not appear in any link")
 
+        # Bridges use no STP: reject loops and duplicate attachments to one LAN.
+        switch_parent = {sid: sid for sid in self.switches}
+
+        def switch_root(sid: str) -> str:
+            while switch_parent[sid] != sid:
+                sid = switch_parent[sid]
+            return sid
+
+        for sid in self.switches:
+            if sid not in linked_nodes:
+                raise ValueError(f"switch {sid!r} does not appear in any link")
+        for link in self.links:
+            if link.from_ in self.switches and link.to in self.switches:
+                a, b = switch_root(link.from_), switch_root(link.to)
+                if a == b:
+                    raise ValueError("switch links must not contain a Layer 2 loop")
+                switch_parent[a] = b
+        attachments: set[tuple[str, str]] = set()
+        for link in self.links:
+            for node, peer in ((link.from_, link.to), (link.to, link.from_)):
+                if node not in self.switches and peer in self.switches:
+                    key = (node, switch_root(peer))
+                    if key in attachments:
+                        raise ValueError(f"node {node!r} has multiple ports on the same switched LAN")
+                    attachments.add(key)
+
         if self.traffic is not None:
             sender = self.traffic.sender.id
             receiver = self.traffic.receiver.id
@@ -597,7 +631,7 @@ class TopologyConfig(_StrictBase):
         # links nor routers are declared: Docker-backend configs need no
         # wiring, and the Containernet backend separately refuses to run
         # without links.
-        if self.links or self.routers:
+        if self.links or self.routers or self.switches:
             app_edges: set[tuple[str, str]] = set()
             for rid, relay in self.relays.items():
                 if relay.upstream is not None:
@@ -641,6 +675,9 @@ class TopologyConfig(_StrictBase):
 
     def relay_image(self, rid: str) -> str:
         return self.relays[rid].image or self.defaults.relay.image
+
+    def switch_image(self, sid: str) -> str:
+        return self.switches[sid].image or self.defaults.router.image
 
     def relay_endpoint(self, rid: str) -> str:
         return self.relays[rid].endpoint or self.defaults.relay.endpoint
