@@ -199,7 +199,7 @@ subscribers:
   sub:     { connects_to: relay-c, namespace: moq-date, track: date }
 
 routers:                     # Containernet only; Docker backend refuses
-  rt-ab: { aqm: dualpi2 }    # AQM applies to every rt-ab egress
+  rt-ab: { aqm: dualpi2, dualpi2_target_ms: 15 } # applies to every egress
   rt-bc: { aqm: dualpi2 }
 
 traffic:                     # optional; exactly one sender + one receiver
@@ -229,14 +229,16 @@ links:                       # Containernet only; physical wiring + shaping
   # ... rt-bc, relay-c, sub follow the same pattern
 ```
 
-Set `l4s_ce_target: 0.05` on a relay to make its mvfst listener send ECT(1)
-and react to CE feedback. Omit it to leave ECN disabled. This affects
-connections accepted by that relay, such as relay-to-subscriber traffic.
+Set `l4s_ce_target: 0.05` on a relay to make its mvfst listener send ECT(1),
+validate ECN feedback, and track CE weight. Omit it to leave ECN disabled.
+Current generated configs retain moqx's BBR default, while pinned mvfst's
+L4S CE response is Cubic-only; see [ROUTER.md](ROUTER.md#ecn-end-to-end).
 
 Per direction (`forward` = from→to, `reverse` = to→from) you can set
 `bandwidth_mbps` (HTB rate) and `delay_ms` / `jitter_ms` / `loss_pct`
 (netem). Set `aqm` (currently `dualpi2`) on a router; it applies to every
-egress interface owned by that router. See [ROUTER.md](ROUTER.md).
+egress interface owned by that router. Optional `dualpi2_target_ms` overrides
+DualPI2's 15 ms PI2 target. See [ROUTER.md](ROUTER.md).
 
 Invariants the schema enforces:
 
@@ -251,6 +253,7 @@ Invariants the schema enforces:
 | Each undirected link appears at most once | Prevents accidental double-shaping. |
 | When `links:`/`routers:` are declared, every `upstream`/`connects_to` pair must have a path through the link graph | A relay that cannot reach its upstream would only fail at run time. |
 | `aqm` belongs to a router and applies to all its egress links | Keeps queue policy on the node that owns those interfaces. |
+| `dualpi2_target_ms > 0` requires `aqm: dualpi2` | Keeps AQM-specific tuning explicit and valid. |
 | Every declared router appears in at least one link | An unwired router is a config bug. |
 | Traffic paths start at sender, end at receiver, use routers internally, and follow declared links | Makes selected routes explicit and reproducible. |
 | `jitter_ms` requires `delay_ms` | netem expresses jitter as a variation of delay. |

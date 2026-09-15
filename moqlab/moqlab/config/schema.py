@@ -184,6 +184,13 @@ class RouterConfig(_StrictBase):
 
     image: str | None = None
     aqm: AqmKind | None = None
+    dualpi2_target_ms: float | None = Field(default=None, gt=0)
+
+    @model_validator(mode="after")
+    def _check_aqm_parameters(self) -> "RouterConfig":
+        if self.dualpi2_target_ms is not None and self.aqm != AqmKind.dualpi2:
+            raise ValueError("dualpi2_target_ms requires aqm: dualpi2")
+        return self
 
 
 class SwitchConfig(_StrictBase):

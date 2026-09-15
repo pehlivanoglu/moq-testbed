@@ -55,6 +55,7 @@ routers:
   router:
     image: moqlab-router
     aqm: dualpi2
+    dualpi2_target_ms: 15
 switches:
   switch:
     image: moqlab-router
@@ -69,10 +70,16 @@ links:
     bandwidth_mbps: 10000
 - from: switch
   to: sub-r
+  forward: {delay_ms: 0, jitter_ms: 0, loss_pct: 0}
+  reverse: {delay_ms: 0, jitter_ms: 0, loss_pct: 0}
 - from: switch
   to: sub-1
+  forward: {delay_ms: 0, jitter_ms: 0, loss_pct: 0}
+  reverse: {delay_ms: 0, jitter_ms: 0, loss_pct: 0}
 - from: switch
   to: sub
+  forward: {delay_ms: 0, jitter_ms: 0, loss_pct: 0}
+  reverse: {delay_ms: 0, jitter_ms: 0, loss_pct: 0}
 defaults:
   relay:
     image: moqlab-relay

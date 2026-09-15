@@ -56,8 +56,8 @@ def test_rate_plus_netem_chains_netem_under_htb():
 
 def test_rate_plus_aqm_chains_aqm_under_htb():
     spec = DirectionSpec(bandwidth_mbps=20)
-    cmds = shaping_commands("r1-eth0", spec, AqmKind.dualpi2)
-    assert cmds[2] == "tc qdisc add dev r1-eth0 parent 5:1 handle 20: dualpi2"
+    cmds = shaping_commands("r1-eth0", spec, AqmKind.dualpi2, 8)
+    assert cmds[2] == "tc qdisc add dev r1-eth0 parent 5:1 handle 20: dualpi2 target 8ms"
 
 
 def test_full_chain_uses_netem_child_slot_for_aqm():

@@ -86,6 +86,12 @@ function renderNodeDetails(node) {
     .filter(Boolean).join(" · ");
   nodeDetails.append(name, identity);
   if (node.role === "router") {
+    if (node.aqm === "dualpi2") {
+      const target = document.createElement("p");
+      target.className = "muted";
+      target.textContent = `DualPI2 target: ${node.dualpi2_target_ms ?? 15} ms${node.dualpi2_target_ms == null ? " (kernel default)" : ""}`;
+      nodeDetails.append(target);
+    }
     nodeDetails.append(routerAqmEditor(node));
     return;
   }

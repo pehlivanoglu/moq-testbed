@@ -184,7 +184,7 @@ subscribers:
   sub: { connects_to: relay-b, namespace: msf/clear, track: video/s2 }
 
 routers:
-  rt-1: { aqm: dualpi2 }
+  rt-1: { aqm: dualpi2, dualpi2_target_ms: 15 }
 
 traffic:
   sender: { id: traffic-tx }
@@ -228,6 +228,7 @@ Implemented invariants:
 - When `links`/`routers` are declared, every `upstream`/`connects_to` pair
   must be connected through the link graph.
 - `aqm` is configured on a router and applies to all its egress interfaces;
+  optional positive `dualpi2_target_ms` requires `aqm: dualpi2`;
   every declared router must appear in at least one link; `jitter_ms` requires
   `delay_ms`.
 - Unknown fields are rejected.

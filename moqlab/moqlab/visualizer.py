@@ -120,6 +120,7 @@ def topology_snapshot(topology: TopologyConfig) -> dict[str, object]:
                 "role": "router",
                 "level": _level(rid, 1),
                 "aqm": router.aqm.value if router.aqm else None,
+                "dualpi2_target_ms": router.dualpi2_target_ms,
             }
         )
     for sid in topology.switches:

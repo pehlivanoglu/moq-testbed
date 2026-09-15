@@ -34,6 +34,7 @@ def test_browser_assets_live_outside_python_package():
     assert 'method: "PUT"' in app
     assert app.count("nodeDetails.replaceChildren()") == 2
     assert 'node.media_client ? `${node.role} · ${node.media_client}` : node.role' in app
+    assert "DualPI2 target:" in app
 
 
 def test_response_write_ignores_broken_pipe():
@@ -169,7 +170,9 @@ def test_topology_snapshot_places_router_between_endpoints():
             "subscribers": {
                 "sub": {"connects_to": "relay-a", "namespace": "n", "track": "t"}
             },
-            "routers": {"rt-1": {"aqm": "dualpi2"}},
+            "routers": {
+                "rt-1": {"aqm": "dualpi2", "dualpi2_target_ms": 8}
+            },
             "links": [
                 {"from": "pub", "to": "relay-a"},
                 {"from": "relay-a", "to": "rt-1"},
@@ -191,6 +194,7 @@ def test_topology_snapshot_places_router_between_endpoints():
     assert levels["pub"] < levels["relay-a"] < levels["rt-1"] < levels["sub"]
     router = next(node for node in snapshot["nodes"] if node["id"] == "rt-1")
     assert router["aqm"] == "dualpi2"
+    assert router["dualpi2_target_ms"] == 8
 
 
 def test_media_snapshot_includes_chrome_mode():

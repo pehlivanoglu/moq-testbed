@@ -462,8 +462,10 @@ class ContainernetBackend:
                 (edge.b, edge.b_iface, link.reverse),
             ):
                 node = net.get(nid)
-                aqm = topology.routers[nid].aqm if nid in topology.routers else None
-                for cmd in shaping_commands(iface, spec, aqm):
+                router = topology.routers.get(nid)
+                aqm = router.aqm if router else None
+                target = router.dualpi2_target_ms if router else None
+                for cmd in shaping_commands(iface, spec, aqm, target):
                     out = node.cmd(cmd)
                     if out and out.strip():
                         _log.warning("%s: %r printed: %s", nid, cmd, out.strip())
@@ -724,7 +726,9 @@ def apply_live_router_aqm(
                 iface, spec = edge.b_iface, link.reverse
             else:
                 continue
-            commands = shaping_commands(iface, spec, value)
+            commands = shaping_commands(
+                iface, spec, value, topology.routers[router_id].dualpi2_target_ms
+            )
             if not commands:
                 commands = [f"tc qdisc del dev {iface} root"]
             for command in commands:

@@ -15,7 +15,7 @@ subscribers stay application containers.
 
 ```text
 node-a ── rt-1 ── node-b
-          └── [HTB rate → netem → AQM] on rt-1's egress
+          └── [HTB rate → AQM] on bottleneck egress
 ```
 
 The router owns the bottleneck queue. That separation is the point: relays
@@ -65,8 +65,10 @@ always readable: htb `5:`/class `5:1`, netem `10:`, AQM `20:`.
 | `aqm` only | root AQM |
 | netem + `aqm` | netem → AQM |
 
-netem gets an explicit large `limit` so its default 1000-packet queue never
-becomes the real bottleneck ahead of the AQM.
+netem gets an explicit large `limit` so its default 1000-packet limit does not
+cause unintended loss. This does not make a combined htb → netem → AQM chain
+a faithful bottleneck: netem holds delayed packets before feeding its child,
+so the AQM does not own the full backlog.
 
 `defaults.link.forward` / `defaults.link.reverse` supply per-direction fields
 that every link inherits, so each `links:` entry states only what differs.
@@ -86,13 +88,16 @@ Three states, not two — `null` is not `0`:
 `null` is what a bottleneck link uses to drop inherited delay and keep its
 router-owned chain at htb → AQM.
 
-Caveat: in the htb → netem → AQM chain the delay sits upstream of the AQM on
-the same interface. For the cleanest L4S experiments, put propagation delay
-on the endpoint sides of links and the rate+AQM bottleneck on the router
-egress — the shipped examples follow that pattern.
+Caveat: htb → netem → AQM is valid tc syntax but unsuitable for clean AQM
+experiments. Put propagation netem on a separate, non-AQM egress and keep the
+rate+AQM bottleneck at htb → AQM. The shipped shared-bottleneck example puts
+zero-valued, live-editable netem on each switch↔subscriber direction.
 
 `aqm` (currently `dualpi2`) is configured once on a router and applies to all
-its egress interfaces. This is also an iproute2-version constraint:
+its egress interfaces. Optional `dualpi2_target_ms` overrides the kernel's
+15 ms PI2 target; it must be positive and requires `aqm: dualpi2`. This is the
+Classic PI2 target, not the L-queue's default 1 ms step threshold and not
+mvfst's sender-side `l4s_ce_target`. This is also an iproute2-version constraint:
 endpoint images ship distro iproute2, while `Dockerfile.router` builds a
 pinned modern iproute2 whose tc knows dualpi2. The kernel side
 (`sch_dualpi2`) comes from the host kernel; the backend runs `modprobe`
@@ -113,7 +118,8 @@ AQM state. A live edit that would add or remove HTB/netem is rejected because
 changing the qdisc hierarchy would flush queued packets. Preconfigure both a
 bandwidth and a zero-valued netem field when they must remain editable, e.g.
 `bandwidth_mbps: 100` plus `loss_pct: 0`; delay and jitter can then be changed
-without rebuilding the hierarchy. Runtime changes do not rewrite YAML. Direct
+without rebuilding the hierarchy. Do this only on non-AQM links; keep netem
+off a shared htb → DualPI2 bottleneck. Runtime changes do not rewrite YAML. Direct
 `tc` inspection remains available, e.g.:
 
 ```bash
@@ -157,6 +163,10 @@ aggregate offered traffic to induce marking; excessive restriction causes
 loss. Restore `10000mbit` and check fresh per-client CE deltas decay while
 traffic continues. Lifetime CE counts do not reset.
 
+The router declares `dualpi2_target_ms: 15` explicitly. Change it in YAML to
+test another PI2 target. The designer exposes this field; the live visualizer
+does not yet change it in place.
+
 Bridge ports stay unnumbered. Connected switches form one /24 LAN, with
 unique addresses on attached IP nodes and unchanged canonical /32 identities.
 Routes skip bridges as next hops. Switch chains are supported; Layer 2 loops
@@ -191,9 +201,10 @@ For common propagation delay before fan-out, use relay -> router forward
 This keeps netem off the downstream shared AQM output. Do not duplicate delay
 on common and per-client links unless their sum is intended.
 
-Set `delay_ms: 0` and `jitter_ms: 0` on the desired directions before launch
-if you want live visualizer edits starting from zero. Live edits change values
-in place; adding a new netem layer after startup is intentionally rejected.
+`ex.yaml` sets `delay_ms: 0`, `jitter_ms: 0`, and `loss_pct: 0` on both
+directions of every switch↔subscriber link. Change those values live without
+rebuilding qdiscs. `null` means no netem exists; changing the last null netem
+field to zero or back would alter the hierarchy and is intentionally rejected.
 
 Run the optional real bridge/routing/AQM check from `moqlab/`:
 
@@ -225,9 +236,15 @@ ECT(1) continued increasing. Congestion included retransmissions; this result
 does not establish loss-free operation. A stronger initial restriction caused
 stale samples, so its run was rejected rather than counted as recovery evidence.
 
-The testbed plumbing (dualpi2 marking CE at the bottleneck) is necessary but
+The testbed plumbing (DualPI2 marking CE at the bottleneck) is necessary but
 not sufficient for L4S results: the QUIC transport must send ECT(1) and react
 to CE. Set `l4s_ce_target` to a value in `(0, 1)` on a relay to enable mvfst
 L4S ECN for connections accepted by that relay; omitting it leaves ECN
-disabled. Transport ECN counters are exported at `/network-metrics`, with
-recent values in each client's `window` object.
+disabled. Current moqlab synthesis does not expose `quic.cc_algo`, so moqx
+keeps its BBR default. In the pinned mvfst source, L4S weight/target congestion
+response is implemented by Cubic, not BBR. Current tests therefore prove
+ECT(1), validation, CE feedback, and recovery after capacity restoration—not
+a CE-driven scalable congestion response. Expose compatible CC selection and
+test CE-driven response before claiming full L4S behavior. Transport ECN
+counters are exported at `/network-metrics`, with recent values in each
+client's `window` object.

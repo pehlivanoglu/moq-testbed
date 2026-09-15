@@ -102,7 +102,9 @@ def _routed_topology() -> TopologyConfig:
             "subscribers": {
                 "sub": {"connects_to": "relay-a", "namespace": "msf/clear", "track": "video/s2"}
             },
-            "routers": {"rt-1": {"aqm": "dualpi2"}},
+            "routers": {
+                "rt-1": {"aqm": "dualpi2", "dualpi2_target_ms": 8}
+            },
             "links": [
                 {"from": "pub", "to": "relay-a", "forward": {"delay_ms": 5}},
                 {"from": "relay-a", "to": "rt-1"},
@@ -514,7 +516,10 @@ def test_configure_network_orders_loopbacks_routes_then_shaping():
     rt_cmds = [cmd for nid, cmd in fake_net.calls if nid == "rt-1"]
     assert "echo 1 > /proc/sys/net/ipv4/ip_forward" in rt_cmds
     assert "tc qdisc replace dev rt-1-eth1 root handle 5: htb default 1" in rt_cmds
-    assert "tc qdisc add dev rt-1-eth1 parent 5:1 handle 20: dualpi2" in rt_cmds
+    assert (
+        "tc qdisc add dev rt-1-eth1 parent 5:1 handle 20: dualpi2 target 8ms"
+        in rt_cmds
+    )
 
     # Router routes endpoints' /32s out of the right interfaces.
     assert (

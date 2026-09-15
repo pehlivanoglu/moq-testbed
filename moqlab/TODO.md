@@ -25,6 +25,17 @@ cut from current versions, not bugs or oversights.
       schema and designer API tests.
 - [ ] Extend explicit external-traffic route selection through switches;
       those named paths currently require router intermediates.
+- [ ] Expose relay QUIC congestion-control selection in topology YAML and
+      verify CE-driven response with pinned mvfst. Current synthesis enables
+      ECT(1)/L4S tracking through `l4s_ce_target` but retains moqx's BBR
+      default; pinned mvfst consumes L4S weight/target in Cubic only.
+- [ ] Expose remaining DualPI2 controls after defining reproducible presets:
+      step threshold, update interval/controller gains, coupling, queue/memory
+      limits, overload/drop mode, Classic protection, RTT inputs, and GSO split.
+      `dualpi2_target_ms` is the only AQM tuning field currently exposed.
+- [ ] Replace or prohibit combined htb → netem → AQM on one interface. netem
+      holds delayed packets before its child, so the AQM does not own the full
+      bottleneck backlog. Use separate propagation and rate/AQM stages meanwhile.
 
 - [x] Add one external traffic sender and one receiver with explicit named
       router paths, bulk TCP, paced CBR UDP, scripted segmented TCP, resolved

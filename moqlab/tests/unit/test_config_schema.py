@@ -518,7 +518,9 @@ def test_aqm_is_router_owned():
     t = TopologyConfig.model_validate(
         {
             "relays": _minimal_relays(),
-            "routers": {"rt-1": {"aqm": "dualpi2"}},
+            "routers": {
+                "rt-1": {"aqm": "dualpi2", "dualpi2_target_ms": 10}
+            },
             "links": [
                 {"from": "rt-1", "to": "relay-a"},
                 {"from": "relay-b", "to": "rt-1"},
@@ -526,6 +528,25 @@ def test_aqm_is_router_owned():
         }
     )
     assert t.routers["rt-1"].aqm.value == "dualpi2"
+    assert t.routers["rt-1"].dualpi2_target_ms == 10
+
+
+@pytest.mark.parametrize(
+    "router",
+    [{"dualpi2_target_ms": 10}, {"aqm": "dualpi2", "dualpi2_target_ms": 0}],
+)
+def test_dualpi2_target_requires_enabled_aqm_and_positive_value(router):
+    with pytest.raises(Exception):
+        TopologyConfig.model_validate(
+            {
+                "relays": _minimal_relays(),
+                "routers": {"rt-1": router},
+                "links": [
+                    {"from": "rt-1", "to": "relay-a"},
+                    {"from": "relay-b", "to": "rt-1"},
+                ],
+            }
+        )
 
 
 def test_aqm_is_rejected_from_link_direction():

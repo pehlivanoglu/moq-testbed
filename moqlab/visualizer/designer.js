@@ -1108,7 +1108,7 @@ function renderNodeInspector() {
     ? ["asset", "listen_port", "fingerprint_port"]
     : role === "subscriber"
       ? ["namespace", "track", "media_client", ...(nativeSubscriber ? ["native_playback"] : []), ...(bufferedSubscriber ? ["minimal_buffer_ms", "target_latency_ms"] : [])]
-      : role === "router" ? ["aqm"] : role === "switch" ? ["image"] : ["kind", "namespace", "track"];
+      : role === "router" ? ["aqm", "dualpi2_target_ms"] : role === "switch" ? ["image"] : ["kind", "namespace", "track"];
   renderObjectEditor(editor, nodeDefinition(role), config, (next) => commit(() => {
     if (role.startsWith("traffic-")) draft.traffic[role.slice(8)] = next;
     else draft[propertyForRole(role)][id] = normalizedNodeConfig(role, next);

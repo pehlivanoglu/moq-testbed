@@ -220,6 +220,7 @@ def test_designer_assets_include_editor_controls_and_valid_javascript() -> None:
     assert "function portCollisionErrors" in source
     assert '["publisher", "subscriber"].includes(role) ? ["kind"]' in source
     assert 'role === "switch" ? "switches" : `${role}s`' in source
+    assert '["aqm", "dualpi2_target_ms"]' in source
     assert '"chrome-headless": "Chrome headless"' in app.read_text()
     assert '["media_client", ...(nativeSubscriber ? ["native_playback"] : [])]' in app.read_text()
     assert 'const bufferedSubscriber = role === "subscriber" && (!nativeSubscriber || simulatedNative)' in app.read_text()

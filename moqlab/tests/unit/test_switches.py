@@ -4,10 +4,11 @@ from pathlib import Path
 
 import pytest
 
-from moqlab.config.schema import TopologyConfig
+from moqlab.config.schema import TopologyConfig, load_topology
 from moqlab.designer import schema_contract_issues
 from moqlab.orchestrator.containernet_backend import ContainernetBackend, ContainernetRunRecord
 from moqlab.orchestrator.routing import addressed_links, next_hops, route_commands
+from moqlab.orchestrator.shaping import shaping_commands
 from moqlab.runtime import all_node_ids, node_loopback_ips, topology_image_tags
 from moqlab.visualizer import topology_snapshot
 from tests.unit.test_containernet_backend import _FakeBuildNet, _FakeNet
@@ -32,6 +33,30 @@ def switched_topology() -> TopologyConfig:
     # Extra relay stands in for an IP endpoint; no media processes needed.
     data["relays"]["client"] = {"listen_port": 9670, "admin_port": 9671}
     return TopologyConfig.model_validate(data)
+
+
+def test_shared_example_separates_bottleneck_from_live_netem():
+    topology = load_topology(
+        Path(__file__).resolve().parents[2] / "configs/examples/ex.yaml"
+    )
+    bottleneck = topology.links[2]
+    router = topology.routers["router"]
+    commands = shaping_commands(
+        "router-eth1",
+        bottleneck.forward,
+        router.aqm,
+        router.dualpi2_target_ms,
+    )
+    assert commands[-1] == (
+        "tc qdisc add dev router-eth1 parent 5:1 handle 20: "
+        "dualpi2 target 15ms"
+    )
+    assert not any("netem" in command for command in commands)
+
+    for link in topology.links[3:]:
+        for spec in (link.forward, link.reverse):
+            assert spec.delay_ms == spec.jitter_ms == spec.loss_pct == 0
+            assert "netem delay 0ms 0ms loss 0%" in shaping_commands("eth0", spec)[0]
 
 
 def test_switch_build_and_routes_share_router_egress():

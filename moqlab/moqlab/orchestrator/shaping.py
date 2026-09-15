@@ -57,7 +57,10 @@ def _netem_args(spec: DirectionSpec) -> str:
 
 
 def shaping_commands(
-    iface: str, spec: DirectionSpec, aqm: AqmKind | None = None
+    iface: str,
+    spec: DirectionSpec,
+    aqm: AqmKind | None = None,
+    dualpi2_target_ms: float | None = None,
 ) -> list[str]:
     """Ordered tc commands building the egress qdisc chain for one direction.
 
@@ -89,6 +92,8 @@ def shaping_commands(
 
     if has_aqm:
         aqm_name = aqm.value  # type: ignore[union-attr]
+        if aqm == AqmKind.dualpi2 and dualpi2_target_ms is not None:
+            aqm_name += f" target {dualpi2_target_ms:g}ms"
         if parent is None:
             cmds.append(f"tc qdisc replace dev {iface} root handle 20: {aqm_name}")
         else:
