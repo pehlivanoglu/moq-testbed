@@ -23,8 +23,8 @@ cut from current versions, not bugs or oversights.
       support, and one-router shared DualPI2 example. See `ROUTER.md`.
 - [x] Restore `linear_3r_1s.yaml` and `external_traffic.yaml` examples used by
       schema and designer API tests.
-- [ ] Extend explicit external-traffic route selection through switches;
-      those named paths currently require router intermediates.
+- [x] Extend explicit external-traffic route selection through transparent
+      switches while keeping IP route installation on endpoints and routers.
 - [ ] Expose relay QUIC congestion-control selection in topology YAML and
       verify CE-driven response with pinned mvfst. Current synthesis enables
       ECT(1)/L4S tracking through `l4s_ce_target` but retains moqx's BBR

@@ -559,6 +559,45 @@ def test_traffic_alias_routes_follow_each_explicit_path():
     assert "ip route replace 10.101.0.2/32 via 10.20.3.2 dev east-eth1" in east_commands
 
 
+def test_traffic_alias_route_crosses_switch_as_transparent_l2_hop():
+    data = _traffic_topology().model_dump(by_alias=True)
+    data["switches"] = {"sw": {}}
+    data["routers"]["west"]["aqm"] = "dualpi2"
+    data["traffic"]["routes"]["west"]["path"] = ["tx", "west", "sw", "rx"]
+    data["links"] = [
+        link
+        for link in data["links"]
+        if set((link["from"], link["to"])) != {"west", "rx"}
+    ]
+    data["links"].extend(
+        [
+            {
+                "from": "west",
+                "to": "sw",
+                "forward": {"bandwidth_mbps": 10},
+            },
+            {"from": "sw", "to": "rx"},
+        ]
+    )
+    topology = TopologyConfig.model_validate(data)
+    record = _record_for(topology)
+    fake_net = _FakeNet(["relay-a", "west", "east", "sw", "tx", "rx"])
+
+    ContainernetBackend._configure_network(
+        fake_net, topology, record, lambda _: None
+    )
+
+    switch_commands = [command for node, command in fake_net.calls if node == "sw"]
+    west_commands = [command for node, command in fake_net.calls if node == "west"]
+    assert not any("ip route" in command for command in switch_commands)
+    assert not any("dualpi2" in command for command in switch_commands)
+    assert (
+        "ip route replace 10.101.0.1/32 via 10.20.3.2 dev west-eth1"
+        in west_commands
+    )
+    assert "tc qdisc add dev west-eth1 parent 5:1 handle 20: dualpi2" in west_commands
+
+
 def test_launches_one_traffic_receiver_then_one_sender(monkeypatch):
     topology = _traffic_topology()
     net = _FakeNet(["relay-a", "tx", "rx"])

@@ -94,5 +94,23 @@ def test_traffic_route_rejects_application_node_as_intermediate() -> None:
         [{"from": "tx", "to": "relay"}, {"from": "relay", "to": "rx"}]
     )
 
-    with pytest.raises(ValueError, match="must be a router"):
+    with pytest.raises(ValueError, match="must be a router or switch"):
         TopologyConfig.model_validate(data)
+
+
+def test_traffic_route_accepts_transparent_switch_hop() -> None:
+    data = _traffic_topology().model_dump(by_alias=True)
+    data["switches"] = {"sw": {}}
+    data["traffic"]["routes"]["west"]["path"] = ["tx", "west", "sw", "rx"]
+    data["links"] = [
+        link
+        for link in data["links"]
+        if set((link["from"], link["to"])) != {"west", "rx"}
+    ]
+    data["links"].extend(
+        [{"from": "west", "to": "sw"}, {"from": "sw", "to": "rx"}]
+    )
+
+    topology = TopologyConfig.model_validate(data)
+
+    assert topology.traffic.routes["west"].path == ["tx", "west", "sw", "rx"]

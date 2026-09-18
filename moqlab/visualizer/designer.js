@@ -691,7 +691,12 @@ function shortestTrafficPath() {
   const sender = draft.traffic?.sender?.id;
   const receiver = draft.traffic?.receiver?.id;
   if (!sender || !receiver) return null;
-  const allowed = new Set([sender, receiver, ...Object.keys(draft.routers || {})]);
+  const allowed = new Set([
+    sender,
+    receiver,
+    ...Object.keys(draft.routers || {}),
+    ...Object.keys(draft.switches || {}),
+  ]);
   const adjacency = new Map();
   for (const link of draft.links || []) {
     if (!allowed.has(link.from) || !allowed.has(link.to)) continue;
@@ -726,22 +731,23 @@ function appendRouteNode(id) {
   const receiver = draft.traffic.receiver.id;
   if (id === sender) {
     commit(() => { route.path = [sender]; selected = returnSelection; });
-    linkPrompt.textContent = "Route reset. Select connected router.";
+    linkPrompt.textContent = "Route reset. Select connected router or switch.";
     return;
   }
   const last = route.path[route.path.length - 1];
   const linked = (draft.links || []).some((link) => canonicalPair(link.from, link.to) === canonicalPair(last, id));
   if (!linked) return alert(`${id} is not physically linked to ${last}.`);
   if (route.path.includes(id)) return alert("Traffic route cannot repeat a node.");
-  if (id !== receiver && !(id in (draft.routers || {}))) return alert("Intermediate traffic nodes must be routers.");
-  if (id === receiver && route.path.length < 2) return alert("Route needs at least one router.");
+  const intermediate = id in (draft.routers || {}) || id in (draft.switches || {});
+  if (id !== receiver && !intermediate) return alert("Intermediate traffic nodes must be routers or switches.");
+  if (id === receiver && route.path.length < 2) return alert("Route needs at least one intermediate node.");
   commit(() => { route.path.push(id); selected = returnSelection; });
   if (id === receiver) {
     routeBuild = null;
     routeBuildFlow = null;
     linkPrompt.textContent = "Traffic route complete.";
   } else {
-    linkPrompt.textContent = `Route ends at ${id}. Select connected router or receiver.`;
+    linkPrompt.textContent = `Route ends at ${id}. Select connected router, switch, or receiver.`;
   }
 }
 
@@ -801,7 +807,7 @@ function addTrafficLoad() {
   }
   const path = shortestTrafficPath();
   if (!path) {
-    return alert("Connect sender to receiver through at least one router first.");
+    return alert("Connect sender to receiver through a router or switch first.");
   }
   const usedFlows = new Set((draft.traffic.flows || []).map((flow) => flow.id));
   let number = 1;

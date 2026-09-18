@@ -2,7 +2,13 @@
 
 import pytest
 
-from moqlab.orchestrator.routing import next_hops, route_commands
+from moqlab.orchestrator.routing import next_hops, route_commands, routed_path
+
+
+def test_routed_path_removes_transparent_switches():
+    assert routed_path(
+        ["tx", "router", "sw-1", "sw-2", "rx"], {"sw-1", "sw-2"}
+    ) == ["tx", "router", "rx"]
 
 
 def test_linear_chain_next_hops_both_directions():

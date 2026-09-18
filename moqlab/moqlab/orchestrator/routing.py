@@ -103,6 +103,12 @@ def next_hops(
     return hops
 
 
+def routed_path(path: Iterable[str], switches: Iterable[str]) -> list[str]:
+    """Remove transparent Layer 2 bridge hops from a physical route path."""
+    switch_ids = set(switches)
+    return [node for node in path if node not in switch_ids]
+
+
 def route_commands(
     node: str,
     hops: dict[str, str],
