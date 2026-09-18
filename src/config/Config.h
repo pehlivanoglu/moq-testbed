@@ -6,6 +6,8 @@
 
 #pragma once
 
+#include "sbd/Service.h"
+
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -143,6 +145,7 @@ struct ListenerConfig {
   std::string moqtVersions; // comma-separated string
   QuicStack quicStack{QuicStack::Mvfst};
   QuicConfig quic;   // merged from listener_defaults.quic + per-listener quic override
+  bool sbdOwd{false};
   MvfstConfig mvfst; // merged from listener_defaults.mvfst + per-listener mvfst override
 };
 
@@ -197,6 +200,8 @@ struct Config {
   std::string relayID; // always set: from config or randomly generated
   uint32_t threads{1};
   bool mvfstBpfSteering{true};
+  bool edge{false};
+  sbd::Config sbd;
 };
 
 } // namespace openmoq::moqx::config

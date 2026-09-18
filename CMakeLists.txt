@@ -131,6 +131,10 @@ add_library(moqx_core STATIC
   src/admin/StateHandler.cpp
   src/stats/StatsRegistry.cpp
   src/stats/ClientNetworkMetrics.cpp
+  src/sbd/Detector.cpp
+  src/sbd/ReceiveIntervals.cpp
+  src/sbd/Service.cpp
+  src/sbd/Observer.cpp
   src/stats/MoQStatsCollector.cpp
   src/stats/PicoQuicStatsCollector.cpp
   src/stats/QuicStatsCollector.cpp

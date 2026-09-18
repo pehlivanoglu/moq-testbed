@@ -116,6 +116,19 @@ ParsedServiceConfig::MatchRule makeAnyAuthorityMatch(PMatch path = anyPath()) {
 
 // --- Validation error tests ---
 
+TEST(ConfigResolverSbd, ValidatesEdgeAndDelaySource) {
+  auto cfg = makeMinimalInsecureConfig();
+  cfg.sbd = ParsedSbdConfig{true, "owd", "/tmp/sbd.jsonl"};
+  EXPECT_FALSE(resolveConfig(cfg).hasValue());
+  cfg.edge = true;
+  auto result = resolveConfig(cfg);
+  ASSERT_TRUE(result.hasValue());
+  EXPECT_TRUE(result->config.sbd.enabled);
+  EXPECT_EQ(result->config.sbd.delaySource, "owd");
+  cfg.sbd->delay_source = "automatic";
+  EXPECT_FALSE(resolveConfig(cfg).hasValue());
+}
+
 TEST(ResolveConfig, NoListeners) {
   ParsedConfig cfg;
   cfg.services.value().emplace("default", makeDefaultService());

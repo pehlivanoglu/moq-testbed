@@ -192,6 +192,7 @@ void ClientNetworkMetricsStore::registerSession(std::string connectionId) {
 
 void ClientNetworkMetricsStore::unregisterSession(std::string_view connectionId) {
   std::lock_guard lock(mutex_);
+  if (sbdService) sbdService->eligible(std::string(connectionId), false);
   sessions_.erase(std::string(connectionId));
 }
 
@@ -237,6 +238,7 @@ void ClientNetworkMetricsStore::addTrackSubscription(
   std::lock_guard lock(mutex_);
   if (auto it = sessions_.find(std::string(connectionId)); it != sessions_.end()) {
     it->second.trackSubscriptions.insert(std::move(track));
+    updateSbdEligibility(connectionId);
   }
 }
 
@@ -246,6 +248,7 @@ void ClientNetworkMetricsStore::removeTrackSubscription(
   std::lock_guard lock(mutex_);
   if (auto it = sessions_.find(std::string(connectionId)); it != sessions_.end()) {
     it->second.trackSubscriptions.erase(std::string(track));
+    updateSbdEligibility(connectionId);
   }
 }
 
@@ -255,6 +258,7 @@ void ClientNetworkMetricsStore::addNamespaceSubscription(
   std::lock_guard lock(mutex_);
   if (auto it = sessions_.find(std::string(connectionId)); it != sessions_.end()) {
     it->second.namespaceSubscriptions.insert(std::move(trackNamespace));
+    updateSbdEligibility(connectionId);
   }
 }
 
@@ -264,6 +268,23 @@ void ClientNetworkMetricsStore::removeNamespaceSubscription(
   std::lock_guard lock(mutex_);
   if (auto it = sessions_.find(std::string(connectionId)); it != sessions_.end()) {
     it->second.namespaceSubscriptions.erase(std::string(trackNamespace));
+    updateSbdEligibility(connectionId);
+  }
+}
+
+void ClientNetworkMetricsStore::updateSbdEligibility(std::string_view connectionId) {
+  if (!sbdService) return;
+  const auto it = sessions_.find(std::string(connectionId));
+  if (it == sessions_.end()) return;
+  const auto& session = it->second;
+  sbdService->eligible(std::string(connectionId), !session.relayPeer &&
+      (!session.trackSubscriptions.empty() || !session.namespaceSubscriptions.empty()));
+}
+void ClientNetworkMetricsStore::markRelayPeer(std::string_view connectionId) {
+  std::lock_guard lock(mutex_);
+  if (auto it = sessions_.find(std::string(connectionId)); it != sessions_.end()) {
+    it->second.relayPeer = true;
+    updateSbdEligibility(connectionId);
   }
 }
 

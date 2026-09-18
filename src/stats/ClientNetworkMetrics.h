@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "sbd/Service.h"
 #include <chrono>
 #include <cstdint>
 #include <deque>
@@ -83,6 +84,8 @@ public:
       std::chrono::milliseconds sampleInterval = std::chrono::milliseconds(250),
       std::chrono::milliseconds inactiveRetention = std::chrono::seconds(10));
 
+  std::shared_ptr<sbd::Service> sbdService; // configured before workers start
+  void markRelayPeer(std::string_view connectionId);
   void put(ClientNetworkMetrics metrics);
   std::vector<ClientNetworkMetrics> snapshot() const;
 
@@ -115,7 +118,9 @@ private:
     bool counterReset{false};
   };
 
+  void updateSbdEligibility(std::string_view connectionId);
   struct SessionMetadata {
+    bool relayPeer{false};
     std::set<std::string> publishedTracks;
     std::set<std::string> publishedNamespaces;
     std::set<std::string> trackSubscriptions;

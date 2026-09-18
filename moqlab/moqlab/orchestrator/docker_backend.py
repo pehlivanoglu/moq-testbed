@@ -297,6 +297,10 @@ class DockerBackend:
                 "mode": "ro",
             }
         }
+        if relay.sbd.enabled:
+            sbd_dir = config_path.resolve().parent.parent / "sbd" / relay_id
+            sbd_dir.mkdir(parents=True, exist_ok=True)
+            volumes[str(sbd_dir)] = {"bind": "/var/log/moqx/sbd", "mode": "rw"}
         if tls_dir is not None:
             volumes[str(tls_dir.resolve())] = {"bind": TLS_MOUNT, "mode": "ro"}
         return self._run_container(

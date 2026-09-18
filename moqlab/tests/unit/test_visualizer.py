@@ -11,6 +11,7 @@ from moqlab.visualizer import (
     ThroughputSampler,
     _VisualizerHandler,
     VisualizerHTTPServer,
+    add_sbd_client_names,
     parse_node_metrics,
     topology_snapshot,
 )
@@ -26,6 +27,7 @@ def test_browser_assets_live_outside_python_package():
     html = (root / "index.html").read_text()
     app = (root / "app.js").read_text()
     assert 'id="node-details"' in html
+    assert 'id="details-resizer"' in html
     assert "/api/nodes/${encodeURIComponent(requestedId)}/metrics" in app
     assert 'classList.toggle("selected"' in app
     assert "function updateNodeMetrics(payload)" in app
@@ -35,6 +37,12 @@ def test_browser_assets_live_outside_python_package():
     assert app.count("nodeDetails.replaceChildren()") == 2
     assert 'node.media_client ? `${node.role} · ${node.media_client}` : node.role' in app
     assert "DualPI2 target:" in app
+    assert 'sharedHeading.textContent = "Shared bottlenecks"' in app
+    assert 'telemetryHeading.textContent = "Client telemetry"' in app
+    assert 'for (const label of ["Client", "State"' in app
+    assert '"PDV2 (ms)"' in app
+    assert "Number(client.var_est_us) / 1000" in app
+    assert "Group members" not in app
 
 
 def test_response_write_ignores_broken_pipe():
@@ -346,6 +354,29 @@ def test_parse_node_metrics_rejects_bad_json_and_marks_fresh_data_ok():
         b'{"schema_version":1,"sampled_at_unix_ms":9000}', now_unix_ms=10_000
     )
     assert result["status"] == "ok"
+
+
+def test_sbd_clients_use_topology_names_and_preserve_group_ids():
+    payload = {
+        "status": "live",
+        "sbd": {
+            "clients": [
+                {"connection_id": "a", "peer": "10.99.0.3:443"},
+                {"connection_id": "b", "peer": "[2001:db8::4]:443"},
+            ],
+            "groups": [["a", "b"]],
+        },
+    }
+
+    result = add_sbd_client_names(
+        payload, {"10.99.0.3": "viewer-a", "2001:db8::4": "viewer-b"}
+    )
+
+    assert [client["name"] for client in result["sbd"]["clients"]] == [
+        "viewer-a",
+        "viewer-b",
+    ]
+    assert result["sbd"]["groups"] == [["a", "b"]]
 
 
 def test_throughput_sampler_reports_unavailable_when_counters_missing():

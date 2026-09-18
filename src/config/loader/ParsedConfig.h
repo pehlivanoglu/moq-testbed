@@ -367,7 +367,15 @@ struct ParsedServiceDefaultsConfig {
   rfl::Description<"Default cache settings for services", std::optional<ParsedCacheConfig>> cache;
 };
 
+struct ParsedSbdConfig {
+  std::optional<bool> enabled;
+  std::optional<std::string> delay_source;
+  std::optional<std::string> output_file;
+};
+
 struct ParsedConfig {
+  std::optional<bool> edge;
+  std::optional<ParsedSbdConfig> sbd;
   rfl::Description<
       "Listener definitions (currently exactly one supported)",
       std::vector<ParsedListenerConfig>>

@@ -7,6 +7,7 @@
 #include "MoqxRelayServer.h"
 #include "stats/EventBaseStatsCollector.h"
 #include "stats/ClientNetworkMetrics.h"
+#include "sbd/Observer.h"
 #include "stats/QuicStatsCollector.h"
 #include <moxygen/MoQRelaySession.h>
 #include <moxygen/events/MoQFollyExecutorImpl.h>
@@ -56,9 +57,11 @@ buildFizzContext(const config::ListenerConfig& cfg) {
 }
 
 quic::TransportSettings
-buildTransportSettings(const config::QuicConfig& quic, const config::MvfstConfig& mvfst) {
+buildTransportSettings(const config::QuicConfig& quic, const config::MvfstConfig& mvfst, bool sbdOwd) {
   // Start with MoQServer's optimized defaults, then apply config overrides.
   quic::TransportSettings ts;
+  if (sbdOwd) ts.maybeAckReceiveTimestampsConfigSentToPeer =
+      quic::AckReceiveTimestampsConfig{256, 0};
   ts.defaultCongestionController = quic::CongestionControlType::Copa;
   ts.pacingEnabled = mvfst.pacingEnabled;
   ts.maxCwndInMss = mvfst.maxCwndInMss;
@@ -137,7 +140,7 @@ MoqxRelayServer::MoqxRelayServer(
     : MoQServer(
           buildFizzContext(listenerCfg),
           listenerCfg.endpoint,
-          buildTransportSettings(listenerCfg.quic, listenerCfg.mvfst)
+          buildTransportSettings(listenerCfg.quic, listenerCfg.mvfst, listenerCfg.sbdOwd)
       ),
       listenerCfg_(listenerCfg), context_(std::move(context)), ioExecutor_(ioExecutor) {}
 
@@ -161,6 +164,9 @@ void MoqxRelayServer::onNewQuicTransport(quic::QuicSocket& socket) {
   }
   socket.addObserver(std::make_shared<stats::ClientNetworkMetricsObserver>(
       socket, clientNetworkMetrics_));
+  auto sbd = clientNetworkMetrics_->sbdService;
+  if (sbd && sbd->config().enabled)
+    socket.addObserver(std::make_shared<sbd::Observer>(socket, sbd));
 }
 
 void MoqxRelayServer::start() {

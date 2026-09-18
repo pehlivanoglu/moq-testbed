@@ -69,6 +69,16 @@ void registerMetricsRoute(
       }
   );
 
+  adminServer.addRoute("GET", "/sbd-metrics",
+      [registry](auto, auto, auto* downstream, folly::CancellationToken token) {
+        if (token.isCancellationRequested()) return;
+        auto service = registry->clientNetworkMetrics()->sbdService;
+        proxygen::ResponseBuilder(downstream).status(200, "OK")
+            .header("Content-Type", "application/json")
+            .body(folly::IOBuf::copyBuffer(service ? service->json() : "{\"enabled\":false}"))
+            .sendWithEOM();
+      });
+
   adminServer.addRoute(
       "GET",
       "/network-metrics",

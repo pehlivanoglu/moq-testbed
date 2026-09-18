@@ -43,7 +43,12 @@ from moqlab.config.synth import (
     synthesize_subscriber_command,
 )
 from moqlab.exceptions import OrchestratorError
-from moqlab.orchestrator.routing import addressed_links, next_hops, route_commands
+from moqlab.orchestrator.routing import (
+    addressed_links,
+    next_hops,
+    route_commands,
+    routed_path,
+)
 from moqlab.orchestrator.shaping import (
     live_shaping_commands,
     offload_disable_commands,
@@ -272,6 +277,10 @@ class ContainernetBackend:
         for rid in relay_order(topology):
             cfg = relay_yaml_paths[rid].resolve()
             volumes = [f"{cfg}:/etc/moqx/relay.yaml:ro"]
+            if topology.relays[rid].sbd.enabled:
+                sbd_dir = (record.run_dir / "sbd" / rid).resolve()
+                sbd_dir.mkdir(parents=True, exist_ok=True)
+                volumes.append(f"{sbd_dir}:/var/log/moqx/sbd:rw")
             if topology.relay_tls(rid).generated:
                 volumes.append(f"{(record.run_dir / 'tls').resolve()}:{TLS_MOUNT}:ro")
             nodes[rid] = net.addDocker(
@@ -437,8 +446,9 @@ class ContainernetBackend:
 
             for name, route in topology.traffic.routes.items():
                 sender_ip, receiver_ip = aliases[name]
+                path = routed_path(route.path, topology.switches)
                 for index, (current, neighbor) in enumerate(
-                    zip(route.path, route.path[1:])
+                    zip(path, path[1:])
                 ):
                     next_ip, iface = neighbor_addrs[current][neighbor]
                     source = f" src {sender_ip}" if index == 0 else ""
@@ -446,7 +456,7 @@ class ContainernetBackend:
                         f"ip route replace {receiver_ip}/32 via {next_ip} "
                         f"dev {iface}{source}"
                     )
-                reverse = list(reversed(route.path))
+                reverse = list(reversed(path))
                 for index, (current, neighbor) in enumerate(zip(reverse, reverse[1:])):
                     next_ip, iface = neighbor_addrs[current][neighbor]
                     source = f" src {receiver_ip}" if index == 0 else ""

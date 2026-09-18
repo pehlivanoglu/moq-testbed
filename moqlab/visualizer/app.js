@@ -4,6 +4,8 @@ const summary = document.querySelector("#summary");
 const updated = document.querySelector("#updated");
 const linksTable = document.querySelector("#links");
 const nodeDetails = document.querySelector("#node-details");
+const main = document.querySelector("main");
+const detailsResizer = document.querySelector("#details-resizer");
 const zoomMin = 0.25;
 const zoomMax = 5;
 let viewport;
@@ -25,6 +27,7 @@ let metricFields = new Map();
 let metricsStatus;
 let metricsReason;
 let metricsGrid;
+let resizingDetails = false;
 
 function formatRate(bps, status) {
   if (status === "warming") return "sampling";
@@ -95,6 +98,13 @@ function renderNodeDetails(node) {
     nodeDetails.append(routerAqmEditor(node));
     return;
   }
+  if (node.role === "relay") {
+    const panel = document.createElement("div");
+    panel.id = "sbd-panel";
+    panel.textContent = node.sbd_enabled ? "Loading SBD measurements…" : "SBD disabled";
+    nodeDetails.append(panel);
+    return;
+  }
   if (node.role !== "subscriber" || node.kind !== "media") {
     const unavailable = document.createElement("p");
     unavailable.textContent = "Player metrics unavailable.";
@@ -127,6 +137,66 @@ function renderNodeDetails(node) {
 }
 
 function updateNodeMetrics(payload) {
+  const panel = document.getElementById("sbd-panel");
+  if (panel) {
+    panel.replaceChildren();
+    const status = document.createElement("p");
+    status.textContent = payload.sbd
+      ? `${payload.status} · ${payload.sbd.delay_source} · ${new Date(payload.sbd.timestamp_ms).toISOString()}`
+      : (payload.reason ?? payload.status);
+    panel.append(status);
+    if (!payload.sbd) return;
+    const telemetry = document.createElement("section");
+    telemetry.className = "sbd-section";
+    const telemetryHeading = document.createElement("h3");
+    telemetryHeading.textContent = "Client telemetry";
+    const table = document.createElement("table");
+    table.className = "sbd-table";
+    const header = table.insertRow();
+    for (const label of ["Client", "State", "Intervals", "Skew", "PDV2 (ms)", "Frequency", "Loss", "Bottleneck"]) {
+      const th = document.createElement("th"); th.textContent = label; header.append(th);
+    }
+    for (const client of payload.sbd.clients) {
+      const row = table.insertRow();
+      row.title = `${client.connection_id} / ${client.peer}`;
+      for (const value of [client.name ?? "Unknown client", client.status,
+          client.intervals, Number(client.skew_est).toFixed(3), (Number(client.var_est_us) / 1000).toFixed(2),
+          Number(client.freq_est).toFixed(3), Number(client.pkt_loss).toFixed(4),
+          client.bottleneck ? "yes" : "no"]) {
+        row.insertCell().textContent = String(value);
+      }
+    }
+    telemetry.append(telemetryHeading, table);
+    const shared = document.createElement("section");
+    shared.className = "sbd-section";
+    const sharedHeading = document.createElement("h3");
+    sharedHeading.textContent = "Shared bottlenecks";
+    shared.append(sharedHeading);
+    const names = new Map(payload.sbd.clients.map((client) => [client.connection_id, client.name ?? "Unknown client"]));
+    const groups = payload.sbd.groups.filter((group) => group.length > 1);
+    if (!groups.length) {
+      const empty = document.createElement("p");
+      empty.className = "muted";
+      empty.textContent = "No shared bottlenecks detected.";
+      shared.append(empty);
+    } else {
+      const list = document.createElement("div");
+      list.className = "sbd-groups";
+      groups.forEach((group, index) => {
+        const item = document.createElement("div");
+        item.className = "sbd-group";
+        const label = document.createElement("strong");
+        label.textContent = `Shared bottleneck ${index + 1}`;
+        const members = document.createElement("span");
+        members.textContent = group.map((id) => names.get(id) ?? id).join(", ");
+        item.append(label, members);
+        list.append(item);
+      });
+      shared.append(list);
+    }
+    panel.append(telemetry, shared);
+    return;
+  }
   if (!metricsStatus || !metricsReason || !metricsGrid) return;
   const status = payload.status ?? "unavailable";
   metricsStatus.className = `metric-status ${status}`;
@@ -162,7 +232,7 @@ function updateNodeMetrics(payload) {
 
 async function refreshNodeMetrics() {
   const node = nodesById.get(selectedNodeId);
-  if (!node || node.role !== "subscriber" || node.kind !== "media" || metricsRequestNodeId === selectedNodeId) return;
+  if (!node || (node.role !== "relay" && (node.role !== "subscriber" || node.kind !== "media")) || metricsRequestNodeId === selectedNodeId) return;
   const requestedId = selectedNodeId;
   metricsRequestNodeId = requestedId;
   try {
@@ -556,6 +626,38 @@ function endPan(event) {
   svg.releasePointerCapture(event.pointerId);
   svg.classList.remove("panning");
 }
+
+function setDetailsWidth(width) {
+  const max = Math.max(280, main.clientWidth - 320 - 16);
+  const value = Math.round(clamp(width, 280, max));
+  main.style.setProperty("--details-width", `${value}px`);
+  detailsResizer.setAttribute("aria-valuenow", String(value));
+}
+
+detailsResizer.addEventListener("pointerdown", (event) => {
+  if (event.button !== 0) return;
+  resizingDetails = true;
+  detailsResizer.setPointerCapture(event.pointerId);
+  document.body.classList.add("resizing-panel");
+});
+detailsResizer.addEventListener("pointermove", (event) => {
+  if (!resizingDetails) return;
+  setDetailsWidth(main.getBoundingClientRect().right - event.clientX);
+});
+function endDetailsResize(event) {
+  if (!resizingDetails) return;
+  resizingDetails = false;
+  detailsResizer.releasePointerCapture(event.pointerId);
+  document.body.classList.remove("resizing-panel");
+}
+detailsResizer.addEventListener("pointerup", endDetailsResize);
+detailsResizer.addEventListener("pointercancel", endDetailsResize);
+detailsResizer.addEventListener("keydown", (event) => {
+  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+  event.preventDefault();
+  const current = Number(detailsResizer.getAttribute("aria-valuenow"));
+  setDetailsWidth(current + (event.key === "ArrowLeft" ? 32 : -32));
+});
 
 svg.addEventListener("wheel", zoomAt, { passive: false });
 svg.addEventListener("pointerdown", startPan);

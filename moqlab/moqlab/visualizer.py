@@ -18,6 +18,7 @@ from moqlab.config.schema import AqmKind, DirectionSpec, TopologyConfig, load_to
 from moqlab.exceptions import OrchestratorError
 from moqlab.runtime import (
     containernet_edge_interfaces,
+    node_loopback_ips,
     relay_depths,
     relay_order,
     topology_edges,
@@ -110,6 +111,9 @@ def topology_snapshot(topology: TopologyConfig) -> dict[str, object]:
                 "level": _level(rid, depths[rid] + 1),
                 "listen_port": relay.listen_port,
                 "admin_port": relay.admin_port,
+                "edge": relay.edge,
+                "sbd_enabled": relay.sbd.enabled,
+                "sbd_delay_source": relay.sbd.delay_source,
                 "upstream": relay.upstream,
             }
         )
@@ -292,12 +296,20 @@ class VisualizerHTTPServer(ThreadingHTTPServer):
         self.backend = backend
         self.metrics_reader = metrics_reader or _read_container_metrics
         self.subscriber_containers: dict[str, str] = {}
+        self.relay_containers: dict[str, str] = {}
         self.link_updater: LinkUpdater | None = None
         self.router_updater: RouterUpdater | None = None
         self._link_update_lock = threading.Lock()
+        loopbacks = node_loopback_ips(topology) if backend == "containernet" else {}
+        self.subscriber_names_by_address = {
+            loopbacks[sid]: sid for sid in topology.subscribers if sid in loopbacks
+        }
 
     def register_subscriber_containers(self, containers: dict[str, str]) -> None:
         self.subscriber_containers = dict(containers)
+        for subscriber_id, container_id in containers.items():
+            for address in _container_addresses(container_id):
+                self.subscriber_names_by_address[address] = subscriber_id
 
     def register_link_updater(self, updater: LinkUpdater) -> None:
         self.link_updater = updater
@@ -361,6 +373,15 @@ class VisualizerHTTPServer(ThreadingHTTPServer):
         return {"aqm": aqm.value if aqm else None}
 
     def node_metrics(self, node_id: str) -> dict[str, object]:
+        relay = self.topology.relays.get(node_id)
+        if relay is not None:
+            if not relay.sbd.enabled:
+                return {"status": "disabled", "reason": "SBD is disabled for this relay"}
+            container = f"mn.{node_id}" if self.backend == "containernet" else self.relay_containers.get(node_id)
+            raw = _read_container_metrics(container, "/var/log/moqx/sbd/snapshots.jsonl.latest.json") if container else None
+            return add_sbd_client_names(
+                parse_sbd_metrics(raw), self.subscriber_names_by_address
+            )
         subscriber = self.topology.subscribers.get(node_id)
         if subscriber is None:
             return {"status": "unavailable", "reason": "unknown node"}
@@ -386,6 +407,34 @@ def make_server(
     return VisualizerHTTPServer(
         (host, port), topology, backend=backend, metrics_reader=metrics_reader
     )
+
+
+def parse_sbd_metrics(raw: bytes | None) -> dict[str, object]:
+    if raw is None:
+        return {"status": "unavailable", "reason": "No SBD snapshot available"}
+    try:
+        data = json.loads(raw)
+        if not isinstance(data, dict) or not isinstance(data.get("clients"), list):
+            raise ValueError("invalid snapshot")
+        age = time.time() * 1000 - float(data["timestamp_ms"])
+        return {"status": "stale" if age > _METRICS_STALE_MS else "live", "sbd": data}
+    except (ValueError, KeyError, TypeError):
+        return {"status": "unavailable", "reason": "Invalid SBD snapshot"}
+
+
+def add_sbd_client_names(
+    payload: dict[str, object], names_by_address: dict[str, str]
+) -> dict[str, object]:
+    sbd = payload.get("sbd")
+    if not isinstance(sbd, dict) or not isinstance(sbd.get("clients"), list):
+        return payload
+    for client in sbd["clients"]:
+        if not isinstance(client, dict):
+            continue
+        peer = str(client.get("peer", ""))
+        address = peer.rsplit(":", 1)[0].strip("[]")
+        client["name"] = names_by_address.get(address, "Unknown client")
+    return payload
 
 
 def parse_node_metrics(
@@ -541,7 +590,28 @@ def _read_containernet_counters(node_id: str, iface: str) -> InterfaceCounters |
         return None
 
 
-def _read_container_metrics(container_id: str) -> bytes | None:
+def _container_addresses(container_id: str) -> set[str]:
+    try:
+        import docker
+        from docker.errors import DockerException, NotFound
+    except ImportError:
+        return set()
+
+    try:
+        networks = docker.from_env().containers.get(container_id).attrs[
+            "NetworkSettings"
+        ]["Networks"]
+    except (DockerException, NotFound, KeyError, TypeError):
+        return set()
+    return {
+        address
+        for network in networks.values()
+        for address in (network.get("IPAddress"), network.get("GlobalIPv6Address"))
+        if address
+    }
+
+
+def _read_container_metrics(container_id: str, path: str = _METRICS_PATH) -> bytes | None:
     try:
         import docker
         from docker.errors import DockerException, NotFound
@@ -550,7 +620,7 @@ def _read_container_metrics(container_id: str) -> bytes | None:
 
     try:
         client = docker.from_env()
-        result = client.containers.get(container_id).exec_run(["cat", _METRICS_PATH])
+        result = client.containers.get(container_id).exec_run(["cat", path])
     except (DockerException, NotFound):
         return None
     if result.exit_code != 0 or len(result.output) > 64 * 1024:

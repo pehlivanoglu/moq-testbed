@@ -14,6 +14,7 @@
 #include "bpf/QuicReuseportSteering.h"
 #include "config/loader/ConfigInit.h"
 #include "stats/StatsRegistry.h"
+#include "stats/ClientNetworkMetrics.h"
 
 #include <csignal>
 
@@ -115,9 +116,16 @@ int main(int argc, char* argv[]) {
   // === 6a. Stats registry ===
   auto statsRegistry = std::make_shared<stats::StatsRegistry>();
 
+  statsRegistry->clientNetworkMetrics()->sbdService =
+      std::make_shared<sbd::Service>(config.sbd, config.relayID);
+
   std::vector<std::shared_ptr<moxygen::MoQServerBase>> servers;
   for (const auto& listenerCfg : config.listeners) {
-    servers.emplace_back(makeRelayServer(listenerCfg, context, ioExecutor.get(), statsRegistry));
+    auto configuredListener = listenerCfg;
+    configuredListener.sbdOwd = config.sbd.enabled && config.sbd.delaySource == "owd";
+    if (config.sbd.enabled && configuredListener.quicStack != cfg::QuicStack::Mvfst)
+      throw std::runtime_error("SBD requires an mvfst listener");
+    servers.emplace_back(makeRelayServer(configuredListener, context, ioExecutor.get(), statsRegistry));
   }
 
   if (!servers.empty()) {

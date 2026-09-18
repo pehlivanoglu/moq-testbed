@@ -10,7 +10,6 @@ relays:
     upstream: null
     image: moqlab-relay
     endpoint: /moq-relay
-    l4s_ce_target: 0.05
     tls:
       insecure: false
       generated: true
@@ -27,7 +26,7 @@ publishers:
     fingerprint_port: 8081
     image: moqlab-media-pub
 subscribers:
-  sub-r:
+  sub:
     kind: media
     connects_to: relay
     namespace: msf/clear
@@ -45,115 +44,40 @@ subscribers:
     log_level: INFO
     media_client: native
     native_playback: receive
-  sub:
-    kind: media
-    connects_to: relay
-    namespace: msf/clear
-    track: video/s2
-    image: moqlab-media-native-sub
-    log_level: INFO
-    media_client: native
-    native_playback: receive
-  sub-2:
-    kind: media
-    connects_to: relay
-    namespace: msf/clear
-    track: video/s2
-    image: moqlab-media-native-sub
-    log_level: INFO
-    media_client: native
-    native_playback: receive
-  sub-3:
-    kind: media
-    connects_to: relay
-    namespace: msf/clear
-    track: video/s2
-    image: moqlab-media-native-sub
-    log_level: INFO
-    media_client: native
-    native_playback: receive
-  sub-4:
-    kind: media
-    connects_to: relay
-    namespace: msf/clear
-    track: video/s2
-    image: moqlab-media-native-sub
-    log_level: INFO
-    media_client: native
-    native_playback: receive
 routers:
   router:
     image: moqlab-router
     aqm: dualpi2
-    dualpi2_target_ms: 15
-  router-1:
-    image: moqlab-router
-    aqm: dualpi2
-    dualpi2_target_ms: 15
-  router-2:
-    image: moqlab-router
-    aqm: dualpi2
-    dualpi2_target_ms: 15
 switches:
   switch:
     image: moqlab-router
-  switch-1:
-    image: moqlab-router
-  switch-2:
-    image: moqlab-router
 links:
-- from: relay
-  to: pub
+- from: pub
+  to: relay
 - from: relay
   to: router
+  reverse:
+    delay_ms: 4
+    bandwidth_mbps: 100
 - from: router
   to: switch
   forward:
-    bandwidth_mbps: 10000
-- from: switch
-  to: sub-r
-  forward:
-    delay_ms: 0
-    jitter_ms: 0
-    loss_pct: 0
+    bandwidth_mbps: 30
   reverse:
-    delay_ms: 0
-    jitter_ms: 0
-    loss_pct: 0
+    bandwidth_mbps: 100
+    delay_ms: 3
 - from: switch
   to: sub-1
   forward:
-    delay_ms: 0
-    jitter_ms: 0
-    loss_pct: 0
-  reverse:
-    delay_ms: 0
-    jitter_ms: 0
-    loss_pct: 0
+    bandwidth_mbps: 15
 - from: switch
   to: sub
   forward:
-    delay_ms: 0
-    jitter_ms: 0
-    loss_pct: 0
-  reverse:
-    delay_ms: 0
-    jitter_ms: 0
-    loss_pct: 0
-- from: relay
-  to: router-1
-- from: router-1
-  to: switch-1
-- from: switch-1
-  to: sub-2
-- from: relay
-  to: router-2
-- from: router-2
-  to: switch-2
-- from: sub-3
-  to: switch-2
-- from: switch-2
-  to: sub-4
+    bandwidth_mbps: 15
+- from: traffic-tx
+  to: router
+- from: switch
+  to: traffic-rx
 defaults:
   relay:
     image: moqlab-relay
@@ -187,3 +111,24 @@ startup:
   publisher_warmup_s: 1
   media_ready_timeout_s: 30
   traffic_ready_timeout_s: 5
+traffic:
+  routes:
+    load-1-route:
+      path:
+      - traffic-tx
+      - router
+      - switch
+      - traffic-rx
+  flows:
+  - id: load-1
+    kind: segmented
+    route: load-1-route
+    duration_s: 300
+    representation_sequence_mbps:
+    - 4
+    - 10
+    - 16
+  receiver:
+    id: traffic-rx
+  sender:
+    id: traffic-tx

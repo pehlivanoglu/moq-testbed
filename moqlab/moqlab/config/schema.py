@@ -143,7 +143,14 @@ class StartupConfig(_StrictBase):
 # ── nodes ──────────────────────────────────────────────────────────────────
 
 
+class SbdConfig(_StrictBase):
+    enabled: bool = False
+    delay_source: Literal["owd", "rtt"] = "owd"
+
+
 class RelayConfig(_StrictBase):
+    edge: bool = False
+    sbd: SbdConfig = Field(default_factory=SbdConfig)
     listen_port: int = Field(ge=_MIN_PORT, le=_MAX_PORT)
     admin_port: int = Field(ge=_MIN_PORT, le=_MAX_PORT)
     upstream: str | None = None
@@ -155,6 +162,8 @@ class RelayConfig(_StrictBase):
 
     @model_validator(mode="after")
     def _check(self) -> "RelayConfig":
+        if self.sbd.enabled and not self.edge:
+            raise ValueError("sbd.enabled requires edge: true")
         if self.endpoint is not None and not self.endpoint.startswith("/"):
             raise ValueError("endpoint must start with '/'")
         if self.listen_port == self.admin_port:
@@ -622,10 +631,13 @@ class TopologyConfig(_StrictBase):
                 if len(set(route.path)) != len(route.path):
                     raise ValueError(f"traffic route {name!r} repeats a node")
                 for intermediate in route.path[1:-1]:
-                    if intermediate not in self.routers:
+                    if (
+                        intermediate not in self.routers
+                        and intermediate not in self.switches
+                    ):
                         raise ValueError(
                             f"traffic route {name!r} intermediate {intermediate!r} "
-                            "must be a router"
+                            "must be a router or switch"
                         )
                 for a, b in zip(route.path, route.path[1:]):
                     if tuple(sorted((a, b))) not in link_keys:

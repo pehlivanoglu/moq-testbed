@@ -432,6 +432,7 @@ def _up_docker(
     click.echo(f"run_dir:  {record.run_dir}")
     if visualizer is not None:
         visualizer.register_subscriber_containers(record.subscribers)
+        visualizer.relay_containers = dict(record.relays)
     if record.relays:
         click.echo("relays:")
         for rid, cid in record.relays.items():

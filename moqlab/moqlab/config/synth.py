@@ -114,6 +114,12 @@ def synthesize_relay_yaml(topology: TopologyConfig, relay_id: str) -> dict[str, 
 
     return {
         "relay_id": relay_id,
+        "edge": r.edge,
+        "sbd": {
+            "enabled": r.sbd.enabled,
+            "delay_source": r.sbd.delay_source,
+            **({"output_file": "/var/log/moqx/sbd/snapshots.jsonl"} if r.sbd.enabled else {}),
+        },
         "listeners": [listener],
         "services": {"default": service},
         "admin": {

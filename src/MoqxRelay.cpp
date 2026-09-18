@@ -6,6 +6,7 @@
  * Copyright (c) OpenMOQ contributors.
  */
 
+#include "sbd/VideoStart.h"
 #include "MoqxRelay.h"
 #include <folly/container/F14Set.h>
 #include <moxygen/MoQFilters.h>
@@ -448,7 +449,10 @@ folly::coro::Task<void> MoqxRelay::publishToSession(
     XLOG(ERR) << "Publish failed err=" << pubInitial.error().reasonPhrase;
     co_return;
   }
-  subscriber->trackConsumer = std::move(pubInitial->consumer);
+  auto downstream = std::move(pubInitial->consumer);
+  if (auto metrics = clientNetworkMetrics_.lock())
+    downstream = sbd::watchVideo(std::move(downstream), forwarder->fullTrackName(), session, metrics->sbdService);
+  subscriber->trackConsumer = std::move(downstream);
   auto pubResult = co_await co_awaitTry(std::move(pubInitial->reply));
   if (pubResult.hasException()) {
     XLOG(ERR) << "Publish failed err=" << pubResult.exception().what();
@@ -605,6 +609,8 @@ folly::coro::Task<Publisher::SubscribeNamespaceResult> MoqxRelay::subscribeNames
   std::string incomingPeerID;
   if (auto peerID = !relayID_.empty() ? getPeerRelayID(subNs) : std::nullopt) {
     incomingPeerID = *peerID;
+    if (auto metrics = clientNetworkMetrics_.lock())
+      metrics->markRelayPeer(session->getTransportConnectionId());
     XLOG(INFO) << __func__ << ": peer relay detected peer_id=" << *peerID
                << ", reciprocating peer subNs";
     // Tag with the peer's relay ID so we suppress echoing these namespaces
@@ -769,6 +775,9 @@ MoqxRelay::PublishState MoqxRelay::findPublishState(const FullTrackName& ftn) {
 folly::coro::Task<Publisher::SubscribeResult>
 MoqxRelay::subscribe(SubscribeRequest subReq, std::shared_ptr<TrackConsumer> consumer) {
   auto session = MoQSession::getRequestSession();
+  if (auto metrics = clientNetworkMetrics_.lock())
+    consumer = sbd::watchVideo(std::move(consumer), subReq.fullTrackName, session, metrics->sbdService);
+
   const auto& ftn = subReq.fullTrackName;
 
   if (ftn.trackNamespace.empty()) {

@@ -202,11 +202,15 @@ routers:                     # Containernet only; Docker backend refuses
   rt-ab: { aqm: dualpi2, dualpi2_target_ms: 15 } # applies to every egress
   rt-bc: { aqm: dualpi2 }
 
+switches:                    # transparent, unnumbered Layer 2 bridges
+  sw-west: {}
+
 traffic:                     # optional; exactly one sender + one receiver
   sender: { id: traffic-tx }
   receiver: { id: traffic-rx }
   routes:
-    west: { path: [traffic-tx, rt-ab, traffic-rx] }
+    # Switch hops describe physical wiring but are transparent to IP routing.
+    west: { path: [traffic-tx, rt-ab, sw-west, traffic-rx] }
   flows:
     - { id: bulk, kind: bulk, route: west, start_s: 0, duration_s: 30,
         connections: 2 }
@@ -225,9 +229,15 @@ links:                       # Containernet only; physical wiring + shaping
     forward: { bandwidth_mbps: 50 }   # bottleneck on router egress
     reverse: { delay_ms: 10 }
   - { from: traffic-tx, to: rt-ab }
-  - { from: rt-ab, to: traffic-rx }
+  - { from: rt-ab, to: sw-west }       # shape here: shared router egress queue
+  - { from: sw-west, to: traffic-rx }  # unnumbered Layer 2 bridge hop
   # ... rt-bc, relay-c, sub follow the same pattern
 ```
+
+Switches are transparent bridge hops: the route compiler removes them from IP
+next-hop installation, while the physical `router -> switch` interface remains
+the shared shaped/AQM queue. The bridge does not rewrite ECN; leave switch-link
+shaping unset unless a second bottleneck is intentional.
 
 Set `l4s_ce_target: 0.05` on a relay to make its mvfst listener send ECT(1),
 validate ECN feedback, and track CE weight. Omit it to leave ECN disabled.
@@ -384,6 +394,11 @@ stalls. The visualizer reads only the selected node once per second. Detailed
 definitions and AV1-SVC switching rules are in
 [PLAYBACK_METRICS.md](PLAYBACK_METRICS.md).
 
+Click an SBD-enabled relay to inspect per-client detector telemetry and shared
+bottleneck groups. Clients use their topology YAML subscriber ids; raw
+connection details remain available as row tooltips. Drag the inspector's left
+separator, or focus it and use the arrow keys, to resize the right panel.
+
 Moqlab starts all subscriber containers before checking media readiness, then
 delays the publisher's one-shot catalog by two seconds. Mixed clients behind a
 shared relay can all attach before that catalog is forwarded.
@@ -493,3 +508,15 @@ The media Docker acceptance is gated and expects prebuilt media images:
 ```bash
 MOQLAB_INTEGRATION=1 .venv/bin/python -m pytest -q tests/integration/test_media_svc.py
 ```
+
+### SBD estimator output
+
+The relay currently reports `lcn2014-pdv2-window-v4`: PDV2 variability,
+50-interval histories at 350 ms, and grouping after 17.5 seconds of receiver history plus a partial start interval
+and 700 ms feedback grace. OWD uses receiver-time buckets; gaps and missing
+feedback reset warm-up automatically. Loss uses a separate packet-send-time clock.
+The live table displays PDV2 in milliseconds; archives retain microseconds and
+plots read the algorithm
+identifier and estimator metadata (older archives use a generic variability
+label). Thresholds and remaining measurement limitations are documented in
+[the SBD implementation notes](../rfc-8382-sbd-implementation.md).
