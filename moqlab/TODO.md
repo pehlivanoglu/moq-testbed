@@ -109,6 +109,9 @@ These become tractable once Phase 4 lands.
       `remove_node`, `set_ecn`, and `set_l4s`.
 - [ ] `observability/` package: JSONL collector, Prometheus/Grafana sidecar,
       and QLOG copy at end of run.
+- [ ] Add kernel/qdisc event tracing for ground-truth active-bottleneck onset.
+      Polling `tc -s` cannot identify first persistent enqueue exactly. Record
+      enqueue/dequeue, backlog, CE, and drop events on the shared host monotonic clock.
 - [ ] Full `experiments/run_*/` layout with `RUN_ID`, `config.yaml`,
       optional `scenario.yaml`, optional `topology_resolved.yaml`, `git.json`,
       `host_info.json`, `logs/`, `qlog/`, `metrics/`, `netem.log`, and

@@ -153,14 +153,16 @@ function updateNodeMetrics(payload) {
     const table = document.createElement("table");
     table.className = "sbd-table";
     const header = table.insertRow();
-    for (const label of ["Client", "State", "Intervals", "Skew", "PDV2 (ms)", "Frequency", "Loss", "Bottleneck"]) {
+    for (const label of ["Client", "State", "Intervals", "OWD mean/min/max (ms)", "Skew", "PDV2 (ms)", "Frequency", "Loss", "Bottleneck"]) {
       const th = document.createElement("th"); th.textContent = label; header.append(th);
     }
     for (const client of payload.sbd.clients) {
       const row = table.insertRow();
       row.title = `${client.connection_id} / ${client.peer}`;
       for (const value of [client.name ?? "Unknown client", client.status,
-          client.intervals, Number(client.skew_est).toFixed(3), (Number(client.var_est_us) / 1000).toFixed(2),
+          client.intervals, [client.interval_delay_mean_us, client.interval_delay_min_us, client.interval_delay_max_us]
+            .map((value) => (Number(value) / 1000).toFixed(3)).join(" / "),
+          Number(client.skew_est).toFixed(3), (Number(client.var_est_us) / 1000).toFixed(2),
           Number(client.freq_est).toFixed(3), Number(client.pkt_loss).toFixed(4),
           client.bottleneck ? "yes" : "no"]) {
         row.insertCell().textContent = String(value);

@@ -36,6 +36,8 @@ std::optional<Summary> ReceiveIntervals::finishFeedback() {
     // An empty receiver interval resets readiness; the next valid interval
     // starts a new history automatically, without synthesizing delay samples.
     result = detector_.finishInterval();
+    result->intervalStartUs = *next_ * kIntervalUs;
+    result->intervalEndUs = (*next_ + 1) * kIntervalUs;
     historyReset |= result->historyReset;
     ++*next_;
   }

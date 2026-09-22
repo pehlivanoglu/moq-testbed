@@ -32,7 +32,7 @@ def plot(path: Path, output: Path) -> None:
     from matplotlib.patches import Patch
 
     snapshots = read_snapshots(path)
-    start = snapshots[0]["timestamp_ms"]
+    start_ns = snapshots[0].get("snapshot_unix_ns", snapshots[0]["timestamp_ms"] * 1_000_000)
     ids = sorted({c["connection_id"] for s in snapshots for c in s["clients"]})
     memberships = sorted({tuple(c["group"]) for s in snapshots for c in s["clients"] if c["group"]})
     group_numbers = {members: i + 1 for i, members in enumerate(memberships)}
@@ -42,7 +42,8 @@ def plot(path: Path, output: Path) -> None:
     colors = plt.get_cmap("tab20")
     for index, cid in enumerate(ids):
         records = [(s, c) for s in snapshots for c in s["clients"] if c["connection_id"] == cid]
-        times = [(s["timestamp_ms"] - start) / 1000 for s, _ in records]
+        times = [(s.get("snapshot_unix_ns", s["timestamp_ms"] * 1_000_000) - start_ns) / 1_000_000_000
+                 for s, _ in records]
         label = f"{cid} ({records[0][1]['peer']})"
         for ax, (field, title) in zip(axes[:4], fields):
             values = [c[field] if c["status"] in ("warming_up", "ready") else float("nan") for _, c in records]

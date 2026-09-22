@@ -22,6 +22,7 @@ struct Flow {
   Summary summary;
   std::string status{"waiting_for_subscription"};
   std::chrono::steady_clock::time_point updated{};
+  int64_t updatedUnixNs{0};
 };
 // Publishes only interval summaries; the packet path never takes this mutex.
 class Service {
@@ -44,7 +45,8 @@ class Service {
   bool stopping_{false};
   std::unordered_map<std::string, std::shared_ptr<Flow>> flows_;
   std::string latest_;
-  std::ofstream output_;
+  std::ofstream output_, events_;
+  std::vector<std::vector<std::string>> lastGroups_;
   std::thread worker_;
 };
 } // namespace openmoq::moqx::sbd

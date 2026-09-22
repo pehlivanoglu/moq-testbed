@@ -30,7 +30,7 @@ bool Observer::measuring() {
     if (started_) {
       XLOG(INFO) << "SBD connection=" << id_ << " history_reset reason=measurement_ineligible";
       detector_.reset(); receiver_.reset(); loss_.reset(); started_ = false;
-      samples_ = 0; latestSentUs_ = 0; receiveOrigin_.reset();
+      samples_ = 0; latestSentUs_ = 0;
     }
     return false;
   }
@@ -60,7 +60,6 @@ void Observer::recover(std::string reason) {
   loss_.reset();
   samples_ = 0;
   latestSentUs_ = 0;
-  receiveOrigin_.reset();
   measurementStart_ = lastFeedback_ = std::chrono::steady_clock::now();
   next_ = measurementStart_ + kInterval;
   service_->publish(id_, {}, std::move(reason));
@@ -106,9 +105,12 @@ void Observer::acksProcessed(quic::QuicSocketLite* socket, const AcksProcessedEv
   // ACK packet order need not be receive order, including the first batch.
   std::sort(received.begin(), received.end());
   for (const auto& [rx, sent] : received) {
-    if (!receiveOrigin_) { receiveOrigin_ = rx; origin_ = sent; }
-    const auto tx = std::chrono::duration_cast<std::chrono::microseconds>(sent - origin_).count();
-    const double delay = double(rx - *receiveOrigin_) - double(tx);
+    const auto tx = clockUs(sent);
+    const double delay = double(rx - tx);
+    if (delay < 0) {
+      recover("waiting_shared_monotonic_clock");
+      return;
+    }
     if (!receiver_.sample(rx, delay)) {
       recover("waiting_late_or_excess_feedback");
       return;
@@ -154,6 +156,8 @@ void Observer::timeoutExpired() noexcept {
     if (now - next_ >= kInterval) { recover("waiting_after_timer_lag"); return; }
     if (!samples_) { recover("waiting_feedback"); return; }
     auto summary = detector_.finishInterval();
+    summary.intervalStartUs = clockUs(next_ - kInterval);
+    summary.intervalEndUs = clockUs(next_);
     loss_.apply(latestSentUs_, summary);
     service_->publish(id_, summary, summary.ready() ? "ready" : "warming_up");
     samples_ = 0;

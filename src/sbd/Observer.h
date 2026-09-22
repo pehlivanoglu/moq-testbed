@@ -30,8 +30,7 @@ class Observer final : public quic::ManagedObserver, public folly::AsyncTimeout 
   bool started_{false}, stopped_{false}, closed_{false};
   uint64_t samples_{0};
   int64_t latestSentUs_{0};
-  std::chrono::steady_clock::time_point next_{}, origin_{}, measurementStart_{};
+  std::chrono::steady_clock::time_point next_{}, measurementStart_{};
   std::chrono::steady_clock::time_point lastFeedback_{};
-  std::optional<int64_t> receiveOrigin_;
 };
 } // namespace openmoq::moqx::sbd

@@ -101,6 +101,13 @@ admin: {{port: {admin_port}, address: "127.0.0.1", plaintext: true}}
                     raise AssertionError(f"measurement stopped: {clients}")
                 passed = len(clients) == 2 and all(c["status"] == "ready" and c["full_history"] for c in clients)
             if passed:
+                if mode == "owd" and not unsupported:
+                    assert data["receive_timestamp_basis"] == "linux_clock_monotonic"
+                    assert len({c["interval_end_mono_us"] for c in clients}) == 1
+                    for client in clients:
+                        assert client["interval_end_mono_us"] - client["interval_start_mono_us"] == 350_000
+                        assert 0 <= client["interval_delay_min_us"] <= client["interval_delay_mean_us"]
+                        assert client["interval_delay_mean_us"] <= client["interval_delay_max_us"]
                 (output / "final.json").write_text(json.dumps(data, indent=2))
                 (output / "network.json").write_text(json.dumps(read("network-metrics"), indent=2))
                 print(f"PASS: {mode}, {'unsupported feedback waiting' if unsupported else 'two clients reached 100 intervals'}; {output}")

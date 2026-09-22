@@ -7,6 +7,7 @@ namespace openmoq::moqx::sbd {
 void Detector::sample(double delayUs) {
   ++count_;
   sum_ += delayUs;
+  minDelay_ = count_ == 1 ? delayUs : std::min(minDelay_, delayUs);
   maxDelay_ = count_ == 1 ? delayUs : std::max(maxDelay_, delayUs);
   if (size_) {
     skewBase_ += delayUs < mean_ ? 1 : delayUs > mean_ ? -1 : 0;
@@ -37,6 +38,9 @@ Summary Detector::finishInterval() {
   Summary result;
   result.intervals = ++intervals_;
   result.samples = count_;
+  result.intervalMeanDelayUs = currentMean;
+  result.intervalMinDelayUs = minDelay_;
+  result.intervalMaxDelayUs = maxDelay_;
   
   double skew = 0, variation = 0, mean = 0;
   uint64_t acked = 0, lost = 0;
@@ -88,12 +92,14 @@ Summary Detector::finishInterval() {
   mean_ = currentMean;
   cursor_ = (cursor_ + 1) % kN;
   count_ = acked_ = lost_ = 0;
-  sum_ = skewBase_ = maxDelay_ = 0;
+  sum_ = skewBase_ = minDelay_ = maxDelay_ = 0;
   return result;
 }
 
 std::vector<std::vector<std::string>> group(std::vector<FlowSummary> flows) {
-  std::erase_if(flows, [](const auto& f) { return !f.metrics.ready() || !f.metrics.bottleneck; });
+  std::erase_if(flows, [](const auto& f) {
+    return !f.metrics.groupingReady() || !f.metrics.bottleneck;
+  });
   std::vector<std::vector<FlowSummary>> groups;
   if (!flows.empty()) groups.push_back(std::move(flows));
   auto split = [&](auto metric, auto together) {
@@ -113,12 +119,12 @@ std::vector<std::vector<std::string>> group(std::vector<FlowSummary> flows) {
   };
   
   split([](const auto& m) { return m.frequency; }, [](double a, double b) { return std::abs(a - b) < kFrequencyThreshold; });
-  // draft-hayes-rmcat-sbd-00, section 3.2.1: PDV tolerance is relative.
+  // RFC 8382 section 3.3.1 supplies the relative form omitted by the paper.
   split([](const auto& m) { return m.groupingVariation; }, [](double a, double b) {
     return a == b || std::abs(a - b) < kVariationThreshold * std::max(a, b);
   });
   // Keep the two final-stage metrics in separate groups. High loss replaces
-  // skewness (LCN 2014 section V-B; draft-hayes-rmcat-sbd-00 section 3.2.1).
+  // skewness (LCN 2014 section V-B).
   split([](const auto& m) { return m.loss > kLossThreshold ? 1.0 : 0.0; },
         [](double a, double b) { return a == b; });
   split([](const auto& m) { return m.loss > kLossThreshold ? 0.0 : m.skew; },

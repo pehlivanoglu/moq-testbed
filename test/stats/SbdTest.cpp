@@ -5,7 +5,10 @@
 #include <gtest/gtest.h>
 #include <folly/json.h>
 #include <cmath>
+#include <filesystem>
+#include <fstream>
 #include <limits>
+#include <unistd.h>
 
 using namespace openmoq::moqx;
 using namespace openmoq::moqx::sbd;
@@ -19,6 +22,7 @@ TEST(Sbd, OffsetInvarianceAndWarmup) {
     a.outcomes(20, 1); b.outcomes(20, 1);
     auto x = a.finishInterval(), y = b.finishInterval();
     EXPECT_EQ(x.ready(), interval >= 49);
+    EXPECT_EQ(x.groupingReady(), interval >= 99);
     EXPECT_NEAR(x.skew, y.skew, 1e-10);
     EXPECT_NEAR(x.variation, y.variation, 1e-7);
     EXPECT_EQ(x.frequency, y.frequency);
@@ -39,6 +43,13 @@ TEST(Sbd, IntervalSkewUsesPreviousMeanAndPdv2) {
   d.sample(0); d.sample(10);
   s = d.finishInterval();
   EXPECT_DOUBLE_EQ(s.variation, 5.0 / 4);
+}
+TEST(Sbd, PaperSkewAveragesIntervalEstimates) {
+  Detector d;
+  d.sample(10); d.finishInterval();
+  d.sample(20); d.finishInterval(); // interval skew -1
+  for (int i = 0; i < 9; ++i) d.sample(0); // interval skew +1
+  EXPECT_DOUBLE_EQ(d.finishInterval().skew, 0);
 }
 TEST(Sbd, MissingIntervalResetsReadiness) {
   Detector d;
@@ -61,10 +72,10 @@ TEST(Sbd, PacketLossHasFiftyIntervalWindow) {
 }
 TEST(Sbd, GroupingSubdividesAndExcludesUnready) {
   Summary common;
-  common.intervals = 50; common.bottleneck = true;
+  common.intervals = kGroupingWarmupIntervals; common.bottleneck = true;
   common.groupingVariation = 100; common.skew = -0.1; common.frequency = .2;
   Summary separate = common; separate.frequency = .5;
-  Summary unready = common; unready.intervals = 49;
+  Summary unready = common; unready.intervals = kGroupingWarmupIntervals - 1;
   auto groups = group({{"b", common}, {"c", separate}, {"a", common}, {"new", unready}});
   EXPECT_EQ(groups, (std::vector<std::vector<std::string>>{{"a", "b"}}));
   EXPECT_TRUE(group({{"a", common}}).empty());
@@ -110,7 +121,7 @@ TEST(Sbd, FrequencyRecountsHistoryAgainstCurrentMeanAndDeadband) {
 }
 TEST(Sbd, HighLossReplacesSkewAndVarianceToleranceIsRelative) {
   Summary a;
-  a.intervals = 50; a.bottleneck = true;
+  a.intervals = kGroupingWarmupIntervals; a.bottleneck = true;
   a.loss = .3; a.skew = -.8; a.groupingVariation = 10000;
   auto b = a;
   b.loss = .8;
@@ -131,15 +142,23 @@ TEST(Sbd, HighLossReplacesSkewAndVarianceToleranceIsRelative) {
 TEST(Sbd, MetadataDescribesActiveEstimator) {
   Service service(Config{}, "test");
   const auto json = folly::parseJson(service.json());
-  EXPECT_EQ(json["algorithm"].asString(), "lcn2014-pdv2-window-v4");
+  EXPECT_EQ(json["algorithm"].asString(), "lcn2014-pdv2-rfc-fill-v6");
   EXPECT_EQ(json["N"].asInt(), 50);
   EXPECT_EQ(json["M"].asInt(), 50);
   EXPECT_DOUBLE_EQ(json["p_v"].asDouble(), .2);
   EXPECT_DOUBLE_EQ(json["p_pdv"].asDouble(), .3);
   EXPECT_DOUBLE_EQ(json["p_l"].asDouble(), .25);
   EXPECT_DOUBLE_EQ(json["p_d"].asDouble(), .2);
+  EXPECT_EQ(json["metric_window_intervals"].asInt(), 50);
+  EXPECT_EQ(json["grouping_warmup_intervals"].asInt(), 100);
+  EXPECT_EQ(json["parameter_precedence"].asString(), "LCN2014_then_RFC8382");
+  EXPECT_EQ(json["transport_gap_policy"].asString(), "implementation_specific");
   EXPECT_EQ(json["variability_estimator"].asString(), "pdv2");
-  EXPECT_EQ(json["interval_clock"].asString(), "receiver_timestamp");
+  EXPECT_EQ(json["interval_clock"].asString(), "receiver_clock_monotonic");
+  EXPECT_EQ(json["delay_measurement"].asString(), "absolute_owd");
+  EXPECT_EQ(json["receive_timestamp_basis"].asString(), "linux_clock_monotonic");
+  EXPECT_TRUE(json.count("snapshot_unix_ns"));
+  EXPECT_TRUE(json.count("group_decision_mono_us"));
   EXPECT_EQ(json["feedback_grace_ms"].asInt(), 700);
   EXPECT_EQ(json["loss_interval_clock"].asString(), "packet_send");
   EXPECT_EQ(json.count("p_mad"), 0);
@@ -186,7 +205,7 @@ TEST(Sbd, VideoStartRequiresSuccessfullyForwardedPayload) {
 TEST(Sbd, ReceiverIntervalsIgnoreAckBatchingAndBoundedReordering) {
   ReceiveIntervals immediate, batched, reordered;
   std::optional<Summary> a, b, c;
-  for (int i = 0; i < 72; ++i) {
+  for (int i = 0; i < 122; ++i) {
     const double delay = 1000 + 500 * std::sin(i / 3.0);
     for (int p = 0; p < 3; ++p) {
       ASSERT_TRUE(immediate.sample(i * kIntervalUs + p * 100000, delay + p * 100));
@@ -202,8 +221,12 @@ TEST(Sbd, ReceiverIntervalsIgnoreAckBatchingAndBoundedReordering) {
     if (i % 3 == 2) if (auto v = batched.finishFeedback()) b = v;
     if (auto v = reordered.finishFeedback()) c = v;
   }
+  if (auto v = immediate.finishFeedback()) a = v;
+  if (auto v = batched.finishFeedback()) b = v;
+  if (auto v = reordered.finishFeedback()) c = v;
   ASSERT_TRUE(a && b && c);
   EXPECT_TRUE(a->ready());
+  EXPECT_TRUE(a->groupingReady());
   for (const auto& other : {*b, *c}) {
     EXPECT_EQ(a->intervals, other.intervals);
     EXPECT_NEAR(a->skew, other.skew, 1e-12);
@@ -225,6 +248,11 @@ TEST(Sbd, ReceiverIntervalsWaitForGraceAndResetOnGaps) {
   auto s = r.finishFeedback();
   ASSERT_TRUE(s);
   EXPECT_EQ(s->intervals, 1);
+  EXPECT_EQ(s->intervalStartUs, kIntervalUs);
+  EXPECT_EQ(s->intervalEndUs, 2 * kIntervalUs);
+  EXPECT_DOUBLE_EQ(s->intervalMeanDelayUs, 2);
+  EXPECT_DOUBLE_EQ(s->intervalMinDelayUs, 2);
+  EXPECT_DOUBLE_EQ(s->intervalMaxDelayUs, 2);
   ASSERT_TRUE(r.sample(5 * kIntervalUs, 5));
   s = r.finishFeedback(); // bucket 2 was empty
   ASSERT_TRUE(s);
@@ -242,6 +270,51 @@ TEST(Sbd, ReceiverIntervalsWaitForGraceAndResetOnGaps) {
   s = r.finishFeedback();
   ASSERT_TRUE(s);
   EXPECT_EQ(s->intervals, 1);
+}
+
+TEST(Sbd, ArchivesExactGroupTransitionTime) {
+  char path[] = "/tmp/moqx-sbd-XXXXXX";
+  const int fd = mkstemp(path);
+  ASSERT_GE(fd, 0);
+  close(fd);
+  std::filesystem::remove(path);
+  {
+    Service service(Config{true, "owd", path}, "test");
+    Summary summary;
+    summary.intervals = kGroupingWarmupIntervals;
+    summary.bottleneck = true;
+    summary.groupingVariation = 100;
+    summary.skew = -0.1;
+    summary.intervalStartUs = 10 * kIntervalUs;
+    summary.intervalEndUs = 11 * kIntervalUs;
+    for (const auto* id : {"a", "b"}) {
+      service.attach(id, "peer");
+      service.eligible(id, true);
+      service.publish(id, summary, "ready");
+    }
+  }
+  std::ifstream input(std::string(path) + ".events.jsonl");
+  std::string line;
+  bool sawDetection = false, sawGroup = false;
+  while (std::getline(input, line)) {
+    const auto event = folly::parseJson(line);
+    if (event["event"] == "bottleneck_state_changed") {
+      sawDetection = true;
+      EXPECT_TRUE(event["bottleneck"].asBool());
+      EXPECT_GT(event["detected_unix_ns"].asInt(), 0);
+      EXPECT_EQ(event["interval_end_mono_us"].asInt(), 11 * kIntervalUs);
+    } else if (event["event"] == "groups_changed") {
+      sawGroup = true;
+      EXPECT_GT(event["decision_unix_ns"].asInt(), 0);
+      EXPECT_GT(event["decision_mono_us"].asInt(), 0);
+      EXPECT_EQ(event["groups"][0].size(), 2);
+    }
+  }
+  EXPECT_TRUE(sawDetection);
+  EXPECT_TRUE(sawGroup);
+  std::filesystem::remove(path);
+  std::filesystem::remove(std::string(path) + ".events.jsonl");
+  std::filesystem::remove(std::string(path) + ".latest.json");
 }
 TEST(Sbd, ReceiverBufferRejectsExcessAndInvalidInput) {
   ReceiveIntervals r;

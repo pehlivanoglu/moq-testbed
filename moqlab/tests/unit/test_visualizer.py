@@ -40,6 +40,8 @@ def test_browser_assets_live_outside_python_package():
     assert 'sharedHeading.textContent = "Shared bottlenecks"' in app
     assert 'telemetryHeading.textContent = "Client telemetry"' in app
     assert 'for (const label of ["Client", "State"' in app
+    assert '"OWD mean/min/max (ms)"' in app
+    assert "client.interval_delay_mean_us" in app
     assert '"PDV2 (ms)"' in app
     assert "Number(client.var_est_us) / 1000" in app
     assert "Group members" not in app
