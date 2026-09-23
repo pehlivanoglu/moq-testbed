@@ -104,6 +104,7 @@ void Observer::acksProcessed(quic::QuicSocketLite* socket, const AcksProcessedEv
   if (measuredOutcomes) lastFeedback_ = std::chrono::steady_clock::now();
   // ACK packet order need not be receive order, including the first batch.
   std::sort(received.begin(), received.end());
+  std::optional<int64_t> receiveWatermarkUs;
   for (const auto& [rx, sent] : received) {
     const auto tx = clockUs(sent);
     const double delay = double(rx - tx);
@@ -115,9 +116,12 @@ void Observer::acksProcessed(quic::QuicSocketLite* socket, const AcksProcessedEv
       recover("waiting_late_or_excess_feedback");
       return;
     }
+    receiveWatermarkUs = rx;
   }
-  if (owd) {
-    if (auto summary = receiver_.finishFeedback()) {
+  if (owd && receiveWatermarkUs) {
+    // ACK feedback is cumulative. Missing timestamps above are fatal, so after
+    // the whole batch is sampled its greatest receive time is a safe watermark.
+    if (auto summary = receiver_.finishThrough(*receiveWatermarkUs)) {
       if (summary->historyReset)
         XLOG(WARN) << "SBD connection=" << id_ << " history_reset reason=empty_receiver_interval";
       loss_.apply(latestSentUs_, *summary);

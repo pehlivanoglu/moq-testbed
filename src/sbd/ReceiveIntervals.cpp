@@ -19,15 +19,14 @@ bool ReceiveIntervals::sample(int64_t receiveUs, double delayUs) {
   if (bucket < *next_ || bucket - *next_ > 8 || samples_ >= 65536) return false;
   buckets_[bucket].push_back(delayUs);
   ++samples_;
-  newest_ = std::max(newest_, receiveUs);
   return true;
 }
-std::optional<Summary> ReceiveIntervals::finishFeedback() {
+std::optional<Summary> ReceiveIntervals::finishThrough(int64_t receiveWatermarkUs) {
   std::optional<Summary> result;
   bool historyReset = false;
-  if (!next_) return result;
-  const auto watermark = newest_ - kFeedbackGraceUs;
-  while ((*next_ + 1) * kIntervalUs <= watermark) {
+  if (!next_ || receiveWatermarkUs < 0) return result;
+  watermark_ = std::max(watermark_, receiveWatermarkUs);
+  while ((*next_ + 1) * kIntervalUs <= watermark_) {
     if (auto it = buckets_.find(*next_); it != buckets_.end()) {
       for (double delay : it->second) detector_.sample(delay);
       samples_ -= it->second.size();

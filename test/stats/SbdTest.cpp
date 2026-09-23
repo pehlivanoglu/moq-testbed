@@ -142,7 +142,7 @@ TEST(Sbd, HighLossReplacesSkewAndVarianceToleranceIsRelative) {
 TEST(Sbd, MetadataDescribesActiveEstimator) {
   Service service(Config{}, "test");
   const auto json = folly::parseJson(service.json());
-  EXPECT_EQ(json["algorithm"].asString(), "lcn2014-pdv2-rfc-fill-v6");
+  EXPECT_EQ(json["algorithm"].asString(), "lcn2014-pdv2-rfc-fill-v7");
   EXPECT_EQ(json["N"].asInt(), 50);
   EXPECT_EQ(json["M"].asInt(), 50);
   EXPECT_DOUBLE_EQ(json["p_v"].asDouble(), .2);
@@ -159,7 +159,8 @@ TEST(Sbd, MetadataDescribesActiveEstimator) {
   EXPECT_EQ(json["receive_timestamp_basis"].asString(), "linux_clock_monotonic");
   EXPECT_TRUE(json.count("snapshot_unix_ns"));
   EXPECT_TRUE(json.count("group_decision_mono_us"));
-  EXPECT_EQ(json["feedback_grace_ms"].asInt(), 700);
+  EXPECT_EQ(json["feedback_grace_ms"].asInt(), 0);
+  EXPECT_EQ(json["interval_completion"].asString(), "receive_timestamp_watermark");
   EXPECT_EQ(json["loss_interval_clock"].asString(), "packet_send");
   EXPECT_EQ(json.count("p_mad"), 0);
   EXPECT_EQ(json.count("c_h"), 0);
@@ -167,6 +168,7 @@ TEST(Sbd, MetadataDescribesActiveEstimator) {
   const auto rttJson = folly::parseJson(rtt.json());
   EXPECT_EQ(rttJson["interval_clock"].asString(), "ack_arrival");
   EXPECT_EQ(rttJson["feedback_grace_ms"].asInt(), 0);
+  EXPECT_EQ(rttJson["interval_completion"].asString(), "ack_arrival_timer");
   EXPECT_EQ(rttJson["feedback_timeout_ms"].asInt(), 350);
 }
 TEST(Sbd, RelayPeerExcludedFromClientEligibility) {
@@ -217,13 +219,17 @@ TEST(Sbd, ReceiverIntervalsIgnoreAckBatchingAndBoundedReordering) {
     if (i > 0)
       ASSERT_TRUE(reordered.sample((i - 1) * kIntervalUs,
                                   1000 + 500 * std::sin((i - 1) / 3.0)));
-    if (auto v = immediate.finishFeedback()) a = v;
-    if (i % 3 == 2) if (auto v = batched.finishFeedback()) b = v;
-    if (auto v = reordered.finishFeedback()) c = v;
+    const auto watermark = i * kIntervalUs + 200000;
+    if (auto v = immediate.finishThrough(watermark)) a = v;
+    if (i % 3 == 2) if (auto v = batched.finishThrough(watermark)) b = v;
+    if (auto v = reordered.finishThrough(watermark)) c = v;
   }
-  if (auto v = immediate.finishFeedback()) a = v;
-  if (auto v = batched.finishFeedback()) b = v;
-  if (auto v = reordered.finishFeedback()) c = v;
+  // Interval 121's deliberately delayed first sample would arrive in batch 122.
+  // Complete only through interval 120 so all three traces cover equal data.
+  const auto watermark = 121 * kIntervalUs;
+  if (auto v = immediate.finishThrough(watermark)) a = v;
+  if (auto v = batched.finishThrough(watermark)) b = v;
+  if (auto v = reordered.finishThrough(watermark)) c = v;
   ASSERT_TRUE(a && b && c);
   EXPECT_TRUE(a->ready());
   EXPECT_TRUE(a->groupingReady());
@@ -238,14 +244,12 @@ TEST(Sbd, ReceiverIntervalsIgnoreAckBatchingAndBoundedReordering) {
     EXPECT_EQ(group({{"a", x}, {"b", y}}).size(), 1);
   }
 }
-TEST(Sbd, ReceiverIntervalsWaitForGraceAndResetOnGaps) {
+TEST(Sbd, ReceiverIntervalsFinishAtWatermarkAndResetOnGaps) {
   ReceiveIntervals r;
   ASSERT_TRUE(r.sample(100, 1)); // partial first bucket discarded
   ASSERT_TRUE(r.sample(kIntervalUs + 100, 2));
-  ASSERT_TRUE(r.sample(3 * kIntervalUs, 3));
-  EXPECT_FALSE(r.finishFeedback());
-  ASSERT_TRUE(r.sample(4 * kIntervalUs, 4));
-  auto s = r.finishFeedback();
+  EXPECT_FALSE(r.finishThrough(2 * kIntervalUs - 1));
+  auto s = r.finishThrough(2 * kIntervalUs);
   ASSERT_TRUE(s);
   EXPECT_EQ(s->intervals, 1);
   EXPECT_EQ(s->intervalStartUs, kIntervalUs);
@@ -253,13 +257,13 @@ TEST(Sbd, ReceiverIntervalsWaitForGraceAndResetOnGaps) {
   EXPECT_DOUBLE_EQ(s->intervalMeanDelayUs, 2);
   EXPECT_DOUBLE_EQ(s->intervalMinDelayUs, 2);
   EXPECT_DOUBLE_EQ(s->intervalMaxDelayUs, 2);
-  ASSERT_TRUE(r.sample(5 * kIntervalUs, 5));
-  s = r.finishFeedback(); // bucket 2 was empty
+  ASSERT_TRUE(r.sample(3 * kIntervalUs, 3));
+  s = r.finishThrough(3 * kIntervalUs); // bucket 2 was empty
   ASSERT_TRUE(s);
   EXPECT_EQ(s->intervals, 0);
   EXPECT_TRUE(s->historyReset);
-  ASSERT_TRUE(r.sample(6 * kIntervalUs, 6));
-  s = r.finishFeedback();
+  ASSERT_TRUE(r.sample(4 * kIntervalUs, 4));
+  s = r.finishThrough(4 * kIntervalUs);
   ASSERT_TRUE(s);
   EXPECT_EQ(s->intervals, 1);
   EXPECT_FALSE(r.sample(kIntervalUs + 200, 7)); // already closed
@@ -267,9 +271,10 @@ TEST(Sbd, ReceiverIntervalsWaitForGraceAndResetOnGaps) {
   ASSERT_TRUE(r.sample(10 * kIntervalUs, 8));
   ASSERT_TRUE(r.sample(11 * kIntervalUs, 9));
   ASSERT_TRUE(r.sample(14 * kIntervalUs, 10));
-  s = r.finishFeedback();
+  s = r.finishThrough(12 * kIntervalUs);
   ASSERT_TRUE(s);
   EXPECT_EQ(s->intervals, 1);
+  EXPECT_FALSE(r.finishThrough(11 * kIntervalUs)); // stale watermark is harmless
 }
 
 TEST(Sbd, ArchivesExactGroupTransitionTime) {
@@ -353,7 +358,7 @@ TEST(Sbd, ReceiverGapAutomaticallyRewarmsToReady) {
   std::optional<Summary> latest;
   for (int i = 0; i <= 55; ++i) {
     ASSERT_TRUE(r.sample(i * kIntervalUs, i));
-    if (auto s = r.finishFeedback()) latest = s;
+    if (auto s = r.finishThrough(i * kIntervalUs)) latest = s;
   }
   ASSERT_TRUE(latest && latest->ready());
   // No packet in receiver interval 56. Later valid feedback first removes
@@ -361,7 +366,7 @@ TEST(Sbd, ReceiverGapAutomaticallyRewarmsToReady) {
   bool sawGap = false;
   for (int i = 57; i <= 110; ++i) {
     ASSERT_TRUE(r.sample(i * kIntervalUs, i));
-    if (auto s = r.finishFeedback()) {
+    if (auto s = r.finishThrough(i * kIntervalUs)) {
       latest = s;
       if (s->intervals == 0) sawGap = true;
     }
@@ -369,5 +374,5 @@ TEST(Sbd, ReceiverGapAutomaticallyRewarmsToReady) {
   EXPECT_TRUE(sawGap);
   ASSERT_TRUE(latest);
   EXPECT_TRUE(latest->ready());
-  EXPECT_EQ(latest->intervals, 51);
+  EXPECT_EQ(latest->intervals, 53);
 }

@@ -6,21 +6,20 @@
 
 namespace openmoq::moqx::sbd {
 inline constexpr int64_t kIntervalUs = 350000;
-inline constexpr int64_t kFeedbackGraceUs = 2 * kIntervalUs;
 inline constexpr auto kFeedbackTimeout = 5 * kInterval;
 
-// Receiver-time buckets. Finalize only after later receiver timestamps have
-// advanced beyond the grace period; wall time cannot prove completeness.
+// Receiver-time buckets. The caller supplies a watermark only after processing
+// every timestamp in one cumulative ACK feedback batch.
 class ReceiveIntervals {
  public:
   bool sample(int64_t receiveUs, double delayUs);
-  std::optional<Summary> finishFeedback();
+  std::optional<Summary> finishThrough(int64_t receiveWatermarkUs);
   void reset() { *this = ReceiveIntervals{}; }
  private:
   Detector detector_;
   std::map<int64_t, std::vector<double>> buckets_;
   std::optional<int64_t> next_, first_;
-  int64_t newest_{0};
+  int64_t watermark_{0};
   size_t samples_{0};
 };
 

@@ -162,7 +162,7 @@ void Service::snapshot() {
   }
   lastGroups_ = groups;
   latest_ = folly::toJson(folly::dynamic::object
-    ("schema_version", 1)("algorithm", "lcn2014-pdv2-rfc-fill-v6")
+    ("schema_version", 1)("algorithm", "lcn2014-pdv2-rfc-fill-v7")
     ("timestamp_ms", wall)("snapshot_unix_ns", wallNs)("group_decision_mono_us", decisionMonoUs)
     ("group_decision_unix_ns", wallNs)("relay_id", relayId_)
     ("enabled", config_.enabled)("delay_source", config_.delaySource)
@@ -174,7 +174,9 @@ void Service::snapshot() {
     ("receive_timestamp_basis", config_.delaySource == "owd" ? "linux_clock_monotonic" : "not_applicable")
     ("interval_clock", config_.delaySource == "owd" ? "receiver_clock_monotonic" : "ack_arrival")
     ("loss_interval_clock", "packet_send")
-    ("feedback_grace_ms", config_.delaySource == "owd" ? kFeedbackGraceUs / 1000 : 0)
+    ("feedback_grace_ms", 0)
+    ("interval_completion", config_.delaySource == "owd" ?
+        "receive_timestamp_watermark" : "ack_arrival_timer")
     ("feedback_timeout_ms", config_.delaySource == "owd" ? kFeedbackTimeout.count() : kInterval.count())
     ("gap_policy", "reset_and_rewarm")
     ("parameter_precedence", "LCN2014_then_RFC8382")

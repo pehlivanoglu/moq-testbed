@@ -103,6 +103,8 @@ admin: {{port: {admin_port}, address: "127.0.0.1", plaintext: true}}
             if passed:
                 if mode == "owd" and not unsupported:
                     assert data["receive_timestamp_basis"] == "linux_clock_monotonic"
+                    assert data["feedback_grace_ms"] == 0
+                    assert data["interval_completion"] == "receive_timestamp_watermark"
                     assert len({c["interval_end_mono_us"] for c in clients}) == 1
                     for client in clients:
                         assert client["interval_end_mono_us"] - client["interval_start_mono_us"] == 350_000
