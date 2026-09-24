@@ -228,7 +228,7 @@ void Service::snapshot() {
   }
   lastGroups_ = groups;
   latest_ = folly::toJson(folly::dynamic::object
-    ("schema_version", 1)("algorithm", "lcn2014-pdv2-rfc-fill-v10")
+    ("schema_version", 1)("algorithm", config_.algorithm)
     ("timestamp_ms", wall)("snapshot_unix_ns", wallNs)
     ("group_decision_mono_us", lastGroupDecisionMonoUs_)
     ("group_decision_unix_ns", lastGroupDecisionUnixNs_)

@@ -165,7 +165,7 @@ TEST(Sbd, GroupingVariationToleranceIsRelative) {
 TEST(Sbd, MetadataDescribesActiveEstimator) {
   Service service(Config{}, "test");
   const auto json = folly::parseJson(service.json());
-  EXPECT_EQ(json["algorithm"].asString(), "lcn2014-pdv2-rfc-fill-v10");
+  EXPECT_EQ(json["algorithm"].asString(), "PracticalPassiveAndRFC");
   EXPECT_EQ(json["N"].asInt(), 50);
   EXPECT_EQ(json["M"].asInt(), 50);
   EXPECT_DOUBLE_EQ(json["p_v"].asDouble(), .2);

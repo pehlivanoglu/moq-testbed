@@ -371,6 +371,7 @@ struct ParsedSbdConfig {
   std::optional<bool> enabled;
   std::optional<std::string> delay_source;
   std::optional<std::string> output_file;
+  std::optional<std::string> algorithm;
 };
 
 struct ParsedConfig {

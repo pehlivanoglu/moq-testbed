@@ -5,9 +5,12 @@
 #include <chrono>
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace openmoq::moqx::sbd {
+inline constexpr std::string_view kPracticalPassiveAndRFC{
+    "PracticalPassiveAndRFC"};
 inline constexpr auto kInterval = std::chrono::milliseconds(350);
 inline constexpr size_t kN = 50, kM = 50;
 inline constexpr size_t kGroupingWarmupIntervals = 2 * kM;

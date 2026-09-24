@@ -511,7 +511,8 @@ MOQLAB_INTEGRATION=1 .venv/bin/python -m pytest -q tests/integration/test_media_
 
 ### SBD estimator output
 
-The relay currently reports `lcn2014-pdv2-rfc-fill-v10`: LCN 2014 PDV2
+Select the current detector with `sbd.algorithm: PracticalPassiveAndRFC`; this
+is also the algorithm name reported by the relay. It implements LCN 2014 PDV2
 variability with RFC 8382 filling behavior the paper does not specify. Metrics
 become ready after 50 intervals at 350 ms; shared grouping starts after 100
 intervals (35 seconds), plus a partial start interval. Completed receiver-time

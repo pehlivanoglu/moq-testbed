@@ -35,6 +35,7 @@ def run(relay_binary: Path, publisher: Path, subscriber: Path, mode: str,
 edge: true
 sbd:
   enabled: true
+  algorithm: PracticalPassiveAndRFC
   delay_source: {mode}
   output_file: {json.dumps(str(archive))}
 listeners:
@@ -93,6 +94,7 @@ admin: {{port: {admin_port}, address: "127.0.0.1", plaintext: true}}
         while time.monotonic() < deadline:
             time.sleep(0.35)
             data = read("sbd-metrics")
+            assert data["algorithm"] == "PracticalPassiveAndRFC"
             clients = data["clients"]
             if unsupported:
                 passed = len(clients) == 2 and all(c["status"] == "waiting_receive_timestamps" for c in clients)

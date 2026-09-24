@@ -173,7 +173,11 @@ startup:
   traffic_ready_timeout_s: 5.0
 
 relays:
-  relay-a: { listen_port: 9668, admin_port: 9669, upstream: null }
+  relay-a:
+    listen_port: 9668
+    admin_port: 9669
+    upstream: null
+    sbd: { enabled: false, algorithm: PracticalPassiveAndRFC, delay_source: owd }
   relay-b: { listen_port: 9670, admin_port: 9671, upstream: relay-a }
 
 publishers:

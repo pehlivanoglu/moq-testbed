@@ -124,8 +124,12 @@ TEST(ConfigResolverSbd, ValidatesEdgeAndDelaySource) {
   auto result = resolveConfig(cfg);
   ASSERT_TRUE(result.hasValue());
   EXPECT_TRUE(result->config.sbd.enabled);
+  EXPECT_EQ(result->config.sbd.algorithm, "PracticalPassiveAndRFC");
   EXPECT_EQ(result->config.sbd.delaySource, "owd");
   cfg.sbd->delay_source = "automatic";
+  EXPECT_FALSE(resolveConfig(cfg).hasValue());
+  cfg.sbd->delay_source = "owd";
+  cfg.sbd->algorithm = "unknown";
   EXPECT_FALSE(resolveConfig(cfg).hasValue());
 }
 

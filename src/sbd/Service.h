@@ -16,6 +16,7 @@ struct Config {
   bool enabled{false};
   std::string delaySource{"owd"};
   std::string outputFile;
+  std::string algorithm{kPracticalPassiveAndRFC};
 };
 struct Flow {
   std::atomic<bool> eligible{false};

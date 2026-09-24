@@ -17,6 +17,9 @@ def test_sbd_requires_explicit_edge_and_valid_mode():
     with pytest.raises(ValidationError):
         RelayConfig(listen_port=4443, admin_port=4444, edge=True,
                     sbd={"enabled": True, "delay_source": "automatic"})
+    with pytest.raises(ValidationError):
+        RelayConfig(listen_port=4443, admin_port=4444, edge=True,
+                    sbd={"enabled": True, "algorithm": "unknown"})
 
 
 @pytest.mark.parametrize("mode", ["owd", "rtt"])
@@ -29,7 +32,9 @@ def test_sbd_config_reaches_relay_and_archive(mode):
     })
     doc = synthesize_relay_yaml(topology, "edge")
     assert doc["edge"]
-    assert doc["sbd"] == {"enabled": True, "delay_source": mode,
+    assert doc["sbd"] == {"enabled": True,
+                          "algorithm": "PracticalPassiveAndRFC",
+                          "delay_source": mode,
                           "output_file": "/var/log/moqx/sbd/snapshots.jsonl"}
 
 
