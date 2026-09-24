@@ -12,6 +12,12 @@
 
 using namespace openmoq::moqx;
 using namespace openmoq::moqx::sbd;
+namespace {
+std::optional<Summary> lastSummary(std::vector<Summary> summaries) {
+  if (summaries.empty()) return std::nullopt;
+  return std::move(summaries.back());
+}
+}
 TEST(Sbd, OffsetInvarianceAndWarmup) {
   Detector a, b;
   for (int interval = 0; interval < 100; ++interval) {
@@ -51,21 +57,22 @@ TEST(Sbd, PaperSkewAveragesIntervalEstimates) {
   for (int i = 0; i < 9; ++i) d.sample(0); // interval skew +1
   EXPECT_DOUBLE_EQ(d.finishInterval().skew, 0);
 }
-TEST(Sbd, MissingIntervalPreservesReadinessAndInvalidatesOneSkew) {
+TEST(Sbd, MissingIntervalRestartsPaperWindow) {
   Detector d;
   for (int i = 0; i < 60; ++i) { d.sample(i); d.finishInterval(); }
   auto s = d.finishInterval();
-  EXPECT_EQ(s.intervals, 61);
-  EXPECT_TRUE(s.ready());
+  EXPECT_EQ(s.intervals, 0);
+  EXPECT_FALSE(s.ready());
   EXPECT_FALSE(s.measurementValid);
   d.sample(3);
   s = d.finishInterval();
-  EXPECT_EQ(s.intervals, 62);
+  EXPECT_EQ(s.intervals, 1);
   EXPECT_FALSE(s.measurementValid);
   d.sample(4);
   s = d.finishInterval();
-  EXPECT_EQ(s.intervals, 63);
+  EXPECT_EQ(s.intervals, 2);
   EXPECT_TRUE(s.measurementValid);
+  EXPECT_FALSE(s.ready());
 }
 TEST(Sbd, PacketLossHasFiftyIntervalWindow) {
   Detector d;
@@ -126,18 +133,27 @@ TEST(Sbd, FrequencyRecountsHistoryAgainstCurrentMeanAndDeadband) {
   // Every interval mean is inside the current +/-20 deadband.
   EXPECT_DOUBLE_EQ(s.frequency, 0.0);
 }
-TEST(Sbd, HighLossReplacesSkewAndVarianceToleranceIsRelative) {
+TEST(Sbd, PaperHighLossSubstitutesLossAndRfcFillsMixedCase) {
   Summary a;
   a.intervals = kGroupingWarmupIntervals; a.bottleneck = true;
-  a.loss = .3; a.skew = -.8; a.groupingVariation = 10000;
+  a.loss = .251; a.skew = -.1; a.groupingVariation = 10000;
   auto b = a;
-  b.loss = .8;
-  EXPECT_TRUE(group({{"a", a}, {"b", b}}).empty());
-  b.loss = .35; b.skew = .8;
+  b.loss = .249; // Crossing p_l alone does not force a split.
   EXPECT_EQ(group({{"a", a}, {"b", b}}).size(), 1);
-  b.loss = .25;
+  b.loss = .1; // Mixed groups use RFC skew then relative loss.
   EXPECT_TRUE(group({{"a", a}, {"b", b}}).empty());
-  b = a; b.groupingVariation = 200000;
+
+  a.loss = .3; a.skew = -.8; b = a; b.loss = .32; b.skew = .8;
+  EXPECT_EQ(group({{"a", a}, {"b", b}}).size(), 1);
+  b.loss = .35;
+  EXPECT_TRUE(group({{"a", a}, {"b", b}}).empty());
+}
+TEST(Sbd, GroupingVariationToleranceIsRelative) {
+  Summary a;
+  a.intervals = kGroupingWarmupIntervals; a.bottleneck = true;
+  a.skew = -.1; a.groupingVariation = 10000;
+  auto b = a;
+  b.groupingVariation = 200000;
   EXPECT_TRUE(group({{"a", a}, {"b", b}}).empty());
   b.groupingVariation = 12000;
   EXPECT_EQ(group({{"a", a}, {"b", b}}).size(), 1);
@@ -149,17 +165,19 @@ TEST(Sbd, HighLossReplacesSkewAndVarianceToleranceIsRelative) {
 TEST(Sbd, MetadataDescribesActiveEstimator) {
   Service service(Config{}, "test");
   const auto json = folly::parseJson(service.json());
-  EXPECT_EQ(json["algorithm"].asString(), "lcn2014-pdv2-rfc-fill-v8");
+  EXPECT_EQ(json["algorithm"].asString(), "lcn2014-pdv2-rfc-fill-v10");
   EXPECT_EQ(json["N"].asInt(), 50);
   EXPECT_EQ(json["M"].asInt(), 50);
   EXPECT_DOUBLE_EQ(json["p_v"].asDouble(), .2);
   EXPECT_DOUBLE_EQ(json["p_pdv"].asDouble(), .3);
   EXPECT_DOUBLE_EQ(json["p_l"].asDouble(), .25);
-  EXPECT_DOUBLE_EQ(json["p_d"].asDouble(), .2);
+  EXPECT_DOUBLE_EQ(json["p_d"].asDouble(), .1);
+  EXPECT_EQ(json["loss_threshold_mode"].asString(), "paper_substitution_rfc_relative_to_larger");
   EXPECT_EQ(json["metric_window_intervals"].asInt(), 50);
   EXPECT_EQ(json["grouping_warmup_intervals"].asInt(), 100);
   EXPECT_EQ(json["parameter_precedence"].asString(), "LCN2014_then_RFC8382");
-  EXPECT_EQ(json["gap_policy"].asString(), "preserve_history_mark_invalid");
+  EXPECT_EQ(json["gap_policy"].asString(), "reset_and_rewarm");
+  EXPECT_EQ(json["group_interval_policy"].asString(), "latest_common_completed_interval");
   EXPECT_EQ(json["transport_gap_policy"].asString(), "stale_without_reset");
   EXPECT_EQ(json["loss_correction"].asString(), "packet_number_ledger");
   EXPECT_EQ(json["variability_estimator"].asString(), "pdv2");
@@ -176,6 +194,7 @@ TEST(Sbd, MetadataDescribesActiveEstimator) {
   Service rtt(Config{false, "rtt", ""}, "test-rtt");
   const auto rttJson = folly::parseJson(rtt.json());
   EXPECT_EQ(rttJson["interval_clock"].asString(), "ack_arrival");
+  EXPECT_EQ(rttJson["group_interval_policy"].asString(), "latest_fresh_summary");
   EXPECT_EQ(rttJson["feedback_grace_ms"].asInt(), 0);
   EXPECT_EQ(rttJson["interval_completion"].asString(), "ack_arrival_timer");
   EXPECT_EQ(rttJson["feedback_timeout_ms"].asInt(), 350);
@@ -229,16 +248,17 @@ TEST(Sbd, ReceiverIntervalsIgnoreAckBatchingAndBoundedReordering) {
       ASSERT_TRUE(reordered.sample((i - 1) * kIntervalUs,
                                   1000 + 500 * std::sin((i - 1) / 3.0)));
     const auto watermark = i * kIntervalUs + 200000;
-    if (auto v = immediate.finishThrough(watermark)) a = v;
-    if (i % 3 == 2) if (auto v = batched.finishThrough(watermark)) b = v;
-    if (auto v = reordered.finishThrough(watermark)) c = v;
+    if (auto v = lastSummary(immediate.finishThrough(watermark))) a = v;
+    if (i % 3 == 2)
+      if (auto v = lastSummary(batched.finishThrough(watermark))) b = v;
+    if (auto v = lastSummary(reordered.finishThrough(watermark))) c = v;
   }
   // Interval 121's deliberately delayed first sample would arrive in batch 122.
   // Complete only through interval 120 so all three traces cover equal data.
   const auto watermark = 121 * kIntervalUs;
-  if (auto v = immediate.finishThrough(watermark)) a = v;
-  if (auto v = batched.finishThrough(watermark)) b = v;
-  if (auto v = reordered.finishThrough(watermark)) c = v;
+  if (auto v = lastSummary(immediate.finishThrough(watermark))) a = v;
+  if (auto v = lastSummary(batched.finishThrough(watermark))) b = v;
+  if (auto v = lastSummary(reordered.finishThrough(watermark))) c = v;
   ASSERT_TRUE(a && b && c);
   EXPECT_TRUE(a->ready());
   EXPECT_TRUE(a->groupingReady());
@@ -253,12 +273,12 @@ TEST(Sbd, ReceiverIntervalsIgnoreAckBatchingAndBoundedReordering) {
     EXPECT_EQ(group({{"a", x}, {"b", y}}).size(), 1);
   }
 }
-TEST(Sbd, ReceiverIntervalsFinishAtWatermarkAndPreserveHistoryAcrossGaps) {
+TEST(Sbd, ReceiverIntervalsFinishAtWatermarkAndRestartAcrossGaps) {
   ReceiveIntervals r;
   ASSERT_TRUE(r.sample(100, 1)); // partial first bucket discarded
   ASSERT_TRUE(r.sample(kIntervalUs + 100, 2));
-  EXPECT_FALSE(r.finishThrough(2 * kIntervalUs - 1));
-  auto s = r.finishThrough(2 * kIntervalUs);
+  EXPECT_TRUE(r.finishThrough(2 * kIntervalUs - 1).empty());
+  auto s = lastSummary(r.finishThrough(2 * kIntervalUs));
   ASSERT_TRUE(s);
   EXPECT_EQ(s->intervals, 1);
   EXPECT_EQ(s->intervalStartUs, kIntervalUs);
@@ -267,29 +287,29 @@ TEST(Sbd, ReceiverIntervalsFinishAtWatermarkAndPreserveHistoryAcrossGaps) {
   EXPECT_DOUBLE_EQ(s->intervalMinDelayUs, 2);
   EXPECT_DOUBLE_EQ(s->intervalMaxDelayUs, 2);
   ASSERT_TRUE(r.sample(3 * kIntervalUs, 3));
-  s = r.finishThrough(3 * kIntervalUs); // bucket 2 was empty
+  s = lastSummary(r.finishThrough(3 * kIntervalUs)); // bucket 2 was empty
   ASSERT_TRUE(s);
-  EXPECT_EQ(s->intervals, 2);
+  EXPECT_EQ(s->intervals, 0);
   EXPECT_FALSE(s->measurementValid);
   ASSERT_TRUE(r.sample(4 * kIntervalUs, 4));
-  s = r.finishThrough(4 * kIntervalUs);
+  s = lastSummary(r.finishThrough(4 * kIntervalUs));
   ASSERT_TRUE(s);
-  EXPECT_EQ(s->intervals, 3);
+  EXPECT_EQ(s->intervals, 1);
   EXPECT_FALSE(s->measurementValid);
   ASSERT_TRUE(r.sample(5 * kIntervalUs, 5));
-  s = r.finishThrough(5 * kIntervalUs);
+  s = lastSummary(r.finishThrough(5 * kIntervalUs));
   ASSERT_TRUE(s);
-  EXPECT_EQ(s->intervals, 4);
+  EXPECT_EQ(s->intervals, 2);
   EXPECT_TRUE(s->measurementValid);
   EXPECT_FALSE(r.sample(kIntervalUs + 200, 7)); // already closed
   r.reset(); // observer invalidates history and resumes automatically
   ASSERT_TRUE(r.sample(10 * kIntervalUs, 8));
   ASSERT_TRUE(r.sample(11 * kIntervalUs, 9));
   ASSERT_TRUE(r.sample(14 * kIntervalUs, 10));
-  s = r.finishThrough(12 * kIntervalUs);
+  s = lastSummary(r.finishThrough(12 * kIntervalUs));
   ASSERT_TRUE(s);
   EXPECT_EQ(s->intervals, 1);
-  EXPECT_FALSE(r.finishThrough(11 * kIntervalUs)); // stale watermark is harmless
+  EXPECT_TRUE(r.finishThrough(11 * kIntervalUs).empty()); // stale watermark is harmless
 }
 
 TEST(Sbd, ArchivesExactGroupTransitionTime) {
@@ -328,11 +348,43 @@ TEST(Sbd, ArchivesExactGroupTransitionTime) {
       sawGroup = true;
       EXPECT_GT(event["decision_unix_ns"].asInt(), 0);
       EXPECT_GT(event["decision_mono_us"].asInt(), 0);
+      EXPECT_EQ(event["interval_end_mono_us"].asInt(), 11 * kIntervalUs);
       EXPECT_EQ(event["groups"][0].size(), 2);
     }
   }
   EXPECT_TRUE(sawDetection);
   EXPECT_TRUE(sawGroup);
+  std::filesystem::remove(path);
+  std::filesystem::remove(std::string(path) + ".events.jsonl");
+  std::filesystem::remove(std::string(path) + ".latest.json");
+}
+TEST(Sbd, DoesNotGroupDifferentReceiverIntervals) {
+  char path[] = "/tmp/moqx-sbd-epochs-XXXXXX";
+  const int fd = mkstemp(path);
+  ASSERT_GE(fd, 0);
+  close(fd);
+  std::filesystem::remove(path);
+  {
+    Service service(Config{true, "owd", path}, "test");
+    Summary summary;
+    summary.intervals = kGroupingWarmupIntervals;
+    summary.bottleneck = summary.measurementValid = true;
+    summary.groupingVariation = 100;
+    summary.skew = -0.1;
+    for (const auto* id : {"a", "b"}) {
+      service.attach(id, "peer");
+      service.eligible(id, true);
+      summary.intervalStartUs = (id[0] == 'a' ? 10 : 9) * kIntervalUs;
+      summary.intervalEndUs = summary.intervalStartUs + kIntervalUs;
+      service.publish(id, summary, "ready");
+    }
+  }
+  std::ifstream input(path);
+  std::string line, last;
+  while (std::getline(input, line)) last = line;
+  const auto snapshot = folly::parseJson(last);
+  EXPECT_TRUE(snapshot["groups"].empty());
+  EXPECT_EQ(snapshot["group_interval_end_mono_us"].asInt(), 0);
   std::filesystem::remove(path);
   std::filesystem::remove(std::string(path) + ".events.jsonl");
   std::filesystem::remove(std::string(path) + ".latest.json");
@@ -393,12 +445,12 @@ TEST(Sbd, PacketSendLossWindowExpiresAndAcceptsReorderedOutcomes) {
     ASSERT_TRUE(loss.acknowledged(0, packet));
   for (uint64_t packet = 6; packet < 10; ++packet)
     ASSERT_TRUE(loss.declaredLost(0, packet));
-  loss.apply(49 * kIntervalUs, s);
+  loss.apply(50 * kIntervalUs, s);
   EXPECT_EQ(s.acked, 6);
   EXPECT_EQ(s.lost, 4);
   EXPECT_DOUBLE_EQ(s.loss, .4);
   EXPECT_TRUE(s.bottleneck);
-  loss.apply(50 * kIntervalUs, s);
+  loss.apply(51 * kIntervalUs, s);
   EXPECT_EQ(s.acked, 0);
   EXPECT_EQ(s.lost, 0);
   EXPECT_FALSE(s.bottleneck);
@@ -406,7 +458,7 @@ TEST(Sbd, PacketSendLossWindowExpiresAndAcceptsReorderedOutcomes) {
   for (uint64_t packet = 10; packet < 19; ++packet)
     ASSERT_TRUE(loss.acknowledged(100 * kIntervalUs, packet));
   ASSERT_TRUE(loss.declaredLost(99 * kIntervalUs, 19)); // Older sends may arrive later.
-  loss.apply(100 * kIntervalUs, s);
+  loss.apply(101 * kIntervalUs, s);
   EXPECT_EQ(s.acked, 9);
   EXPECT_EQ(s.lost, 1);
   EXPECT_DOUBLE_EQ(s.loss, .1);
@@ -418,21 +470,21 @@ TEST(Sbd, SpuriousLossReplacesProvisionalLossExactlyOnce) {
   s.measurementValid = true;
   ASSERT_TRUE(loss.declaredLost(0, 1));
   ASSERT_TRUE(loss.declaredLost(0, 1));
-  loss.apply(0, s);
+  loss.apply(kIntervalUs, s);
   EXPECT_EQ(s.acked, 0);
   EXPECT_EQ(s.lost, 1);
   ASSERT_TRUE(loss.spuriousLoss(0, 1));
   ASSERT_TRUE(loss.spuriousLoss(0, 1));
-  loss.apply(0, s);
+  loss.apply(kIntervalUs, s);
   EXPECT_EQ(s.acked, 1);
   EXPECT_EQ(s.lost, 0);
 }
-TEST(Sbd, ReceiverGapResumesWithoutRewarming) {
+TEST(Sbd, ReceiverGapRequiresPaperWindowRewarm) {
   ReceiveIntervals r;
   std::optional<Summary> latest;
   for (int i = 0; i <= 55; ++i) {
     ASSERT_TRUE(r.sample(i * kIntervalUs, i));
-    if (auto s = r.finishThrough(i * kIntervalUs)) latest = s;
+    if (auto s = lastSummary(r.finishThrough(i * kIntervalUs))) latest = s;
   }
   ASSERT_TRUE(latest && latest->ready());
   // No packet in receiver interval 56. The empty slot and the next interval
@@ -441,7 +493,7 @@ TEST(Sbd, ReceiverGapResumesWithoutRewarming) {
   int firstValidAfterGap = -1;
   for (int i = 57; i <= 110; ++i) {
     ASSERT_TRUE(r.sample(i * kIntervalUs, i));
-    if (auto s = r.finishThrough(i * kIntervalUs)) {
+    if (auto s = lastSummary(r.finishThrough(i * kIntervalUs))) {
       latest = s;
       if (!s->measurementValid) sawGap = true;
       else if (sawGap && firstValidAfterGap < 0) firstValidAfterGap = i;
@@ -451,5 +503,5 @@ TEST(Sbd, ReceiverGapResumesWithoutRewarming) {
   ASSERT_TRUE(latest);
   EXPECT_TRUE(latest->ready());
   EXPECT_EQ(firstValidAfterGap, 59);
-  EXPECT_EQ(latest->intervals, 109);
+  EXPECT_EQ(latest->intervals, 53);
 }

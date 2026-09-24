@@ -13,7 +13,7 @@ inline constexpr auto kFeedbackTimeout = 5 * kInterval;
 class ReceiveIntervals {
  public:
   bool sample(int64_t receiveUs, double delayUs);
-  std::optional<Summary> finishThrough(int64_t receiveWatermarkUs);
+  std::vector<Summary> finishThrough(int64_t receiveWatermarkUs);
   void reset() { *this = ReceiveIntervals{}; }
  private:
   Detector detector_;
@@ -30,7 +30,7 @@ class FeedbackLoss {
   bool acknowledged(int64_t sentUs, uint64_t packetNum);
   bool declaredLost(int64_t sentUs, uint64_t packetNum);
   bool spuriousLoss(int64_t sentUs, uint64_t packetNum);
-  void apply(int64_t latestSentUs, Summary& summary);
+  void apply(int64_t windowEndUs, Summary& summary);
   void reset() { *this = FeedbackLoss{}; }
  private:
   struct Entry { int64_t interval; uint64_t acked, lost; };

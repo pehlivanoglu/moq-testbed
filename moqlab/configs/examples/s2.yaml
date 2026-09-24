@@ -47,11 +47,8 @@ subscribers:
 routers:
   router:
     image: moqlab-router
-    aqm: dualpi2
 switches:
   switch:
-    image: moqlab-router
-  switch-1:
     image: moqlab-router
 links:
 - from: pub
@@ -71,16 +68,8 @@ links:
   to: sub
   forward:
     bandwidth_mbps: 15
-- from: switch
-  to: traffic-rx
 - from: relay
-  to: switch-1
-- from: switch-1
   to: router
-- from: traffic-tx
-  to: switch-1
-  forward:
-    bandwidth_mbps: 10
 defaults:
   relay:
     image: moqlab-relay
@@ -114,22 +103,3 @@ startup:
   publisher_warmup_s: 1
   media_ready_timeout_s: 30
   traffic_ready_timeout_s: 5
-traffic:
-  routes:
-    load-1-route:
-      path:
-      - traffic-tx
-      - switch-1
-      - router
-      - switch
-      - traffic-rx
-  flows:
-  - id: load-1
-    kind: cbr
-    route: load-1-route
-    duration_s: 1000
-    rate_mbps: 10
-  receiver:
-    id: traffic-rx
-  sender:
-    id: traffic-tx

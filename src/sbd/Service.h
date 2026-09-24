@@ -4,6 +4,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <fstream>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -21,6 +22,7 @@ struct Flow {
   std::atomic<bool> videoStarted{false};
   std::string peer;
   Summary summary;
+  std::map<int64_t, Summary> summaries;
   std::string status{"waiting_for_subscription"};
   std::chrono::steady_clock::time_point updated{};
   int64_t updatedUnixNs{0};
@@ -50,6 +52,8 @@ class Service {
   std::string latest_;
   std::ofstream output_, events_;
   std::vector<std::vector<std::string>> lastGroups_;
+  int64_t lastGroupIntervalEndUs_{0};
+  int64_t lastGroupDecisionMonoUs_{0}, lastGroupDecisionUnixNs_{0};
   std::thread worker_;
 };
 } // namespace openmoq::moqx::sbd

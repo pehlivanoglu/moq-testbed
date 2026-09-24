@@ -3,6 +3,7 @@
 #include "sbd/ReceiveIntervals.h"
 #include <folly/json.h>
 #include <folly/logging/xlog.h>
+#include <algorithm>
 #include <filesystem>
 #include <stdexcept>
 
@@ -62,6 +63,7 @@ void Service::eligible(const std::string& id, bool value) {
   if (!value) {
     flow->status = "not_client";
     flow->summary = {};
+    flow->summaries.clear();
     flow->lastBottleneck.reset();
   }
 }
@@ -91,7 +93,14 @@ void Service::publish(const std::string& id, const Summary& summary, std::string
       if (!events_) XLOG(ERR) << "SBD event write failed: " << config_.outputFile << ".events.jsonl";
     }
     if (decisionValid) flow.lastBottleneck = detected;
-    else if (!summary.intervals) flow.lastBottleneck.reset();
+    else if (!summary.intervals) {
+      flow.lastBottleneck.reset();
+      flow.summaries.clear();
+    }
+    if (status == "ready" && summary.intervalEndUs > 0) {
+      flow.summaries[summary.intervalEndUs] = summary;
+      while (flow.summaries.size() > 4) flow.summaries.erase(flow.summaries.begin());
+    }
     if (flow.status != status)
       XLOG(INFO) << "SBD connection=" << id << " status=" << status;
     flow.summary = summary;
@@ -136,11 +145,50 @@ void Service::snapshot() {
   const auto wallNs = unixNs();
   const auto wall = wallNs / 1000000;
   const auto decisionMonoUs = monotonicUs(now);
-  std::vector<FlowSummary> ready;
+  std::vector<std::pair<std::string, const Flow*>> candidates;
   for (const auto& [id, f] : flows_)
-    if (f->eligible && f->status == "ready" && now - f->updated < 3 * kInterval)
-      ready.push_back({id, f->summary});
-  const auto groups = group(std::move(ready));
+    if (f->eligible && f->status == "ready" && now - f->updated < 3 * kInterval &&
+        !f->summaries.empty())
+      candidates.emplace_back(id, f.get());
+
+  auto groups = lastGroups_;
+  std::erase_if(groups, [&](auto& members) {
+    std::erase_if(members, [&](const auto& id) {
+      return std::none_of(candidates.begin(), candidates.end(),
+          [&](const auto& candidate) { return candidate.first == id; });
+    });
+    return members.size() < 2;
+  });
+  std::optional<int64_t> commonEnd;
+  if (config_.delaySource == "owd" && !candidates.empty()) {
+    for (auto it = candidates.front().second->summaries.rbegin();
+         it != candidates.front().second->summaries.rend(); ++it) {
+      const auto end = it->first;
+      if (std::all_of(candidates.begin(), candidates.end(), [&](const auto& candidate) {
+            const auto found = candidate.second->summaries.find(end);
+            return found != candidate.second->summaries.end() &&
+                found->second.groupingReady() && found->second.measurementValid;
+          })) {
+        commonEnd = end;
+        break;
+      }
+    }
+  }
+  if (commonEnd && *commonEnd > lastGroupIntervalEndUs_) {
+    std::vector<FlowSummary> ready;
+    for (const auto& [id, flow] : candidates)
+      ready.push_back({id, flow->summaries.at(*commonEnd)});
+    groups = group(std::move(ready));
+    lastGroupIntervalEndUs_ = *commonEnd;
+    lastGroupDecisionMonoUs_ = decisionMonoUs;
+    lastGroupDecisionUnixNs_ = wallNs;
+  } else if (config_.delaySource != "owd" && !candidates.empty()) {
+    std::vector<FlowSummary> ready;
+    for (const auto& [id, flow] : candidates) ready.push_back({id, flow->summary});
+    groups = group(std::move(ready));
+    lastGroupDecisionMonoUs_ = decisionMonoUs;
+    lastGroupDecisionUnixNs_ = wallNs;
+  }
   folly::dynamic clients = folly::dynamic::array;
   for (const auto& [id, f] : flows_) {
     const auto& m = f->summary;
@@ -173,20 +221,24 @@ void Service::snapshot() {
     events_ << folly::toJson(folly::dynamic::object
       ("schema_version", 1)("event", "groups_changed")("relay_id", relayId_)
       ("decision_unix_ns", wallNs)("decision_mono_us", decisionMonoUs)
+      ("interval_end_mono_us", lastGroupIntervalEndUs_)
       ("previous_groups", jsonGroups(lastGroups_))("groups", jsonGroups(groups))) << '\n';
     events_.flush();
     if (!events_) XLOG(ERR) << "SBD event write failed: " << config_.outputFile << ".events.jsonl";
   }
   lastGroups_ = groups;
   latest_ = folly::toJson(folly::dynamic::object
-    ("schema_version", 1)("algorithm", "lcn2014-pdv2-rfc-fill-v8")
-    ("timestamp_ms", wall)("snapshot_unix_ns", wallNs)("group_decision_mono_us", decisionMonoUs)
-    ("group_decision_unix_ns", wallNs)("relay_id", relayId_)
+    ("schema_version", 1)("algorithm", "lcn2014-pdv2-rfc-fill-v10")
+    ("timestamp_ms", wall)("snapshot_unix_ns", wallNs)
+    ("group_decision_mono_us", lastGroupDecisionMonoUs_)
+    ("group_decision_unix_ns", lastGroupDecisionUnixNs_)
+    ("group_interval_end_mono_us", lastGroupIntervalEndUs_)
+    ("relay_id", relayId_)
     ("enabled", config_.enabled)("delay_source", config_.delaySource)
     ("c_s", 0.0)("p_f", kFrequencyThreshold)("p_d", kLossDifferenceThreshold)
     ("p_s", kSkewThreshold)("p_pdv", kVariationThreshold)("p_v", kCrossingThreshold)
     ("variability_estimator", "pdv2")("variance_threshold_mode", "relative_to_larger")
-    ("loss_threshold_mode", "absolute_difference")
+    ("loss_threshold_mode", "paper_substitution_rfc_relative_to_larger")
     ("delay_measurement", config_.delaySource == "owd" ? "absolute_owd" : "rtt")
     ("receive_timestamp_basis", config_.delaySource == "owd" ? "linux_clock_monotonic" : "not_applicable")
     ("interval_clock", config_.delaySource == "owd" ? "receiver_clock_monotonic" : "ack_arrival")
@@ -195,7 +247,9 @@ void Service::snapshot() {
     ("interval_completion", config_.delaySource == "owd" ?
         "receive_timestamp_watermark" : "ack_arrival_timer")
     ("feedback_timeout_ms", config_.delaySource == "owd" ? kFeedbackTimeout.count() : kInterval.count())
-    ("gap_policy", "preserve_history_mark_invalid")
+    ("gap_policy", "reset_and_rewarm")
+    ("group_interval_policy", config_.delaySource == "owd" ?
+        "latest_common_completed_interval" : "latest_fresh_summary")
     ("parameter_precedence", "LCN2014_then_RFC8382")
     ("transport_gap_policy", "stale_without_reset")
     ("loss_correction", "packet_number_ledger")

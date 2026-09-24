@@ -30,7 +30,7 @@ bool Observer::measuring() {
     if (started_) {
       XLOG(INFO) << "SBD connection=" << id_ << " history_reset reason=measurement_ineligible";
       detector_.reset(); receiver_.reset(); loss_.reset(); started_ = false;
-      samples_ = 0; latestSentUs_ = 0;
+      samples_ = 0;
     }
     return false;
   }
@@ -49,7 +49,6 @@ void Observer::stop(std::string reason) {
   detector_.reset();
   receiver_.reset();
   loss_.reset();
-  latestSentUs_ = 0;
   cancelTimeout();
   service_->publish(id_, {}, std::move(reason));
 }
@@ -59,7 +58,6 @@ void Observer::recover(std::string reason) {
   receiver_.reset();
   loss_.reset();
   samples_ = 0;
-  latestSentUs_ = 0;
   measurementStart_ = lastFeedback_ = std::chrono::steady_clock::now();
   next_ = measurementStart_ + kInterval;
   service_->publish(id_, {}, std::move(reason));
@@ -79,7 +77,6 @@ void Observer::acksProcessed(quic::QuicSocketLite* socket, const AcksProcessedEv
       if (packet.outstandingPacketMetadata.time < measurementStart_) continue;
       ++measuredOutcomes;
       const auto sentUs = clockUs(packet.outstandingPacketMetadata.time);
-      latestSentUs_ = std::max(latestSentUs_, sentUs);
       if (!loss_.acknowledged(sentUs, packet.packetNum)) {
         recover("waiting_outcome_capacity");
         return;
@@ -124,12 +121,12 @@ void Observer::acksProcessed(quic::QuicSocketLite* socket, const AcksProcessedEv
   if (owd && receiveWatermarkUs) {
     // ACK feedback is cumulative. Missing timestamps above are fatal, so after
     // the whole batch is sampled its greatest receive time is a safe watermark.
-    if (auto summary = receiver_.finishThrough(*receiveWatermarkUs)) {
-      loss_.apply(latestSentUs_, *summary);
-      const auto status = !summary->ready() ? "warming_up" :
-          summary->measurementValid ? "ready" :
-          summary->samples ? "waiting_previous_interval" : "waiting_receiver_samples";
-      service_->publish(id_, *summary, status);
+    for (auto& summary : receiver_.finishThrough(*receiveWatermarkUs)) {
+      loss_.apply(summary.intervalEndUs, summary);
+      const auto status = !summary.samples ? "waiting_receiver_samples" :
+          !summary.ready() ? "warming_up" :
+          summary.measurementValid ? "ready" : "waiting_previous_interval";
+      service_->publish(id_, summary, status);
     }
   }
 }
@@ -140,7 +137,6 @@ void Observer::packetLossDetected(quic::QuicSocketLite*, const LossEvent& event)
     if (packet.pnSpace != quic::PacketNumberSpace::AppData ||
         packet.packetMetadata.time < measurementStart_) continue;
     const auto sentUs = clockUs(packet.packetMetadata.time);
-    latestSentUs_ = std::max(latestSentUs_, sentUs);
     if (!loss_.declaredLost(sentUs, packet.packetNum)) {
       recover("waiting_outcome_capacity");
       return;
@@ -155,7 +151,6 @@ void Observer::spuriousLossDetected(
     if (packet.pnSpace != quic::PacketNumberSpace::AppData ||
         packet.packetMetadata.time < measurementStart_) continue;
     const auto sentUs = clockUs(packet.packetMetadata.time);
-    latestSentUs_ = std::max(latestSentUs_, sentUs);
     if (!loss_.spuriousLoss(sentUs, packet.packetNum)) {
       recover("waiting_outcome_capacity");
       return;
@@ -179,7 +174,7 @@ void Observer::timeoutExpired() noexcept {
     auto summary = detector_.finishInterval();
     summary.intervalStartUs = clockUs(next_ - kInterval);
     summary.intervalEndUs = clockUs(next_);
-    loss_.apply(latestSentUs_, summary);
+    loss_.apply(summary.intervalEndUs, summary);
     service_->publish(id_, summary,
         summary.ready() && summary.measurementValid ? "ready" : "warming_up");
     samples_ = 0;

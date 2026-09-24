@@ -511,7 +511,7 @@ MOQLAB_INTEGRATION=1 .venv/bin/python -m pytest -q tests/integration/test_media_
 
 ### SBD estimator output
 
-The relay currently reports `lcn2014-pdv2-rfc-fill-v8`: LCN 2014 PDV2
+The relay currently reports `lcn2014-pdv2-rfc-fill-v10`: LCN 2014 PDV2
 variability with RFC 8382 filling behavior the paper does not specify. Metrics
 become ready after 50 intervals at 350 ms; shared grouping starts after 100
 intervals (35 seconds), plus a partial start interval. Completed receiver-time
@@ -520,10 +520,12 @@ interval boundary; there is no fixed feedback grace.
 OWD uses host `CLOCK_MONOTONIC` receiver-time buckets;
 the patched native subscriber and relay must share that Linux clock domain.
 Snapshots expose exact interval boundaries, interval OWD mean/min/max, measurement
-publication time, and group-decision time. Individual bottleneck-state and group
+publication time, and group-decision time. Grouping uses only summaries from the
+latest completed receiver interval common to every ready client. Individual bottleneck-state and group
 membership changes are also appended to `snapshots.jsonl.events.jsonl`. Empty
-receiver intervals and feedback silence temporarily make the decision unknown
-without discarding mature history. Loss uses a separate packet-send-time clock.
+receiver intervals restart that flow's warm-up; feedback silence temporarily makes
+the decision unknown without fabricating samples. Loss uses packet send times over
+the same wall-clock evidence epoch as OWD.
 The live table displays PDV2 in milliseconds; archives retain microseconds and
 plots read the algorithm
 identifier and estimator metadata (older archives use a generic variability

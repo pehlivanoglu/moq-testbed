@@ -30,7 +30,7 @@ subscribers:
     kind: media
     connects_to: relay
     namespace: msf/clear
-    track: video/s2
+    track: video/s0
     image: moqlab-media-native-sub
     log_level: INFO
     media_client: native
@@ -39,7 +39,7 @@ subscribers:
     kind: media
     connects_to: relay
     namespace: msf/clear
-    track: video/s2
+    track: video/s0
     image: moqlab-media-native-sub
     log_level: INFO
     media_client: native
@@ -71,16 +71,14 @@ links:
   to: sub
   forward:
     bandwidth_mbps: 15
-- from: switch
-  to: traffic-rx
 - from: relay
   to: switch-1
 - from: switch-1
   to: router
-- from: traffic-tx
-  to: switch-1
-  forward:
-    bandwidth_mbps: 10
+- from: switch-1
+  to: traffic-tx
+- from: switch
+  to: traffic-rx
 defaults:
   relay:
     image: moqlab-relay
@@ -127,9 +125,10 @@ traffic:
   - id: load-1
     kind: cbr
     route: load-1-route
-    duration_s: 1000
-    rate_mbps: 10
-  receiver:
-    id: traffic-rx
+    duration_s: 10000
+    rate_mbps: 19.8
+    start_s: 20
   sender:
     id: traffic-tx
+  receiver:
+    id: traffic-rx

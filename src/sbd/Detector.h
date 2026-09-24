@@ -13,7 +13,7 @@ inline constexpr size_t kN = 50, kM = 50;
 inline constexpr size_t kGroupingWarmupIntervals = 2 * kM;
 inline constexpr double kLossThreshold = 0.25;
 inline constexpr double kFrequencyThreshold = 0.2, kVariationThreshold = 0.3;
-inline constexpr double kSkewThreshold = 0.2, kLossDifferenceThreshold = 0.2;
+inline constexpr double kSkewThreshold = 0.2, kLossDifferenceThreshold = 0.1;
 inline constexpr double kCrossingThreshold = 0.2;
 
 struct Summary {

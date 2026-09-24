@@ -2,6 +2,7 @@
 #include "sbd/Detector.h"
 #include <algorithm>
 #include <cmath>
+#include <iterator>
 
 namespace openmoq::moqx::sbd {
 void Detector::sample(double delayUs) {
@@ -19,12 +20,15 @@ void Detector::outcomes(uint64_t acked, uint64_t lost) {
 }
 void Detector::reset() { *this = Detector{}; }
 Summary Detector::finishInterval() {
-  const bool hasSamples = count_ != 0;
-  const double currentMean = hasSamples ? sum_ / count_ : 0;
+  if (!count_) {
+    reset();
+    return {};
+  }
+  const double currentMean = sum_ / count_;
   Interval current{count_, acked_, lost_, currentMean,
-                   hasSamples && previousMeanValid_ ? skewBase_ / count_ : 0,
-                   hasSamples ? maxDelay_ - currentMean : 0, // PDV2
-                   0, hasSamples && previousMeanValid_, false};
+                   previousMeanValid_ ? skewBase_ / count_ : 0,
+                   maxDelay_ - currentMean, // PDV2
+                   0, previousMeanValid_, false};
   auto at = [&](size_t age) -> Interval& {
     return history_[(cursor_ + kN - age) % kN];
   };
@@ -85,8 +89,8 @@ Summary Detector::finishInterval() {
   }
   result.frequency /= size_;
   
-  if (hasSamples) mean_ = currentMean;
-  previousMeanValid_ = hasSamples;
+  mean_ = currentMean;
+  previousMeanValid_ = true;
   cursor_ = (cursor_ + 1) % kN;
   count_ = acked_ = lost_ = 0;
   sum_ = skewBase_ = minDelay_ = maxDelay_ = 0;
@@ -99,9 +103,10 @@ std::vector<std::vector<std::string>> group(std::vector<FlowSummary> flows) {
   });
   std::vector<std::vector<FlowSummary>> groups;
   if (!flows.empty()) groups.push_back(std::move(flows));
-  auto split = [&](auto metric, auto together) {
+  auto subdivide = [](std::vector<std::vector<FlowSummary>> source,
+                      auto metric, auto together) {
     std::vector<std::vector<FlowSummary>> next;
-    for (auto& g : groups) {
+    for (auto& g : source) {
       std::sort(g.begin(), g.end(), [&](const auto& a, const auto& b) {
         const double av = metric(a.metrics), bv = metric(b.metrics);
         return av == bv ? a.id < b.id : av > bv;
@@ -112,7 +117,10 @@ std::vector<std::vector<std::string>> group(std::vector<FlowSummary> flows) {
         next.back().push_back(g[i]);
       }
     }
-    groups = std::move(next);
+    return next;
+  };
+  auto split = [&](auto metric, auto together) {
+    groups = subdivide(std::move(groups), metric, together);
   };
   
   split([](const auto& m) { return m.frequency; }, [](double a, double b) { return std::abs(a - b) < kFrequencyThreshold; });
@@ -120,14 +128,30 @@ std::vector<std::vector<std::string>> group(std::vector<FlowSummary> flows) {
   split([](const auto& m) { return m.groupingVariation; }, [](double a, double b) {
     return a == b || std::abs(a - b) < kVariationThreshold * std::max(a, b);
   });
-  // Keep the two final-stage metrics in separate groups. High loss replaces
-  // skewness (LCN 2014 section V-B).
-  split([](const auto& m) { return m.loss > kLossThreshold ? 1.0 : 0.0; },
-        [](double a, double b) { return a == b; });
-  split([](const auto& m) { return m.loss > kLossThreshold ? 0.0 : m.skew; },
-        [](double a, double b) { return std::abs(a - b) < kSkewThreshold; });
-  split([](const auto& m) { return m.loss > kLossThreshold ? m.loss : 0.0; },
-        [](double a, double b) { return std::abs(a - b) < kLossDifferenceThreshold; });
+  auto lossTogether = [](double a, double b) {
+    const double high = std::max(a, b);
+    return high <= kLossThreshold ||
+        std::abs(a - b) < kLossDifferenceThreshold * high;
+  };
+  std::vector<std::vector<FlowSummary>> highLoss, remaining;
+  for (auto& g : groups) {
+    const bool allHigh = std::all_of(g.begin(), g.end(), [](const auto& f) {
+      return f.metrics.loss > kLossThreshold;
+    });
+    (allHigh ? highLoss : remaining).push_back(std::move(g));
+  }
+  // LCN 2014 section V-B substitutes loss for unreliable skew when every
+  // member is in the high-loss regime. Mixed groups use RFC 8382 steps 4-5.
+  highLoss = subdivide(std::move(highLoss),
+      [](const auto& m) { return m.loss; }, lossTogether);
+  remaining = subdivide(std::move(remaining),
+      [](const auto& m) { return m.skew; },
+      [](double a, double b) { return std::abs(a - b) < kSkewThreshold; });
+  remaining = subdivide(std::move(remaining),
+      [](const auto& m) { return m.loss; }, lossTogether);
+  groups = std::move(highLoss);
+  groups.insert(groups.end(), std::make_move_iterator(remaining.begin()),
+                std::make_move_iterator(remaining.end()));
   
   std::vector<std::vector<std::string>> result;
   for (const auto& g : groups) {

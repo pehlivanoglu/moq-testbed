@@ -21,8 +21,8 @@ bool ReceiveIntervals::sample(int64_t receiveUs, double delayUs) {
   ++samples_;
   return true;
 }
-std::optional<Summary> ReceiveIntervals::finishThrough(int64_t receiveWatermarkUs) {
-  std::optional<Summary> result;
+std::vector<Summary> ReceiveIntervals::finishThrough(int64_t receiveWatermarkUs) {
+  std::vector<Summary> result;
   if (!next_ || receiveWatermarkUs < 0) return result;
   watermark_ = std::max(watermark_, receiveWatermarkUs);
   while ((*next_ + 1) * kIntervalUs <= watermark_) {
@@ -31,18 +31,20 @@ std::optional<Summary> ReceiveIntervals::finishThrough(int64_t receiveWatermarkU
       samples_ -= it->second.size();
       buckets_.erase(it);
     }
-    // Empty intervals occupy time in the window but contribute no fabricated
-    // delay sample. The following interval also has no valid previous mean.
-    result = detector_.finishInterval();
-    result->intervalStartUs = *next_ * kIntervalUs;
-    result->intervalEndUs = (*next_ + 1) * kIntervalUs;
+    // The paper assumes a usable estimate every T. An empty T invalidates the
+    // contiguous evidence window and restarts warm-up instead of adding zero.
+    auto summary = detector_.finishInterval();
+    summary.intervalStartUs = *next_ * kIntervalUs;
+    summary.intervalEndUs = (*next_ + 1) * kIntervalUs;
+    result.push_back(std::move(summary));
     ++*next_;
   }
   return result;
 }
 void FeedbackLoss::expire(int64_t interval) {
   latestInterval_ = std::max(latestInterval_.value_or(interval), interval);
-  const auto cutoff = *latestInterval_ - int64_t(kN);
+  // Keep enough history to finalize delayed receiver-time intervals.
+  const auto cutoff = *latestInterval_ - int64_t(2 * kN);
   while (!history_.empty() && history_.begin()->first <= cutoff)
     history_.erase(history_.begin());
   while (!packets_.empty() && packets_.begin()->second.interval <= cutoff)
@@ -51,7 +53,7 @@ void FeedbackLoss::expire(int64_t interval) {
 bool FeedbackLoss::outcome(int64_t sentUs, uint64_t packetNum, Outcome value) {
   const auto interval = sentUs / kIntervalUs;
   expire(interval);
-  if (interval <= *latestInterval_ - int64_t(kN)) return true;
+  if (interval <= *latestInterval_ - int64_t(2 * kN)) return true;
   if (auto found = packets_.find(packetNum); found != packets_.end()) {
     if (found->second.outcome == value || found->second.outcome == Outcome::Acked)
       return true;
@@ -79,10 +81,12 @@ bool FeedbackLoss::declaredLost(int64_t sentUs, uint64_t packetNum) {
 bool FeedbackLoss::spuriousLoss(int64_t sentUs, uint64_t packetNum) {
   return outcome(sentUs, packetNum, Outcome::Acked);
 }
-void FeedbackLoss::apply(int64_t latestSentUs, Summary& summary) {
-  expire(latestSentUs / kIntervalUs);
+void FeedbackLoss::apply(int64_t windowEndUs, Summary& summary) {
+  const auto end = windowEndUs / kIntervalUs;
+  expire(end);
   summary.acked = summary.lost = 0;
   for (const auto& [_, entry] : history_) {
+    if (entry.interval < end - int64_t(kN) || entry.interval >= end) continue;
     summary.acked += entry.acked;
     summary.lost += entry.lost;
   }
