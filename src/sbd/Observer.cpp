@@ -80,7 +80,10 @@ void Observer::acksProcessed(quic::QuicSocketLite* socket, const AcksProcessedEv
       ++measuredOutcomes;
       const auto sentUs = clockUs(packet.outstandingPacketMetadata.time);
       latestSentUs_ = std::max(latestSentUs_, sentUs);
-      loss_.outcomes(sentUs, 1, 0);
+      if (!loss_.acknowledged(sentUs, packet.packetNum)) {
+        recover("waiting_outcome_capacity");
+        return;
+      }
       if (owd) {
         if (!packet.receiveRelativeTimeStampUsec) {
           recover("waiting_receive_timestamps");
@@ -122,11 +125,11 @@ void Observer::acksProcessed(quic::QuicSocketLite* socket, const AcksProcessedEv
     // ACK feedback is cumulative. Missing timestamps above are fatal, so after
     // the whole batch is sampled its greatest receive time is a safe watermark.
     if (auto summary = receiver_.finishThrough(*receiveWatermarkUs)) {
-      if (summary->historyReset)
-        XLOG(WARN) << "SBD connection=" << id_ << " history_reset reason=empty_receiver_interval";
       loss_.apply(latestSentUs_, *summary);
-      service_->publish(id_, *summary, summary->ready() ? "ready" :
-          summary->intervals ? "warming_up" : "waiting_receiver_samples");
+      const auto status = !summary->ready() ? "warming_up" :
+          summary->measurementValid ? "ready" :
+          summary->samples ? "waiting_previous_interval" : "waiting_receiver_samples";
+      service_->publish(id_, *summary, status);
     }
   }
 }
@@ -138,22 +141,36 @@ void Observer::packetLossDetected(quic::QuicSocketLite*, const LossEvent& event)
         packet.packetMetadata.time < measurementStart_) continue;
     const auto sentUs = clockUs(packet.packetMetadata.time);
     latestSentUs_ = std::max(latestSentUs_, sentUs);
-    loss_.outcomes(sentUs, 0, 1);
+    if (!loss_.declaredLost(sentUs, packet.packetNum)) {
+      recover("waiting_outcome_capacity");
+      return;
+    }
   }
 }
 
-void Observer::spuriousLossDetected(quic::QuicSocketLite*, const SpuriousLossEvent&) {
-  // Sender-declared loss is provisional. Do not silently double-count a packet
-  // as both lost and received when the transport reports a correction.
-  if (measuring()) recover("waiting_after_spurious_loss");
+void Observer::spuriousLossDetected(
+    quic::QuicSocketLite*, const SpuriousLossEvent& event) {
+  if (!measuring()) return;
+  for (const auto& packet : event.spuriousPackets) {
+    if (packet.pnSpace != quic::PacketNumberSpace::AppData ||
+        packet.packetMetadata.time < measurementStart_) continue;
+    const auto sentUs = clockUs(packet.packetMetadata.time);
+    latestSentUs_ = std::max(latestSentUs_, sentUs);
+    if (!loss_.spuriousLoss(sentUs, packet.packetNum)) {
+      recover("waiting_outcome_capacity");
+      return;
+    }
+  }
+  lastFeedback_ = std::chrono::steady_clock::now();
 }
 void Observer::timeoutExpired() noexcept {
   if (closed_ || stopped_) return;
   if (!measuring()) { scheduleTimeout(kInterval); return; }
   const auto now = std::chrono::steady_clock::now();
   if (service_->config().delaySource == "owd") {
-    if (now - lastFeedback_ >= kFeedbackTimeout) recover("waiting_feedback");
-    else scheduleTimeout(kInterval);
+    if (now - lastFeedback_ >= kFeedbackTimeout)
+      service_->status(id_, "waiting_feedback");
+    scheduleTimeout(kInterval);
     return;
   }
   if (now >= next_) {
@@ -163,7 +180,8 @@ void Observer::timeoutExpired() noexcept {
     summary.intervalStartUs = clockUs(next_ - kInterval);
     summary.intervalEndUs = clockUs(next_);
     loss_.apply(latestSentUs_, summary);
-    service_->publish(id_, summary, summary.ready() ? "ready" : "warming_up");
+    service_->publish(id_, summary,
+        summary.ready() && summary.measurementValid ? "ready" : "warming_up");
     samples_ = 0;
     next_ += kInterval;
   }

@@ -22,7 +22,7 @@ struct Summary {
   double intervalMeanDelayUs{0}, intervalMinDelayUs{0}, intervalMaxDelayUs{0};
   int64_t intervalStartUs{0}, intervalEndUs{0};
   bool bottleneck{false};
-  bool historyReset{false};
+  bool measurementValid{false};
   bool ready() const { return intervals >= kN; }
   bool groupingReady() const { return intervals >= kGroupingWarmupIntervals; }
 };
@@ -44,6 +44,7 @@ class Detector {
   size_t cursor_{0}, size_{0};
   uint64_t intervals_{0}, count_{0}, acked_{0}, lost_{0};
   double sum_{0}, skewBase_{0}, minDelay_{0}, maxDelay_{0}, mean_{0};
+  bool previousMeanValid_{false};
 };
 
 struct FlowSummary {

@@ -51,14 +51,21 @@ TEST(Sbd, PaperSkewAveragesIntervalEstimates) {
   for (int i = 0; i < 9; ++i) d.sample(0); // interval skew +1
   EXPECT_DOUBLE_EQ(d.finishInterval().skew, 0);
 }
-TEST(Sbd, MissingIntervalResetsReadiness) {
+TEST(Sbd, MissingIntervalPreservesReadinessAndInvalidatesOneSkew) {
   Detector d;
   for (int i = 0; i < 60; ++i) { d.sample(i); d.finishInterval(); }
   auto s = d.finishInterval();
-  EXPECT_EQ(s.intervals, 0);
-  EXPECT_FALSE(s.ready());
+  EXPECT_EQ(s.intervals, 61);
+  EXPECT_TRUE(s.ready());
+  EXPECT_FALSE(s.measurementValid);
   d.sample(3);
-  EXPECT_EQ(d.finishInterval().intervals, 1);
+  s = d.finishInterval();
+  EXPECT_EQ(s.intervals, 62);
+  EXPECT_FALSE(s.measurementValid);
+  d.sample(4);
+  s = d.finishInterval();
+  EXPECT_EQ(s.intervals, 63);
+  EXPECT_TRUE(s.measurementValid);
 }
 TEST(Sbd, PacketLossHasFiftyIntervalWindow) {
   Detector d;
@@ -142,7 +149,7 @@ TEST(Sbd, HighLossReplacesSkewAndVarianceToleranceIsRelative) {
 TEST(Sbd, MetadataDescribesActiveEstimator) {
   Service service(Config{}, "test");
   const auto json = folly::parseJson(service.json());
-  EXPECT_EQ(json["algorithm"].asString(), "lcn2014-pdv2-rfc-fill-v7");
+  EXPECT_EQ(json["algorithm"].asString(), "lcn2014-pdv2-rfc-fill-v8");
   EXPECT_EQ(json["N"].asInt(), 50);
   EXPECT_EQ(json["M"].asInt(), 50);
   EXPECT_DOUBLE_EQ(json["p_v"].asDouble(), .2);
@@ -152,7 +159,9 @@ TEST(Sbd, MetadataDescribesActiveEstimator) {
   EXPECT_EQ(json["metric_window_intervals"].asInt(), 50);
   EXPECT_EQ(json["grouping_warmup_intervals"].asInt(), 100);
   EXPECT_EQ(json["parameter_precedence"].asString(), "LCN2014_then_RFC8382");
-  EXPECT_EQ(json["transport_gap_policy"].asString(), "implementation_specific");
+  EXPECT_EQ(json["gap_policy"].asString(), "preserve_history_mark_invalid");
+  EXPECT_EQ(json["transport_gap_policy"].asString(), "stale_without_reset");
+  EXPECT_EQ(json["loss_correction"].asString(), "packet_number_ledger");
   EXPECT_EQ(json["variability_estimator"].asString(), "pdv2");
   EXPECT_EQ(json["interval_clock"].asString(), "receiver_clock_monotonic");
   EXPECT_EQ(json["delay_measurement"].asString(), "absolute_owd");
@@ -244,7 +253,7 @@ TEST(Sbd, ReceiverIntervalsIgnoreAckBatchingAndBoundedReordering) {
     EXPECT_EQ(group({{"a", x}, {"b", y}}).size(), 1);
   }
 }
-TEST(Sbd, ReceiverIntervalsFinishAtWatermarkAndResetOnGaps) {
+TEST(Sbd, ReceiverIntervalsFinishAtWatermarkAndPreserveHistoryAcrossGaps) {
   ReceiveIntervals r;
   ASSERT_TRUE(r.sample(100, 1)); // partial first bucket discarded
   ASSERT_TRUE(r.sample(kIntervalUs + 100, 2));
@@ -260,12 +269,18 @@ TEST(Sbd, ReceiverIntervalsFinishAtWatermarkAndResetOnGaps) {
   ASSERT_TRUE(r.sample(3 * kIntervalUs, 3));
   s = r.finishThrough(3 * kIntervalUs); // bucket 2 was empty
   ASSERT_TRUE(s);
-  EXPECT_EQ(s->intervals, 0);
-  EXPECT_TRUE(s->historyReset);
+  EXPECT_EQ(s->intervals, 2);
+  EXPECT_FALSE(s->measurementValid);
   ASSERT_TRUE(r.sample(4 * kIntervalUs, 4));
   s = r.finishThrough(4 * kIntervalUs);
   ASSERT_TRUE(s);
-  EXPECT_EQ(s->intervals, 1);
+  EXPECT_EQ(s->intervals, 3);
+  EXPECT_FALSE(s->measurementValid);
+  ASSERT_TRUE(r.sample(5 * kIntervalUs, 5));
+  s = r.finishThrough(5 * kIntervalUs);
+  ASSERT_TRUE(s);
+  EXPECT_EQ(s->intervals, 4);
+  EXPECT_TRUE(s->measurementValid);
   EXPECT_FALSE(r.sample(kIntervalUs + 200, 7)); // already closed
   r.reset(); // observer invalidates history and resumes automatically
   ASSERT_TRUE(r.sample(10 * kIntervalUs, 8));
@@ -288,6 +303,7 @@ TEST(Sbd, ArchivesExactGroupTransitionTime) {
     Summary summary;
     summary.intervals = kGroupingWarmupIntervals;
     summary.bottleneck = true;
+    summary.measurementValid = true;
     summary.groupingVariation = 100;
     summary.skew = -0.1;
     summary.intervalStartUs = 10 * kIntervalUs;
@@ -321,6 +337,43 @@ TEST(Sbd, ArchivesExactGroupTransitionTime) {
   std::filesystem::remove(std::string(path) + ".events.jsonl");
   std::filesystem::remove(std::string(path) + ".latest.json");
 }
+TEST(Sbd, WaitingStatusPreservesDecisionWithoutFalseTransition) {
+  char path[] = "/tmp/moqx-sbd-status-XXXXXX";
+  const int fd = mkstemp(path);
+  ASSERT_GE(fd, 0);
+  close(fd);
+  std::filesystem::remove(path);
+  {
+    Service service(Config{true, "owd", path}, "test");
+    service.attach("a", "peer");
+    service.eligible("a", true);
+    Summary summary;
+    summary.intervals = kGroupingWarmupIntervals;
+    summary.measurementValid = true;
+    summary.bottleneck = true;
+    service.publish("a", summary, "ready");
+    service.status("a", "waiting_feedback");
+  }
+  std::ifstream snapshots(path);
+  std::string line, last;
+  while (std::getline(snapshots, line)) last = line;
+  const auto snapshot = folly::parseJson(last);
+  ASSERT_EQ(snapshot["clients"].size(), 1);
+  const auto& client = snapshot["clients"][0];
+  EXPECT_EQ(client["status"].asString(), "waiting_feedback");
+  EXPECT_FALSE(client["decision_valid"].asBool());
+  EXPECT_TRUE(client["bottleneck"].asBool()); // Last valid value; decision is unknown.
+  EXPECT_EQ(client["intervals"].asInt(), kGroupingWarmupIntervals);
+
+  std::ifstream events(std::string(path) + ".events.jsonl");
+  size_t transitions = 0;
+  while (std::getline(events, line))
+    if (folly::parseJson(line)["event"] == "bottleneck_state_changed") ++transitions;
+  EXPECT_EQ(transitions, 1);
+  std::filesystem::remove(path);
+  std::filesystem::remove(std::string(path) + ".events.jsonl");
+  std::filesystem::remove(std::string(path) + ".latest.json");
+}
 TEST(Sbd, ReceiverBufferRejectsExcessAndInvalidInput) {
   ReceiveIntervals r;
   EXPECT_FALSE(r.sample(-1, 0));
@@ -335,7 +388,11 @@ TEST(Sbd, PacketSendLossWindowExpiresAndAcceptsReorderedOutcomes) {
   FeedbackLoss loss;
   Summary s;
   s.intervals = 50;
-  loss.outcomes(0, 6, 4);
+  s.measurementValid = true;
+  for (uint64_t packet = 0; packet < 6; ++packet)
+    ASSERT_TRUE(loss.acknowledged(0, packet));
+  for (uint64_t packet = 6; packet < 10; ++packet)
+    ASSERT_TRUE(loss.declaredLost(0, packet));
   loss.apply(49 * kIntervalUs, s);
   EXPECT_EQ(s.acked, 6);
   EXPECT_EQ(s.lost, 4);
@@ -346,14 +403,31 @@ TEST(Sbd, PacketSendLossWindowExpiresAndAcceptsReorderedOutcomes) {
   EXPECT_EQ(s.lost, 0);
   EXPECT_FALSE(s.bottleneck);
 
-  loss.outcomes(100 * kIntervalUs, 9, 0);
-  loss.outcomes(99 * kIntervalUs, 0, 1); // Feedback may report older sends later.
+  for (uint64_t packet = 10; packet < 19; ++packet)
+    ASSERT_TRUE(loss.acknowledged(100 * kIntervalUs, packet));
+  ASSERT_TRUE(loss.declaredLost(99 * kIntervalUs, 19)); // Older sends may arrive later.
   loss.apply(100 * kIntervalUs, s);
   EXPECT_EQ(s.acked, 9);
   EXPECT_EQ(s.lost, 1);
   EXPECT_DOUBLE_EQ(s.loss, .1);
 }
-TEST(Sbd, ReceiverGapAutomaticallyRewarmsToReady) {
+TEST(Sbd, SpuriousLossReplacesProvisionalLossExactlyOnce) {
+  FeedbackLoss loss;
+  Summary s;
+  s.intervals = 50;
+  s.measurementValid = true;
+  ASSERT_TRUE(loss.declaredLost(0, 1));
+  ASSERT_TRUE(loss.declaredLost(0, 1));
+  loss.apply(0, s);
+  EXPECT_EQ(s.acked, 0);
+  EXPECT_EQ(s.lost, 1);
+  ASSERT_TRUE(loss.spuriousLoss(0, 1));
+  ASSERT_TRUE(loss.spuriousLoss(0, 1));
+  loss.apply(0, s);
+  EXPECT_EQ(s.acked, 1);
+  EXPECT_EQ(s.lost, 0);
+}
+TEST(Sbd, ReceiverGapResumesWithoutRewarming) {
   ReceiveIntervals r;
   std::optional<Summary> latest;
   for (int i = 0; i <= 55; ++i) {
@@ -361,18 +435,21 @@ TEST(Sbd, ReceiverGapAutomaticallyRewarmsToReady) {
     if (auto s = r.finishThrough(i * kIntervalUs)) latest = s;
   }
   ASSERT_TRUE(latest && latest->ready());
-  // No packet in receiver interval 56. Later valid feedback first removes
-  // readiness, then rebuilds a complete history without a manual reset.
+  // No packet in receiver interval 56. The empty slot and the next interval
+  // cannot decide skew, then the immediately following interval can.
   bool sawGap = false;
+  int firstValidAfterGap = -1;
   for (int i = 57; i <= 110; ++i) {
     ASSERT_TRUE(r.sample(i * kIntervalUs, i));
     if (auto s = r.finishThrough(i * kIntervalUs)) {
       latest = s;
-      if (s->intervals == 0) sawGap = true;
+      if (!s->measurementValid) sawGap = true;
+      else if (sawGap && firstValidAfterGap < 0) firstValidAfterGap = i;
     }
   }
   EXPECT_TRUE(sawGap);
   ASSERT_TRUE(latest);
   EXPECT_TRUE(latest->ready());
-  EXPECT_EQ(latest->intervals, 53);
+  EXPECT_EQ(firstValidAfterGap, 59);
+  EXPECT_EQ(latest->intervals, 109);
 }

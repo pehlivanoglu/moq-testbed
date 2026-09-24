@@ -6,6 +6,7 @@
 #include <fstream>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <thread>
 #include <unordered_map>
 
@@ -23,6 +24,7 @@ struct Flow {
   std::string status{"waiting_for_subscription"};
   std::chrono::steady_clock::time_point updated{};
   int64_t updatedUnixNs{0};
+  std::optional<bool> lastBottleneck;
 };
 // Publishes only interval summaries; the packet path never takes this mutex.
 class Service {
@@ -33,6 +35,7 @@ class Service {
   std::shared_ptr<Flow> attach(const std::string& id, const std::string& peer);
   void eligible(const std::string& id, bool value);
   void publish(const std::string& id, const Summary& summary, std::string status);
+  void status(const std::string& id, std::string status);
   void close(const std::string& id);
   std::string json() const;
  private:

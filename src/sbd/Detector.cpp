@@ -9,7 +9,7 @@ void Detector::sample(double delayUs) {
   sum_ += delayUs;
   minDelay_ = count_ == 1 ? delayUs : std::min(minDelay_, delayUs);
   maxDelay_ = count_ == 1 ? delayUs : std::max(maxDelay_, delayUs);
-  if (size_) {
+  if (previousMeanValid_) {
     skewBase_ += delayUs < mean_ ? 1 : delayUs > mean_ ? -1 : 0;
   }
 }
@@ -19,17 +19,12 @@ void Detector::outcomes(uint64_t acked, uint64_t lost) {
 }
 void Detector::reset() { *this = Detector{}; }
 Summary Detector::finishInterval() {
-  if (!count_) {
-    reset();
-    Summary result;
-    result.historyReset = true;
-    return result;
-  }
-  double currentMean = sum_ / count_;
+  const bool hasSamples = count_ != 0;
+  const double currentMean = hasSamples ? sum_ / count_ : 0;
   Interval current{count_, acked_, lost_, currentMean,
-                   size_ ? skewBase_ / count_ : 0, 
-                   maxDelay_ - currentMean, // PDV2
-                   0, true, false};
+                   hasSamples && previousMeanValid_ ? skewBase_ / count_ : 0,
+                   hasSamples ? maxDelay_ - currentMean : 0, // PDV2
+                   0, hasSamples && previousMeanValid_, false};
   auto at = [&](size_t age) -> Interval& {
     return history_[(cursor_ + kN - age) % kN];
   };
@@ -41,25 +36,23 @@ Summary Detector::finishInterval() {
   result.intervalMeanDelayUs = currentMean;
   result.intervalMinDelayUs = minDelay_;
   result.intervalMaxDelayUs = maxDelay_;
+  result.measurementValid = current.validBase;
   
   double skew = 0, variation = 0, mean = 0;
   uint64_t acked = 0, lost = 0;
   size_t meanSize = std::min(size_, kM);
+  size_t validMean = 0;
   for (size_t age = 0; age < meanSize; ++age) {
     const auto& h = at(age);
-    skew += h.skewBase;
-    variation += h.varBase;
-    mean += h.mean;
+    if (h.validBase) skew += h.skewBase;
+    if (h.count) { variation += h.varBase; mean += h.mean; ++validMean; }
   }
   for (size_t age = 0; age < size_; ++age) {
     acked += at(age).acked;
     lost += at(age).lost;
   }
-  if (meanSize) {
-    skew /= meanSize;
-    variation /= meanSize;
-    mean /= meanSize;
-  }
+  if (meanSize) skew /= meanSize;
+  if (validMean) { variation /= validMean; mean /= validMean; }
   result.skew = skew;
   result.variation = variation;
   at(0).variation = variation;
@@ -71,7 +64,8 @@ Summary Detector::finishInterval() {
   result.loss = outcomes ? double(lost) / outcomes : 0;
   
   // Bottleneck detection (strict < 0.0 or high loss)
-  result.bottleneck = current.validBase && (result.skew < 0.0 || result.loss > kLossThreshold);
+  result.bottleneck = result.measurementValid &&
+      (result.skew < 0.0 || result.loss > kLossThreshold);
   at(0).validVar = result.bottleneck;
 
   const double threshold = kCrossingThreshold * result.variation;
@@ -79,7 +73,9 @@ Summary Detector::finishInterval() {
   // The first significant point establishes a side; it is not a crossing.
   int previousSide = 0;
   for (size_t age = size_; age > 0; --age) {
-    const double intervalMean = at(age - 1).mean;
+    const auto& interval = at(age - 1);
+    if (!interval.count) { previousSide = 0; continue; }
+    const double intervalMean = interval.mean;
     const int side = intervalMean > mean + threshold ? 1 :
                      intervalMean < mean - threshold ? -1 : 0;
     if (side) {
@@ -89,7 +85,8 @@ Summary Detector::finishInterval() {
   }
   result.frequency /= size_;
   
-  mean_ = currentMean;
+  if (hasSamples) mean_ = currentMean;
+  previousMeanValid_ = hasSamples;
   cursor_ = (cursor_ + 1) % kN;
   count_ = acked_ = lost_ = 0;
   sum_ = skewBase_ = minDelay_ = maxDelay_ = 0;

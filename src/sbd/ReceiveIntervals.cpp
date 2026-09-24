@@ -23,7 +23,6 @@ bool ReceiveIntervals::sample(int64_t receiveUs, double delayUs) {
 }
 std::optional<Summary> ReceiveIntervals::finishThrough(int64_t receiveWatermarkUs) {
   std::optional<Summary> result;
-  bool historyReset = false;
   if (!next_ || receiveWatermarkUs < 0) return result;
   watermark_ = std::max(watermark_, receiveWatermarkUs);
   while ((*next_ + 1) * kIntervalUs <= watermark_) {
@@ -32,26 +31,53 @@ std::optional<Summary> ReceiveIntervals::finishThrough(int64_t receiveWatermarkU
       samples_ -= it->second.size();
       buckets_.erase(it);
     }
-    // An empty receiver interval resets readiness; the next valid interval
-    // starts a new history automatically, without synthesizing delay samples.
+    // Empty intervals occupy time in the window but contribute no fabricated
+    // delay sample. The following interval also has no valid previous mean.
     result = detector_.finishInterval();
     result->intervalStartUs = *next_ * kIntervalUs;
     result->intervalEndUs = (*next_ + 1) * kIntervalUs;
-    historyReset |= result->historyReset;
     ++*next_;
   }
-  if (result) result->historyReset = historyReset;
   return result;
 }
 void FeedbackLoss::expire(int64_t interval) {
-  while (!history_.empty() && history_.begin()->first <= interval - int64_t(kN))
+  latestInterval_ = std::max(latestInterval_.value_or(interval), interval);
+  const auto cutoff = *latestInterval_ - int64_t(kN);
+  while (!history_.empty() && history_.begin()->first <= cutoff)
     history_.erase(history_.begin());
+  while (!packets_.empty() && packets_.begin()->second.interval <= cutoff)
+    packets_.erase(packets_.begin());
 }
-void FeedbackLoss::outcomes(int64_t sentUs, uint64_t acked, uint64_t lost) {
+bool FeedbackLoss::outcome(int64_t sentUs, uint64_t packetNum, Outcome value) {
   const auto interval = sentUs / kIntervalUs;
+  expire(interval);
+  if (interval <= *latestInterval_ - int64_t(kN)) return true;
+  if (auto found = packets_.find(packetNum); found != packets_.end()) {
+    if (found->second.outcome == value || found->second.outcome == Outcome::Acked)
+      return true;
+    auto history = history_.find(found->second.interval);
+    if (history != history_.end() && history->second.lost) {
+      --history->second.lost;
+      ++history->second.acked;
+    }
+    found->second.outcome = Outcome::Acked;
+    return true;
+  }
+  if (packets_.size() >= 65536) return false;
+  packets_.emplace(packetNum, Packet{interval, value});
   auto it = history_.try_emplace(interval, Entry{interval, 0, 0}).first;
-  it->second.acked += acked;
-  it->second.lost += lost;
+  if (value == Outcome::Acked) ++it->second.acked;
+  else ++it->second.lost;
+  return true;
+}
+bool FeedbackLoss::acknowledged(int64_t sentUs, uint64_t packetNum) {
+  return outcome(sentUs, packetNum, Outcome::Acked);
+}
+bool FeedbackLoss::declaredLost(int64_t sentUs, uint64_t packetNum) {
+  return outcome(sentUs, packetNum, Outcome::Lost);
+}
+bool FeedbackLoss::spuriousLoss(int64_t sentUs, uint64_t packetNum) {
+  return outcome(sentUs, packetNum, Outcome::Acked);
 }
 void FeedbackLoss::apply(int64_t latestSentUs, Summary& summary) {
   expire(latestSentUs / kIntervalUs);
@@ -62,7 +88,7 @@ void FeedbackLoss::apply(int64_t latestSentUs, Summary& summary) {
   }
   const auto total = summary.acked + summary.lost;
   summary.loss = total ? double(summary.lost) / total : 0;
-  summary.bottleneck = summary.intervals &&
+  summary.bottleneck = summary.measurementValid &&
       (summary.skew < 0 || summary.loss > kLossThreshold);
 }
 } // namespace openmoq::moqx::sbd

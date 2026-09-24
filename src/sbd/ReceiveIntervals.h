@@ -27,12 +27,19 @@ class ReceiveIntervals {
 // original send time so ACK batching does not move them between loss windows.
 class FeedbackLoss {
  public:
-  void outcomes(int64_t sentUs, uint64_t acked, uint64_t lost);
+  bool acknowledged(int64_t sentUs, uint64_t packetNum);
+  bool declaredLost(int64_t sentUs, uint64_t packetNum);
+  bool spuriousLoss(int64_t sentUs, uint64_t packetNum);
   void apply(int64_t latestSentUs, Summary& summary);
-  void reset() { history_.clear(); }
+  void reset() { *this = FeedbackLoss{}; }
  private:
   struct Entry { int64_t interval; uint64_t acked, lost; };
+  enum class Outcome { Acked, Lost };
+  struct Packet { int64_t interval; Outcome outcome; };
+  bool outcome(int64_t sentUs, uint64_t packetNum, Outcome value);
   void expire(int64_t interval);
   std::map<int64_t, Entry> history_;
+  std::map<uint64_t, Packet> packets_;
+  std::optional<int64_t> latestInterval_;
 };
 } // namespace openmoq::moqx::sbd

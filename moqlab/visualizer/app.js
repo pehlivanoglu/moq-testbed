@@ -164,7 +164,7 @@ function updateNodeMetrics(payload) {
             .map((value) => (Number(value) / 1000).toFixed(3)).join(" / "),
           Number(client.skew_est).toFixed(3), (Number(client.var_est_us) / 1000).toFixed(2),
           Number(client.freq_est).toFixed(3), Number(client.pkt_loss).toFixed(4),
-          client.bottleneck ? "yes" : "no"]) {
+          client.decision_valid ? (client.bottleneck ? "yes" : "no") : "unknown"]) {
         row.insertCell().textContent = String(value);
       }
     }

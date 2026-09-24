@@ -59,7 +59,11 @@ void Service::eligible(const std::string& id, bool value) {
   if (!flow) flow = std::make_shared<Flow>();
   flow->eligible = value;
   if (value && !flow->videoStarted) flow->status = "waiting_for_video";
-  if (!value) { flow->status = "not_client"; flow->summary = {}; }
+  if (!value) {
+    flow->status = "not_client";
+    flow->summary = {};
+    flow->lastBottleneck.reset();
+  }
 }
 void Service::publish(const std::string& id, const Summary& summary, std::string status) {
   std::lock_guard lock(mutex_);
@@ -67,9 +71,10 @@ void Service::publish(const std::string& id, const Summary& summary, std::string
     auto& flow = *it->second;
     const auto published = std::chrono::steady_clock::now();
     const auto publishedUnixNs = unixNs();
-    const bool previousDetected = flow.summary.ready() && flow.summary.bottleneck;
-    const bool detected = summary.ready() && summary.bottleneck;
-    if (previousDetected != detected && events_.is_open()) {
+    const bool decisionValid = status == "ready" && summary.ready() && summary.measurementValid;
+    const bool detected = decisionValid && summary.bottleneck;
+    const bool previousDetected = flow.lastBottleneck.value_or(false);
+    if (decisionValid && previousDetected != detected && events_.is_open()) {
       events_ << folly::toJson(folly::dynamic::object
         ("schema_version", 1)("event", "bottleneck_state_changed")("relay_id", relayId_)
         ("connection_id", id)("previous_bottleneck", previousDetected)
@@ -85,12 +90,21 @@ void Service::publish(const std::string& id, const Summary& summary, std::string
       events_.flush();
       if (!events_) XLOG(ERR) << "SBD event write failed: " << config_.outputFile << ".events.jsonl";
     }
+    if (decisionValid) flow.lastBottleneck = detected;
+    else if (!summary.intervals) flow.lastBottleneck.reset();
     if (flow.status != status)
       XLOG(INFO) << "SBD connection=" << id << " status=" << status;
     flow.summary = summary;
     flow.status = std::move(status);
     flow.updated = published;
     flow.updatedUnixNs = publishedUnixNs;
+  }
+}
+void Service::status(const std::string& id, std::string status) {
+  std::lock_guard lock(mutex_);
+  if (auto it = flows_.find(id); it != flows_.end() && it->second->status != status) {
+    XLOG(INFO) << "SBD connection=" << id << " status=" << status;
+    it->second->status = std::move(status);
   }
 }
 void Service::close(const std::string& id) {
@@ -132,6 +146,7 @@ void Service::snapshot() {
     const auto& m = f->summary;
     std::string status = f->status;
     if (status == "ready" && now - f->updated >= 3 * kInterval) status = "stale";
+    const bool decisionValid = status == "ready" && m.ready() && m.measurementValid;
     folly::dynamic members = folly::dynamic::array;
     for (const auto& g : groups)
       if (std::find(g.begin(), g.end(), id) != g.end())
@@ -139,6 +154,7 @@ void Service::snapshot() {
     clients.push_back(folly::dynamic::object
       ("connection_id", id)("peer", f->peer)("status", status)
       ("eligible", bool(f->eligible))("video_started", bool(f->videoStarted))("intervals", m.intervals)
+      ("decision_valid", decisionValid)
       ("full_history", m.groupingReady())("grouping_ready", m.groupingReady())("samples", m.samples)
       ("interval_start_mono_us", m.intervalStartUs)("interval_end_mono_us", m.intervalEndUs)
       ("evidence_window_start_mono_us", m.intervalEndUs - int64_t(std::min<uint64_t>(m.intervals, kN)) * kIntervalUs)
@@ -150,7 +166,8 @@ void Service::snapshot() {
       ("skew_est", m.skew)("var_est_us", m.variation)
       ("grouping_var_est_us", m.groupingVariation)("freq_est", m.frequency)
       ("pkt_loss", m.loss)("acked_window", m.acked)("lost_window", m.lost)
-      ("bottleneck", m.ready() && m.bottleneck)("group", std::move(members)));
+      ("bottleneck", m.bottleneck)
+      ("group", std::move(members)));
   }
   if (groups != lastGroups_ && events_.is_open()) {
     events_ << folly::toJson(folly::dynamic::object
@@ -162,7 +179,7 @@ void Service::snapshot() {
   }
   lastGroups_ = groups;
   latest_ = folly::toJson(folly::dynamic::object
-    ("schema_version", 1)("algorithm", "lcn2014-pdv2-rfc-fill-v7")
+    ("schema_version", 1)("algorithm", "lcn2014-pdv2-rfc-fill-v8")
     ("timestamp_ms", wall)("snapshot_unix_ns", wallNs)("group_decision_mono_us", decisionMonoUs)
     ("group_decision_unix_ns", wallNs)("relay_id", relayId_)
     ("enabled", config_.enabled)("delay_source", config_.delaySource)
@@ -178,9 +195,10 @@ void Service::snapshot() {
     ("interval_completion", config_.delaySource == "owd" ?
         "receive_timestamp_watermark" : "ack_arrival_timer")
     ("feedback_timeout_ms", config_.delaySource == "owd" ? kFeedbackTimeout.count() : kInterval.count())
-    ("gap_policy", "reset_and_rewarm")
+    ("gap_policy", "preserve_history_mark_invalid")
     ("parameter_precedence", "LCN2014_then_RFC8382")
-    ("transport_gap_policy", "implementation_specific")
+    ("transport_gap_policy", "stale_without_reset")
+    ("loss_correction", "packet_number_ledger")
     ("interval_ms", kInterval.count())("N", kN)("M", kM)
     ("metric_window_intervals", kN)("grouping_warmup_intervals", kGroupingWarmupIntervals)
     ("p_l", kLossThreshold)
