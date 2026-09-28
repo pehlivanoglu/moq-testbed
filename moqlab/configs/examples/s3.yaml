@@ -4,6 +4,7 @@ relays:
     edge: true
     sbd:
       enabled: true
+      algorithm: PracticalPassiveAndRFC
       delay_source: owd
     listen_port: 9668
     admin_port: 9669
@@ -47,7 +48,10 @@ subscribers:
 routers:
   router:
     image: moqlab-router
-    aqm: dualpi2
+    # aqm: dualpi2
+    queue_metrics:
+      enabled: true
+      interval_ms: 25
 switches:
   switch:
     image: moqlab-router

@@ -199,7 +199,10 @@ subscribers:
   sub:     { connects_to: relay-c, namespace: moq-date, track: date }
 
 routers:                     # Containernet only; Docker backend refuses
-  rt-ab: { aqm: dualpi2, dualpi2_target_ms: 15 } # applies to every egress
+  rt-ab:
+    aqm: dualpi2             # applies to every egress
+    dualpi2_target_ms: 15
+    queue_metrics: { enabled: true, interval_ms: 25 }
   rt-bc: { aqm: dualpi2 }
 
 switches:                    # transparent, unnumbered Layer 2 bridges
@@ -249,6 +252,24 @@ Per direction (`forward` = from→to, `reverse` = to→from) you can set
 (netem). Set `aqm` (currently `dualpi2`) on a router; it applies to every
 egress interface owned by that router. Optional `dualpi2_target_ms` overrides
 DualPI2's 15 ms PI2 target. See [ROUTER.md](ROUTER.md).
+
+`queue_metrics` writes each client-facing router egress to
+`.runs/<run-id>/router-metrics/<router>/<interface>.csv`. Cumulative tc
+counters are differenced per interval; the adjacent `*-qdisc.json` records
+the current full qdisc/class hierarchy. DualPI2 and manually installed pfifo
+queues are supported. Plot a run with:
+
+```bash
+python scripts/plot_router_queue.py \
+  .runs/<run-id>/router-metrics/<router>/<interface>.csv
+```
+
+Queue length, backlog, L/C head delays, and any separate netem backlog are
+instantaneous samples, not interval minima or maxima. They cannot establish
+an exact congestion-onset instant. Linux tc exposes total DualPI2 occupancy,
+but not separate instantaneous L/C queue lengths; `pkts-in-l` and
+`pkts-in-c` are cumulative enqueue counters. The CSV therefore reports their
+per-interval deltas and does not fabricate L/C occupancy.
 
 Invariants the schema enforces:
 

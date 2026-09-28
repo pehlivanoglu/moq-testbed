@@ -108,6 +108,31 @@ GSO/TSO/GRO are disabled on every link interface — offloaded superpackets
 would otherwise hit the qdiscs as 64KB units and distort rate limiting, loss,
 and marking granularity.
 
+Enable direct qdisc telemetry with:
+
+```yaml
+routers:
+  router:
+    aqm: dualpi2
+    queue_metrics: { enabled: true, interval_ms: 25 }
+```
+
+Moqlab selects router egresses whose far-side physical component contains a
+media subscriber or traffic receiver. It saves a CSV and full qdisc hierarchy
+JSON per selected interface under `.runs/<run-id>/router-metrics/<router>/`.
+A tc egress `matchall` counter measures offered bytes before the root qdisc;
+root and selected queue cumulative counters are converted to interval deltas.
+The collector prefers DualPI2, otherwise uses an explicit pfifo, and notices a
+manual qdisc hierarchy change while it is running. Before pfifo is installed,
+capacity and queue percentage are unavailable; after `pfifo limit 200`, they
+come directly from that qdisc.
+
+Total DualPI2 occupancy, L/C head delays, and any separate netem backlog are
+instantaneous tc snapshots. The tc ABI does not expose separate instantaneous
+L/C queue lengths: `pkts-in-l` and `pkts-in-c` are cumulative enqueue counts.
+Polling cannot recover the minimum occupancy within a 25 ms interval or prove
+an exact congestion-onset instant.
+
 ## Runtime tweaks
 
 Initial qdiscs come from the YAML. With `moqlab run --visualize`, select a

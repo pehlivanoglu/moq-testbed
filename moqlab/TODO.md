@@ -74,6 +74,10 @@ cut from current versions, not bugs or oversights.
       media-player metrics once a real observability collector exists. The
       current `moqlab run --visualize` flag intentionally avoids history and
       guessing Docker per-link throughput from aggregate bridge counters.
+- [x] Add opt-in 25 ms client-facing DualPI2/pfifo qdisc CSV telemetry with
+      pre-drop offered bytes, transmitted bytes, drops, instantaneous queue
+      state, full hierarchy metadata, and an offline plotter. This remains a
+      polling measurement, not the ground-truth event tracing deferred below.
 - [ ] Decide whether `moqlab run` should grow a plan/preview mode later, and
       what exact output should be useful for experiments.
 - [ ] Decide on run-dir location (`moqlab/.runs/` vs
@@ -153,6 +157,11 @@ These become tractable once Phase 4 lands.
       CDP automation and generated per-run TLS; no Playwright dependency.
 
 ## History Notes
+
+- 2026-09-24: Added config-driven router `queue_metrics`, a tc-based 25 ms
+  collector, qdisc hierarchy metadata, and offline queue plots. Linux tc does
+  not expose separate instantaneous DualPI2 L/C occupancy, and polling does
+  not establish exact congestion onset.
 
 - 2026-08-19: Replaced separate Chrome `browser_mode` with subscriber modes
   `chrome-headless`, `chrome`, and `native`. Native alone exposes

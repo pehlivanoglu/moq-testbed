@@ -189,12 +189,18 @@ class PublisherConfig(_StrictBase):
         return self
 
 
+class QueueMetricsConfig(_StrictBase):
+    enabled: bool = False
+    interval_ms: int = Field(default=25, gt=0)
+
+
 class RouterConfig(_StrictBase):
     """An IP-forwarding node that owns link queues (AQM/ECN); runs no MoQ binary."""
 
     image: str | None = None
     aqm: AqmKind | None = None
     dualpi2_target_ms: float | None = Field(default=None, gt=0)
+    queue_metrics: QueueMetricsConfig = Field(default_factory=QueueMetricsConfig)
 
     @model_validator(mode="after")
     def _check_aqm_parameters(self) -> "RouterConfig":

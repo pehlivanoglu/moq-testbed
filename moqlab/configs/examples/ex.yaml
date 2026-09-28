@@ -4,6 +4,7 @@ relays:
     edge: true
     sbd:
       enabled: true
+      algorithm: PracticalPassiveAndRFC
       delay_source: owd
     listen_port: 9668
     admin_port: 9669

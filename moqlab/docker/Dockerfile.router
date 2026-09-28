@@ -44,10 +44,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ethtool \
         tcpdump \
         iputils-ping \
+        python3 \
         ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=iproute2-build /staging/ /
+COPY moqlab/moqlab/router_metrics.py /usr/local/bin/moqlab-router-metrics
 
 # No ENTRYPOINT on purpose: routers run nothing. Containernet wipes the
 # entrypoint at container create time anyway and keeps the container alive

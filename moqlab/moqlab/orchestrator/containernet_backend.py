@@ -80,6 +80,8 @@ _MEDIA_SUB_BINARY = "/usr/local/bin/moqlab-media-sub"
 _NATIVE_MEDIA_SUB_BINARY = "/usr/local/bin/mlmsub"
 _TRAFFIC_BINARY = "python3 /usr/local/bin/moqlab-traffic"
 _TRAFFIC_PLAN_PATH = "/etc/moqlab/traffic-plan.json"
+_ROUTER_METRICS_BINARY = "python3 /usr/local/bin/moqlab-router-metrics"
+_ROUTER_METRICS_PATH = "/var/log/moqlab/router"
 
 # We carve one /24 out of this /16 per direct link or switched LAN. Avoid Containernet's
 # default 10.0.0.0/8 pool so our explicit subnets don't collide with anything
@@ -292,10 +294,17 @@ class ContainernetBackend:
             record.relays.append(rid)
 
         for rid in topology.routers:
+            volumes = []
+            if topology.routers[rid].queue_metrics.enabled:
+                metrics_dir = (record.run_dir / "router-metrics" / rid).resolve()
+                metrics_dir.mkdir(parents=True, exist_ok=True)
+                volumes.append(f"{metrics_dir}:{_ROUTER_METRICS_PATH}:rw")
+            volume_kwargs = {"volumes": volumes} if volumes else {}
             nodes[rid] = net.addDocker(
                 rid,
                 dimage=topology.router_image(rid),
                 sysctls=dict(_ROUTER_SYSCTLS),
+                **volume_kwargs,
             )
             record.routers.append(rid)
 
@@ -479,6 +488,57 @@ class ContainernetBackend:
                     out = node.cmd(cmd)
                     if out and out.strip():
                         _log.warning("%s: %r printed: %s", nid, cmd, out.strip())
+
+        ContainernetBackend._start_router_metrics(net, topology, info)
+
+    @staticmethod
+    def _start_router_metrics(net, topology: TopologyConfig, info) -> None:
+        for router_id, router in topology.routers.items():
+            if not router.queue_metrics.enabled:
+                continue
+            interfaces = _client_facing_router_interfaces(topology, router_id)
+            if not interfaces:
+                raise OrchestratorError(
+                    f"router {router_id!r} queue_metrics found no client-facing egress"
+                )
+            info(
+                f"*** Sampling {router_id} queue metrics every "
+                f"{router.queue_metrics.interval_ms} ms\n"
+            )
+            node = net.get(router_id)
+            started: list[tuple[str, str]] = []
+            for iface in interfaces:
+                for command in (
+                    f"tc qdisc replace dev {iface} clsact",
+                    f"tc filter replace dev {iface} egress protocol all pref 49152 "
+                    "handle 1 matchall action pass",
+                ):
+                    status, output = _node_command_status(node, command)
+                    if status:
+                        raise OrchestratorError(
+                            f"{router_id}: {command!r} failed: "
+                            f"{output or f'exit {status}'}"
+                        )
+                prefix = f"{_ROUTER_METRICS_PATH}/{iface}"
+                node.cmd(
+                    f"{_ROUTER_METRICS_BINARY} --interface {iface} "
+                    f"--interval-ms {router.queue_metrics.interval_ms} "
+                    f"--output {prefix}.csv --hierarchy {prefix}-qdisc.json "
+                    f"> /tmp/router-metrics-{iface}.log 2>&1 &"
+                )
+                started.append((iface, prefix))
+            node.cmd("sleep 0.05")
+            for iface, prefix in started:
+                marker = "__MOQLAB_ROUTER_METRICS_READY__"
+                output = node.cmd(
+                    f"if test -s {prefix}.csv && test -s {prefix}-qdisc.json; "
+                    f"then echo {marker}; else cat /tmp/router-metrics-{iface}.log; fi"
+                )
+                if marker not in output:
+                    raise OrchestratorError(
+                        f"{router_id}: queue metrics failed on {iface}: "
+                        f"{output.strip() or 'collector produced no output'}"
+                    )
 
     @staticmethod
     def _sanity_ping(
@@ -758,6 +818,55 @@ def apply_live_router_aqm(
             _log.error("failed to restore %s AQM: %s", router_id, rollback_error)
         raise
     topology.routers[router_id].aqm = aqm
+
+
+def _client_facing_router_interfaces(
+    topology: TopologyConfig, router_id: str
+) -> list[str]:
+    """Return router egresses whose far-side component contains a receiver."""
+    edges = containernet_edge_interfaces(topology)
+    adjacency: dict[str, set[str]] = {}
+    for link in topology.links:
+        adjacency.setdefault(link.from_, set()).add(link.to)
+        adjacency.setdefault(link.to, set()).add(link.from_)
+
+    receivers = set(topology.subscribers)
+    if topology.traffic is not None:
+        receivers.add(topology.traffic.receiver.id)
+
+    result = []
+    for edge in edges:
+        if edge.a == router_id:
+            peer, iface = edge.b, edge.a_iface
+        elif edge.b == router_id:
+            peer, iface = edge.a, edge.b_iface
+        else:
+            continue
+
+        pending = [peer]
+        reachable: set[str] = set()
+        while pending:
+            node = pending.pop()
+            if node == router_id or node in reachable:
+                continue
+            reachable.add(node)
+            pending.extend(adjacency.get(node, ()))
+        if reachable & receivers:
+            result.append(iface)
+    return result
+
+
+def _node_command_status(node, command: str) -> tuple[int, str]:
+    marker = "__MOQLAB_COMMAND_STATUS__"
+    output = node.cmd(f'{command}; printf "\\n{marker}%s\\n" "$?"')
+    before, found, after = output.rpartition(marker)
+    if not found:
+        return 1, f"{output.strip()} (missing command status)".strip()
+    try:
+        status = int(after.splitlines()[0].strip())
+    except (IndexError, ValueError):
+        return 1, f"{output.strip()} (invalid command status)".strip()
+    return status, before.strip()
 
 
 def _run_containernet_command(node_id: str, command: str) -> tuple[int, str]:

@@ -19,6 +19,8 @@ from moqlab.orchestrator.containernet_backend import (
     ContainernetRunRecord,
     _await_containernet_media_ready,
     _await_containernet_native_media_ready,
+    _client_facing_router_interfaces,
+    _node_command_status,
     _write_etc_hosts_via_docker,
     apply_live_link_shaping,
     apply_live_router_aqm,
@@ -33,6 +35,10 @@ class _FakeNode:
 
     def cmd(self, command: str) -> str:
         self._calls.append((self.node_id, command))
+        if "__MOQLAB_COMMAND_STATUS__" in command:
+            return "\x1b[?2004l\r\n__MOQLAB_COMMAND_STATUS__0\r\n"
+        if "__MOQLAB_ROUTER_METRICS_READY__" in command:
+            return "__MOQLAB_ROUTER_METRICS_READY__\n"
         return ""
 
 
@@ -525,6 +531,39 @@ def test_configure_network_orders_loopbacks_routes_then_shaping():
     assert (
         "ip route replace 10.99.0.3/32 via 10.20.1.1 dev rt-1-eth0 src 10.99.0.2"
         in rt_cmds
+    )
+
+
+def test_queue_metrics_monitor_only_client_facing_router_egress():
+    topology = _routed_topology()
+    topology.routers["rt-1"].queue_metrics.enabled = True
+    record = _record_for(topology)
+    fake_net = _FakeNet(["relay-a", "rt-1", "pub", "sub"])
+
+    assert _client_facing_router_interfaces(topology, "rt-1") == ["rt-1-eth1"]
+
+    ContainernetBackend._configure_network(fake_net, topology, record, lambda _: None)
+
+    commands = [command for node, command in fake_net.calls if node == "rt-1"]
+    assert any("tc qdisc replace dev rt-1-eth1 clsact" in command for command in commands)
+    assert any(
+        "tc filter replace dev rt-1-eth1 egress" in command for command in commands
+    )
+    assert any(
+        "moqlab-router-metrics --interface rt-1-eth1 --interval-ms 25" in command
+        for command in commands
+    )
+    assert not any("moqlab-router-metrics --interface rt-1-eth0" in command for command in commands)
+
+
+def test_node_command_status_uses_exit_code_not_pty_output():
+    class Node:
+        def cmd(self, _command):
+            return "\x1b[?2004l\r\n__MOQLAB_COMMAND_STATUS__0\r\n"
+
+    assert _node_command_status(Node(), "tc qdisc replace dev eth0 clsact") == (
+        0,
+        "\x1b[?2004l",
     )
 
 

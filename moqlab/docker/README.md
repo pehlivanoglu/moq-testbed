@@ -19,6 +19,8 @@ a pinned modern iproute2 from source (multi-stage) because distro tc is too
 old to know L4S AQMs like `dualpi2`, and ships `ethtool`, `tcpdump`, and
 `ping` for in-path debugging. The build fails if the compiled tc does not
 recognize `dualpi2`.
+It also contains the stdlib-only `moqlab-router-metrics` sampler used by the
+optional router `queue_metrics` setting.
 
 Switch containers reuse this image for an unmanaged Linux bridge (`br0`).
 No separate switch image or Open vSwitch dependency is required. Shaping and

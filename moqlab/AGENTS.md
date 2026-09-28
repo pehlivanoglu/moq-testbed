@@ -188,7 +188,10 @@ subscribers:
   sub: { connects_to: relay-b, namespace: msf/clear, track: video/s2 }
 
 routers:
-  rt-1: { aqm: dualpi2, dualpi2_target_ms: 15 }
+  rt-1:
+    aqm: dualpi2
+    dualpi2_target_ms: 15
+    queue_metrics: { enabled: true, interval_ms: 25 }
 
 traffic:
   sender: { id: traffic-tx }
@@ -233,6 +236,8 @@ Implemented invariants:
   must be connected through the link graph.
 - `aqm` is configured on a router and applies to all its egress interfaces;
   optional positive `dualpi2_target_ms` requires `aqm: dualpi2`;
+  enabled `queue_metrics` samples client-facing egresses and supports
+  DualPI2 or a manually installed pfifo;
   every declared router must appear in at least one link; `jitter_ms` requires
   `delay_ms`.
 - Unknown fields are rejected.

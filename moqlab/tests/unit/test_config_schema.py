@@ -549,6 +549,24 @@ def test_dualpi2_target_requires_enabled_aqm_and_positive_value(router):
         )
 
 
+def test_router_queue_metrics_defaults_to_25_ms_without_requiring_aqm():
+    raw = {
+        "relays": _minimal_relays(),
+        "routers": {
+            "rt-1": {"queue_metrics": {"enabled": True}}
+        },
+        "links": [
+            {"from": "rt-1", "to": "relay-a"},
+            {"from": "relay-b", "to": "rt-1"},
+        ],
+    }
+
+    topology = TopologyConfig.model_validate(raw)
+
+    assert topology.routers["rt-1"].queue_metrics.enabled
+    assert topology.routers["rt-1"].queue_metrics.interval_ms == 25
+
+
 def test_aqm_is_rejected_from_link_direction():
     raw = {
         "relays": _minimal_relays(),
