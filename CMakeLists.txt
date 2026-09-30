@@ -135,6 +135,8 @@ add_library(moqx_core STATIC
   src/sbd/ReceiveIntervals.cpp
   src/sbd/Service.cpp
   src/sbd/Observer.cpp
+  src/sbd/WeiDetector.cpp
+  src/sbd/WeiObserver.cpp
   src/stats/MoQStatsCollector.cpp
   src/stats/PicoQuicStatsCollector.cpp
   src/stats/QuicStatsCollector.cpp

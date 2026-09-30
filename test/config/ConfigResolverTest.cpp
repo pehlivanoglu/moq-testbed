@@ -129,6 +129,10 @@ TEST(ConfigResolverSbd, ValidatesEdgeAndDelaySource) {
   cfg.sbd->delay_source = "automatic";
   EXPECT_FALSE(resolveConfig(cfg).hasValue());
   cfg.sbd->delay_source = "owd";
+  cfg.sbd->algorithm = "Wei2020ECN";
+  result = resolveConfig(cfg);
+  ASSERT_TRUE(result.hasValue());
+  EXPECT_EQ(result->config.sbd.algorithm, "Wei2020ECN");
   cfg.sbd->algorithm = "unknown";
   EXPECT_FALSE(resolveConfig(cfg).hasValue());
 }

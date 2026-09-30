@@ -4,13 +4,14 @@ relays:
     edge: true
     sbd:
       enabled: true
-      algorithm: PracticalPassiveAndRFC
+      algorithm: Wei2020ECN
       delay_source: owd
     listen_port: 9668
     admin_port: 9669
     upstream: null
     image: moqlab-relay
     endpoint: /moq-relay
+    l4s_ce_target: 0.05
     tls:
       insecure: false
       generated: true
@@ -31,7 +32,7 @@ subscribers:
     kind: media
     connects_to: relay
     namespace: msf/clear
-    track: video/s0
+    track: video/s2
     image: moqlab-media-native-sub
     log_level: INFO
     media_client: native
@@ -40,7 +41,7 @@ subscribers:
     kind: media
     connects_to: relay
     namespace: msf/clear
-    track: video/s0
+    track: video/s2
     image: moqlab-media-native-sub
     log_level: INFO
     media_client: native
@@ -48,7 +49,7 @@ subscribers:
 routers:
   router:
     image: moqlab-router
-    # aqm: dualpi2
+    aqm: dualpi2
     queue_metrics:
       enabled: true
       interval_ms: 25
@@ -63,7 +64,7 @@ links:
 - from: router
   to: switch
   forward:
-    bandwidth_mbps: 30
+    bandwidth_mbps: 50
   reverse:
     bandwidth_mbps: 100
     delay_ms: 3
@@ -130,7 +131,7 @@ traffic:
     kind: cbr
     route: load-1-route
     duration_s: 10000
-    rate_mbps: 19.8
+    rate_mbps: 18
     start_s: 20
   sender:
     id: traffic-tx

@@ -532,6 +532,13 @@ MOQLAB_INTEGRATION=1 .venv/bin/python -m pytest -q tests/integration/test_media_
 
 ### SBD estimator output
 
+Two relay-side detectors are selectable. `sbd.algorithm: Wei2020ECN` is the
+paper-faithful ECN baseline from Wei et al.: an ACK_ECN CE-counter increase
+triggers a `cwnd/2` packet-domain observation, CE or QUIC-declared packet loss
+is supporting evidence, and a second CE-triggered episode verifies the group.
+PTO is never treated as loss. See
+[the Wei baseline implementation note](../wei-sbd-implementation.md).
+
 Select the current detector with `sbd.algorithm: PracticalPassiveAndRFC`; this
 is also the algorithm name reported by the relay. It implements LCN 2014 PDV2
 variability with RFC 8382 filling behavior the paper does not specify. Metrics

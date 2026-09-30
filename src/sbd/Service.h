@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #pragma once
 #include "sbd/Detector.h"
+#include "sbd/WeiDetector.h"
 #include <atomic>
 #include <condition_variable>
 #include <fstream>
@@ -41,6 +42,7 @@ class Service {
   void status(const std::string& id, std::string status);
   void close(const std::string& id);
   std::string json() const;
+  WeiDetector* weiDetector() const { return wei_.get(); }
  private:
   void run();
   void snapshot();
@@ -56,5 +58,6 @@ class Service {
   int64_t lastGroupIntervalEndUs_{0};
   int64_t lastGroupDecisionMonoUs_{0}, lastGroupDecisionUnixNs_{0};
   std::thread worker_;
+  std::unique_ptr<WeiDetector> wei_;
 };
 } // namespace openmoq::moqx::sbd

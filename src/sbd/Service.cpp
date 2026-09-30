@@ -30,6 +30,11 @@ folly::dynamic jsonGroups(const std::vector<std::vector<std::string>>& groups) {
 
 Service::Service(Config config, std::string relayId)
     : config_(std::move(config)), relayId_(std::move(relayId)) {
+  if (config_.algorithm == kWei2020ECN) {
+    wei_ = std::make_unique<WeiDetector>(
+        config_.enabled, config_.outputFile, relayId_);
+    return;
+  }
   if (config_.enabled && !config_.outputFile.empty()) {
     const auto parent = std::filesystem::path(config_.outputFile).parent_path();
     if (!parent.empty()) std::filesystem::create_directories(parent);
@@ -42,6 +47,9 @@ Service::Service(Config config, std::string relayId)
   if (config_.enabled) worker_ = std::thread([this] { run(); });
 }
 Service::~Service() {
+  if (wei_) {
+    return;
+  }
   { std::lock_guard lock(mutex_); stopping_ = true; }
   wake_.notify_all();
   if (worker_.joinable()) worker_.join();
@@ -51,6 +59,7 @@ std::shared_ptr<Flow> Service::attach(const std::string& id, const std::string& 
   auto& flow = flows_[id];
   if (!flow) flow = std::make_shared<Flow>();
   flow->peer = peer;
+  if (wei_) wei_->attach(id, peer);
   return flow;
 }
 void Service::eligible(const std::string& id, bool value) {
@@ -66,6 +75,7 @@ void Service::eligible(const std::string& id, bool value) {
     flow->summaries.clear();
     flow->lastBottleneck.reset();
   }
+  if (wei_) wei_->eligible(id, value);
 }
 void Service::publish(const std::string& id, const Summary& summary, std::string status) {
   std::lock_guard lock(mutex_);
@@ -124,8 +134,13 @@ void Service::close(const std::string& id) {
     it->second->updated = std::chrono::steady_clock::now();
     it->second->updatedUnixNs = unixNs();
   }
+  if (wei_) wei_->close(id);
 }
-std::string Service::json() const { std::lock_guard lock(mutex_); return latest_; }
+std::string Service::json() const {
+  if (wei_) return wei_->json();
+  std::lock_guard lock(mutex_);
+  return latest_;
+}
 void Service::run() {
   auto next = std::chrono::steady_clock::now() + kInterval;
   std::unique_lock lock(mutex_);

@@ -37,9 +37,11 @@ def test_browser_assets_live_outside_python_package():
     assert app.count("nodeDetails.replaceChildren()") == 2
     assert 'node.media_client ? `${node.role} · ${node.media_client}` : node.role' in app
     assert "DualPI2 target:" in app
-    assert 'sharedHeading.textContent = "Shared bottlenecks"' in app
+    assert '"Confirmed shared bottlenecks"' in app
+    assert '"Preliminary shared bottlenecks"' in app
     assert 'telemetryHeading.textContent = "Client telemetry"' in app
-    assert 'for (const label of ["Client", "State"' in app
+    assert '["Client", "State", "ECT(0)", "ECT(1)", "CE"' in app
+    assert 'for (const label of headers)' in app
     assert '"OWD mean/min/max (ms)"' in app
     assert "client.interval_delay_mean_us" in app
     assert '"PDV2 (ms)"' in app

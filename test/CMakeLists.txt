@@ -347,6 +347,6 @@ target_compile_options(moqx_cache_test PRIVATE
 
 gtest_discover_tests(moqx_cache_test)
 
-add_executable(moqx_sbd_test stats/SbdTest.cpp)
+add_executable(moqx_sbd_test stats/SbdTest.cpp stats/WeiSbdTest.cpp)
 target_link_libraries(moqx_sbd_test PRIVATE moqx_core moqx_test_main GTest::gmock)
 gtest_discover_tests(moqx_sbd_test)

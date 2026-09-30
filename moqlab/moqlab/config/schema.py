@@ -145,7 +145,7 @@ class StartupConfig(_StrictBase):
 
 class SbdConfig(_StrictBase):
     enabled: bool = False
-    algorithm: Literal["PracticalPassiveAndRFC"] = "PracticalPassiveAndRFC"
+    algorithm: Literal["PracticalPassiveAndRFC", "Wei2020ECN"] = "PracticalPassiveAndRFC"
     delay_source: Literal["owd", "rtt"] = "owd"
 
 

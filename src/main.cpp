@@ -122,7 +122,9 @@ int main(int argc, char* argv[]) {
   std::vector<std::shared_ptr<moxygen::MoQServerBase>> servers;
   for (const auto& listenerCfg : config.listeners) {
     auto configuredListener = listenerCfg;
-    configuredListener.sbdOwd = config.sbd.enabled && config.sbd.delaySource == "owd";
+    configuredListener.sbdOwd = config.sbd.enabled &&
+        config.sbd.algorithm == sbd::kPracticalPassiveAndRFC &&
+        config.sbd.delaySource == "owd";
     if (config.sbd.enabled && configuredListener.quicStack != cfg::QuicStack::Mvfst)
       throw std::runtime_error("SBD requires an mvfst listener");
     servers.emplace_back(makeRelayServer(configuredListener, context, ioExecutor.get(), statsRegistry));

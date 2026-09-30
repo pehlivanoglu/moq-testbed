@@ -141,8 +141,9 @@ function updateNodeMetrics(payload) {
   if (panel) {
     panel.replaceChildren();
     const status = document.createElement("p");
+    const wei = payload.sbd?.algorithm === "Wei2020ECN";
     status.textContent = payload.sbd
-      ? `${payload.status} · ${payload.sbd.delay_source} · ${new Date(payload.sbd.timestamp_ms).toISOString()}`
+      ? `${payload.status} · ${wei ? payload.sbd.algorithm : payload.sbd.delay_source} · ${new Date(payload.sbd.timestamp_ms).toISOString()}`
       : (payload.reason ?? payload.status);
     panel.append(status);
     if (!payload.sbd) return;
@@ -153,50 +154,68 @@ function updateNodeMetrics(payload) {
     const table = document.createElement("table");
     table.className = "sbd-table";
     const header = table.insertRow();
-    for (const label of ["Client", "State", "Intervals", "OWD mean/min/max (ms)", "Skew", "PDV2 (ms)", "Frequency", "Loss", "Bottleneck"]) {
+    const headers = wei
+      ? ["Client", "State", "ECT(0)", "ECT(1)", "CE", "CWND (packets)", "Half-window", "Sent", "Feedback", "Group"]
+      : ["Client", "State", "Intervals", "OWD mean/min/max (ms)", "Skew", "PDV2 (ms)", "Frequency", "Loss", "Bottleneck"];
+    for (const label of headers) {
       const th = document.createElement("th"); th.textContent = label; header.append(th);
     }
     for (const client of payload.sbd.clients) {
       const row = table.insertRow();
       row.title = `${client.connection_id} / ${client.peer}`;
-      for (const value of [client.name ?? "Unknown client", client.status,
+      const values = wei
+        ? [client.name ?? "Unknown client", client.state, client.latest_ect0,
+          client.latest_ect1, client.latest_ce, client.cwnd_packets,
+          client.half_window_packets, client.sent_packets,
+          client.feedback_watermark, client.group_id ?? "—"]
+        : [client.name ?? "Unknown client", client.status,
           client.intervals, [client.interval_delay_mean_us, client.interval_delay_min_us, client.interval_delay_max_us]
-            .map((value) => (Number(value) / 1000).toFixed(3)).join(" / "),
+              .map((value) => (Number(value) / 1000).toFixed(3)).join(" / "),
           Number(client.skew_est).toFixed(3), (Number(client.var_est_us) / 1000).toFixed(2),
           Number(client.freq_est).toFixed(3), Number(client.pkt_loss).toFixed(4),
-          client.decision_valid ? (client.bottleneck ? "yes" : "no") : "unknown"]) {
+          client.decision_valid ? (client.bottleneck ? "yes" : "no") : "unknown"];
+      for (const value of values) {
         row.insertCell().textContent = String(value);
       }
     }
     telemetry.append(telemetryHeading, table);
-    const shared = document.createElement("section");
-    shared.className = "sbd-section";
-    const sharedHeading = document.createElement("h3");
-    sharedHeading.textContent = "Shared bottlenecks";
-    shared.append(sharedHeading);
     const names = new Map(payload.sbd.clients.map((client) => [client.connection_id, client.name ?? "Unknown client"]));
-    const groups = payload.sbd.groups.filter((group) => group.length > 1);
-    if (!groups.length) {
-      const empty = document.createElement("p");
-      empty.className = "muted";
-      empty.textContent = "No shared bottlenecks detected.";
-      shared.append(empty);
-    } else {
-      const list = document.createElement("div");
-      list.className = "sbd-groups";
-      groups.forEach((group, index) => {
-        const item = document.createElement("div");
-        item.className = "sbd-group";
-        const label = document.createElement("strong");
-        label.textContent = `Shared bottleneck ${index + 1}`;
-        const members = document.createElement("span");
-        members.textContent = group.map((id) => names.get(id) ?? id).join(", ");
-        item.append(label, members);
-        list.append(item);
-      });
-      shared.append(list);
+    const appendGroups = (heading, rawGroups, label, emptyText) => {
+      const section = document.createElement("section");
+      section.className = "sbd-section";
+      const title = document.createElement("h3");
+      title.textContent = heading;
+      section.append(title);
+      const groups = (rawGroups ?? []).filter((group) => group.length > 1);
+      if (!groups.length) {
+        const empty = document.createElement("p");
+        empty.className = "muted";
+        empty.textContent = emptyText;
+        section.append(empty);
+      } else {
+        const list = document.createElement("div");
+        list.className = "sbd-groups";
+        groups.forEach((group, index) => {
+          const item = document.createElement("div");
+          item.className = "sbd-group";
+          const groupLabel = document.createElement("strong");
+          groupLabel.textContent = `${label} ${index + 1}`;
+          const members = document.createElement("span");
+          members.textContent = group.map((id) => names.get(id) ?? id).join(", ");
+          item.append(groupLabel, members);
+          list.append(item);
+        });
+        section.append(list);
+      }
+      panel.append(section);
+    };
+    panel.append(telemetry);
+    if (wei) {
+      appendGroups("Preliminary shared bottlenecks", payload.sbd.candidate_groups,
+        "Preliminary set", "No preliminary sets pending.");
     }
-    panel.append(telemetry, shared);
+    appendGroups(wei ? "Confirmed shared bottlenecks" : "Shared bottlenecks",
+      payload.sbd.groups, "Shared bottleneck", "No shared bottlenecks detected.");
     return;
   }
   if (!metricsStatus || !metricsReason || !metricsGrid) return;

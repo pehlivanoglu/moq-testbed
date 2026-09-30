@@ -8,6 +8,7 @@
 #include "stats/EventBaseStatsCollector.h"
 #include "stats/ClientNetworkMetrics.h"
 #include "sbd/Observer.h"
+#include "sbd/WeiObserver.h"
 #include "stats/QuicStatsCollector.h"
 #include <moxygen/MoQRelaySession.h>
 #include <moxygen/events/MoQFollyExecutorImpl.h>
@@ -164,9 +165,14 @@ void MoqxRelayServer::onNewQuicTransport(quic::QuicSocket& socket) {
   }
   socket.addObserver(std::make_shared<stats::ClientNetworkMetricsObserver>(
       socket, clientNetworkMetrics_));
-  auto sbd = clientNetworkMetrics_->sbdService;
-  if (sbd && sbd->config().enabled)
-    socket.addObserver(std::make_shared<sbd::Observer>(socket, sbd));
+  auto sbdService = clientNetworkMetrics_->sbdService;
+  if (sbdService && sbdService->config().enabled) {
+    if (sbdService->config().algorithm == sbd::kWei2020ECN) {
+      socket.addObserver(std::make_shared<sbd::WeiObserver>(socket, sbdService));
+    } else {
+      socket.addObserver(std::make_shared<sbd::Observer>(socket, sbdService));
+    }
+  }
 }
 
 void MoqxRelayServer::start() {
