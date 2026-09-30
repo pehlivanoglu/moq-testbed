@@ -101,11 +101,23 @@ def parse_sample(
     dualpi2 = next(
         (qdisc for qdisc in qdiscs if qdisc.get("kind") == "dualpi2"), None
     )
-    fifo = next((qdisc for qdisc in qdiscs if qdisc.get("kind") == "pfifo"), None)
-    queue = dualpi2 or fifo or root
+    queue = next(
+        (
+            qdisc
+            for qdisc in qdiscs
+            if qdisc.get("kind") in {"dualpi2", "red", "pie", "fq_codel", "pfifo"}
+        ),
+        root,
+    )
 
     options = queue.get("options", {})
-    capacity = int(options.get("limit", 0))
+    capacity = 0 if queue.get("kind") == "red" else int(options.get("limit", 0))
+    ecn_marks = {
+        "dualpi2": "ecn-mark",
+        "red": "marked",
+        "pie": "ecn_mark",
+        "fq_codel": "ecn_mark",
+    }
 
     # HTB mirrors descendant backlog, so do not sum it with the leaf. Netem
     # is the only separate queue synthesized by moqlab's current hierarchy.
@@ -119,7 +131,7 @@ def parse_sample(
         dualpi2_drops=int(dualpi2.get("drops", 0)) if dualpi2 else 0,
         l_enqueued_packets=int(dualpi2.get("pkts-in-l", 0)) if dualpi2 else 0,
         c_enqueued_packets=int(dualpi2.get("pkts-in-c", 0)) if dualpi2 else 0,
-        ecn_marks=int(dualpi2.get("ecn-mark", 0)) if dualpi2 else 0,
+        ecn_marks=int(queue.get(ecn_marks.get(str(queue.get("kind")), ""), 0)),
         step_marks=int(dualpi2.get("step-mark", 0)) if dualpi2 else 0,
         queue_capacity_packets=capacity,
         queue_packets=int(queue.get("qlen", 0)),

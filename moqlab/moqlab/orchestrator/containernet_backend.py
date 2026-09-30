@@ -50,6 +50,7 @@ from moqlab.orchestrator.routing import (
     routed_path,
 )
 from moqlab.orchestrator.shaping import (
+    live_aqm_commands,
     live_shaping_commands,
     offload_disable_commands,
     shaping_commands,
@@ -784,11 +785,11 @@ def apply_live_router_aqm(
     previous: AqmKind | None,
     command_runner: Callable[[str, str], tuple[int, str]] | None = None,
 ) -> None:
-    """Replace every egress qdisc chain owned by one running router."""
+    """Replace the AQM leaf on every egress owned by one running router."""
     run = command_runner or _run_containernet_command
     edges = containernet_edge_interfaces(topology)
 
-    def apply(value: AqmKind | None) -> None:
+    def apply(value: AqmKind | None, current: AqmKind | None) -> None:
         for edge, link in zip(edges, topology.links):
             if edge.a == router_id:
                 iface, spec = edge.a_iface, link.forward
@@ -796,11 +797,13 @@ def apply_live_router_aqm(
                 iface, spec = edge.b_iface, link.reverse
             else:
                 continue
-            commands = shaping_commands(
-                iface, spec, value, topology.routers[router_id].dualpi2_target_ms
+            commands = live_aqm_commands(
+                iface,
+                spec,
+                value,
+                current,
+                topology.routers[router_id].dualpi2_target_ms,
             )
-            if not commands:
-                commands = [f"tc qdisc del dev {iface} root"]
             for command in commands:
                 status, output = run(router_id, command)
                 if status:
@@ -810,10 +813,10 @@ def apply_live_router_aqm(
                     )
 
     try:
-        apply(aqm)
+        apply(aqm, previous)
     except OrchestratorError:
         try:
-            apply(previous)
+            apply(previous, aqm)
         except OrchestratorError as rollback_error:
             _log.error("failed to restore %s AQM: %s", router_id, rollback_error)
         raise

@@ -286,7 +286,13 @@ function routerAqmEditor(node) {
   const label = document.createElement("label");
   label.textContent = "AQM on all router egress";
   const select = document.createElement("select");
-  select.append(new Option("None", ""), new Option("dualpi2", "dualpi2"));
+  select.append(
+    new Option("None", ""),
+    new Option("dualpi2", "dualpi2"),
+    new Option("RED", "red"),
+    new Option("PIE", "pie"),
+    new Option("FQ-CoDel", "fq_codel"),
+  );
   select.value = node.aqm || "";
   select.disabled = !routersEditable;
   const apply = document.createElement("button");

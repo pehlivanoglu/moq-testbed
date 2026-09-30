@@ -93,8 +93,12 @@ experiments. Put propagation netem on a separate, non-AQM egress and keep the
 rate+AQM bottleneck at htb → AQM. The shipped shared-bottleneck example puts
 zero-valued, live-editable netem on each switch↔subscriber direction.
 
-`aqm` (currently `dualpi2`) is configured once on a router and applies to all
-its egress interfaces. Optional `dualpi2_target_ms` overrides the kernel's
+`aqm` accepts `dualpi2`, `red`, `pie`, or `fq_codel`; it is configured once on
+a router and applies to all its egress interfaces. All choices explicitly
+enable ECN. PIE and FQ-CoDel use their kernel defaults. RED uses the fixed
+research profile `limit 240000 min 20000 max 60000 avpkt 1200 burst 28
+probability 0.02 ecn`; when an egress has `bandwidth_mbps`, that rate is also
+passed to RED. Optional `dualpi2_target_ms` overrides the kernel's
 15 ms PI2 target; it must be positive and requires `aqm: dualpi2`. This is the
 Classic PI2 target, not the L-queue's default 1 ms step threshold and not
 mvfst's sender-side `l4s_ce_target`. This is also an iproute2-version constraint:
@@ -122,10 +126,12 @@ media subscriber or traffic receiver. It saves a CSV and full qdisc hierarchy
 JSON per selected interface under `.runs/<run-id>/router-metrics/<router>/`.
 A tc egress `matchall` counter measures offered bytes before the root qdisc;
 root and selected queue cumulative counters are converted to interval deltas.
-The collector prefers DualPI2, otherwise uses an explicit pfifo, and notices a
-manual qdisc hierarchy change while it is running. Before pfifo is installed,
-capacity and queue percentage are unavailable; after `pfifo limit 200`, they
-come directly from that qdisc.
+The collector selects DualPI2, RED, PIE, FQ-CoDel, or an explicit pfifo leaf
+and notices a manual qdisc hierarchy change while it is running. RED reports
+its limit in bytes, so packet-capacity percentage is unavailable for RED;
+instantaneous packet and byte backlog remain available. Before pfifo is
+installed, capacity and queue percentage are unavailable; after `pfifo limit
+200`, they come directly from that qdisc.
 
 Total DualPI2 occupancy, L/C head delays, and any separate netem backlog are
 instantaneous tc snapshots. The tc ABI does not expose separate instantaneous
@@ -139,7 +145,9 @@ Initial qdiscs come from the YAML. With `moqlab run --visualize`, select a
 link to change rate/netem fields or select a router to change its AQM on all
 egress interfaces. Value-only link edits use `tc class change` for HTB and
 `tc qdisc change` for netem, preserving queued packets, qdisc statistics, and
-AQM state. A live edit that would add or remove HTB/netem is rejected because
+AQM state. Changing the AQM deletes and recreates only the AQM leaf, preserving
+HTB/netem ancestors but flushing that leaf's queue and counters. A live edit
+that would add or remove HTB/netem is rejected because
 changing the qdisc hierarchy would flush queued packets. Preconfigure both a
 bandwidth and a zero-valued netem field when they must remain editable, e.g.
 `bandwidth_mbps: 100` plus `loss_pct: 0`; delay and jitter can then be changed

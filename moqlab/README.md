@@ -249,8 +249,9 @@ L4S CE response is Cubic-only; see [ROUTER.md](ROUTER.md#ecn-end-to-end).
 
 Per direction (`forward` = from→to, `reverse` = to→from) you can set
 `bandwidth_mbps` (HTB rate) and `delay_ms` / `jitter_ms` / `loss_pct`
-(netem). Set `aqm` (currently `dualpi2`) on a router; it applies to every
-egress interface owned by that router. Optional `dualpi2_target_ms` overrides
+(netem). Set `aqm` to `dualpi2`, `red`, `pie`, or `fq_codel` on a router; it
+applies to every egress interface owned by that router. All four configurations
+enable ECN. Optional `dualpi2_target_ms` overrides
 DualPI2's 15 ms PI2 target. See [ROUTER.md](ROUTER.md).
 
 `queue_metrics` writes each client-facing router egress to

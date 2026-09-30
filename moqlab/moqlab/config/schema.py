@@ -115,6 +115,9 @@ class AqmKind(str, Enum):
     """AQM qdiscs moqlab can synthesize tc commands for."""
 
     dualpi2 = "dualpi2"
+    red = "red"
+    pie = "pie"
+    fq_codel = "fq_codel"
 
 
 class RouterDefaults(_StrictBase):

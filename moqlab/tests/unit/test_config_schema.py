@@ -531,6 +531,22 @@ def test_aqm_is_router_owned():
     assert t.routers["rt-1"].dualpi2_target_ms == 10
 
 
+@pytest.mark.parametrize("aqm", ["red", "pie", "fq_codel"])
+def test_additional_router_aqms_are_valid(aqm):
+    topology = TopologyConfig.model_validate(
+        {
+            "relays": _minimal_relays(),
+            "routers": {"rt-1": {"aqm": aqm}},
+            "links": [
+                {"from": "rt-1", "to": "relay-a"},
+                {"from": "relay-b", "to": "rt-1"},
+            ],
+        }
+    )
+
+    assert topology.routers["rt-1"].aqm.value == aqm
+
+
 @pytest.mark.parametrize(
     "router",
     [{"dualpi2_target_ms": 10}, {"aqm": "dualpi2", "dualpi2_target_ms": 0}],

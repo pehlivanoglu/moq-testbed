@@ -49,7 +49,7 @@ subscribers:
 routers:
   router:
     image: moqlab-router
-    aqm: dualpi2
+    aqm: pie
     queue_metrics:
       enabled: true
       interval_ms: 25

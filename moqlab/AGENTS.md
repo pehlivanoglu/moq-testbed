@@ -234,10 +234,11 @@ Implemented invariants:
 - `links` reference known nodes and may not duplicate an undirected pair.
 - When `links`/`routers` are declared, every `upstream`/`connects_to` pair
   must be connected through the link graph.
-- `aqm` is configured on a router and applies to all its egress interfaces;
+- `aqm` (`dualpi2`, `red`, `pie`, or `fq_codel`) is configured on a router and
+  applies to all its egress interfaces;
   optional positive `dualpi2_target_ms` requires `aqm: dualpi2`;
-  enabled `queue_metrics` samples client-facing egresses and supports
-  DualPI2 or a manually installed pfifo;
+  enabled `queue_metrics` samples client-facing egresses and supports all
+  configured AQMs or a manually installed pfifo;
   every declared router must appear in at least one link; `jitter_ms` requires
   `delay_ms`.
 - Unknown fields are rejected.

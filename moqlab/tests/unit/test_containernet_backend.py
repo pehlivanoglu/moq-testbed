@@ -227,6 +227,27 @@ def test_live_router_aqm_updates_every_router_egress():
     assert topology.routers["rt-1"].aqm is None
 
 
+def test_live_router_aqm_switches_leaf_kind_without_rebuilding_rate_shaper():
+    topology = _routed_topology()
+    calls = []
+    run = lambda node, command: calls.append((node, command)) or (0, "")
+
+    apply_live_router_aqm(
+        topology, "rt-1", AqmKind.red, AqmKind.dualpi2, run
+    )
+
+    commands = [command for node, command in calls if node == "rt-1"]
+    assert any(
+        " qdisc del " in command and "handle 20:" in command
+        for command in commands
+    )
+    assert any(
+        " qdisc add " in command and " red " in command
+        for command in commands
+    )
+    assert all(" htb " not in command for command in commands)
+
+
 def _record_for(topology: TopologyConfig) -> ContainernetRunRecord:
     record = ContainernetRunRecord(
         run_id="run-test",

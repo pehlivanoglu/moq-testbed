@@ -95,6 +95,33 @@ def test_parse_sample_uses_pfifo_when_dualpi2_is_absent():
     assert sample.c_enqueued_packets == 0
 
 
+def test_parse_sample_uses_non_dualpi2_aqm_queue_and_ecn_counter():
+    counters = (
+        ("red", "marked"),
+        ("pie", "ecn_mark"),
+        ("fq_codel", "ecn_mark"),
+    )
+    for kind, mark_field in counters:
+        qdiscs = [
+            {"kind": "htb", "root": True, "bytes": 1000, "drops": 3},
+            {
+                "kind": kind,
+                "parent": "5:1",
+                "options": {"limit": 200},
+                "backlog": 1200,
+                "qlen": 10,
+                mark_field: 7,
+            },
+        ]
+
+        sample = parse_sample(qdiscs, _filters(), 10_000, 500)
+
+        assert sample.queue_packets == 10
+        assert sample.queue_backlog_bytes == 1200
+        assert sample.ecn_marks == 7
+        assert sample.queue_capacity_packets == (0 if kind == "red" else 200)
+
+
 def test_interval_row_differences_counters_but_keeps_instantaneous_state():
     previous = parse_sample(_qdiscs(), _filters(), 10_000, 500)
     current = replace(

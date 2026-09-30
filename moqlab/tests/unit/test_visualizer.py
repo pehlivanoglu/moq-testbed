@@ -174,6 +174,25 @@ def test_live_router_update_calls_registered_updater():
     assert server.topology.routers["rt-1"].aqm.value == "dualpi2"
 
 
+@pytest.mark.parametrize("aqm", ["red", "pie", "fq_codel"])
+def test_live_router_update_accepts_additional_aqms(aqm):
+    topology = TopologyConfig.model_validate(
+        {
+            "relays": {"relay-a": {"listen_port": 9668, "admin_port": 9669}},
+            "routers": {"rt-1": {}},
+            "links": [{"from": "relay-a", "to": "rt-1"}],
+        }
+    )
+    server = VisualizerHTTPServer(("127.0.0.1", 0), topology)
+    server.register_router_updater(lambda *_: None)
+    try:
+        result = server.update_router("rt-1", {"aqm": aqm})
+    finally:
+        server.server_close()
+
+    assert result == {"aqm": aqm}
+
+
 def test_topology_snapshot_places_router_between_endpoints():
     topology = TopologyConfig.model_validate(
         {

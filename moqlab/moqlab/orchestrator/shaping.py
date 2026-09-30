@@ -42,6 +42,8 @@ _NETEM_LIMIT_PKTS = 50000
 # the same reason).
 _HTB_QUANTUM_BYTES = 1500
 
+_RED_PROFILE = "limit 240000 min 20000 max 60000 avpkt 1200 burst 28 probability 0.02"
+
 
 def _netem_args(spec: DirectionSpec) -> str:
     parts: list[str] = []
@@ -68,8 +70,6 @@ def shaping_commands(
     """
     has_rate = spec.bandwidth_mbps is not None
     has_netem = spec.delay_ms is not None or spec.loss_pct is not None
-    has_aqm = aqm is not None
-
     cmds: list[str] = []
     parent: str | None = None  # None → the next qdisc becomes the root
 
@@ -90,16 +90,62 @@ def shaping_commands(
             cmds.append(f"tc qdisc add dev {iface} parent {parent} handle 10: {netem}")
         parent = "10:1"
 
-    if has_aqm:
-        aqm_name = aqm.value  # type: ignore[union-attr]
-        if aqm == AqmKind.dualpi2 and dualpi2_target_ms is not None:
-            aqm_name += f" target {dualpi2_target_ms:g}ms"
+    if aqm is not None:
+        aqm_name = _aqm_name(aqm, spec, dualpi2_target_ms)
         if parent is None:
             cmds.append(f"tc qdisc replace dev {iface} root handle 20: {aqm_name}")
         else:
             cmds.append(f"tc qdisc add dev {iface} parent {parent} handle 20: {aqm_name}")
 
     return cmds
+
+
+def _aqm_name(
+    aqm: AqmKind, spec: DirectionSpec, dualpi2_target_ms: float | None
+) -> str:
+    if aqm == AqmKind.dualpi2:
+        target = (
+            f" target {dualpi2_target_ms:g}ms"
+            if dualpi2_target_ms is not None
+            else ""
+        )
+        return f"dualpi2{target}"
+    if aqm == AqmKind.red:
+        bandwidth = (
+            f" bandwidth {spec.bandwidth_mbps:g}mbit"
+            if spec.bandwidth_mbps is not None
+            else ""
+        )
+        return f"red {_RED_PROFILE}{bandwidth} ecn"
+    return f"{aqm.value} ecn"
+
+
+def live_aqm_commands(
+    iface: str,
+    spec: DirectionSpec,
+    updated: AqmKind | None,
+    previous: AqmKind | None,
+    dualpi2_target_ms: float | None = None,
+) -> list[str]:
+    """Replace only the AQM leaf, preserving any HTB/netem ancestors."""
+    has_rate = spec.bandwidth_mbps is not None
+    has_netem = spec.delay_ms is not None or spec.loss_pct is not None
+    parent = "10:1" if has_netem else "5:1" if has_rate else None
+    commands: list[str] = []
+    if previous is not None:
+        location = f"parent {parent} handle 20:" if parent else "root handle 20:"
+        commands.append(f"tc qdisc del dev {iface} {location}")
+    if updated is not None:
+        aqm_name = _aqm_name(updated, spec, dualpi2_target_ms)
+        if parent:
+            commands.append(
+                f"tc qdisc add dev {iface} parent {parent} handle 20: {aqm_name}"
+            )
+        else:
+            commands.append(
+                f"tc qdisc replace dev {iface} root handle 20: {aqm_name}"
+            )
+    return commands
 
 
 def live_shaping_commands(

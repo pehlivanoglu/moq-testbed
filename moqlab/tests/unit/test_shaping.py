@@ -4,6 +4,7 @@ import pytest
 
 from moqlab.config.schema import AqmKind, DirectionSpec
 from moqlab.orchestrator.shaping import (
+    live_aqm_commands,
     live_shaping_commands,
     offload_disable_commands,
     shaping_commands,
@@ -60,6 +61,26 @@ def test_rate_plus_aqm_chains_aqm_under_htb():
     assert cmds[2] == "tc qdisc add dev r1-eth0 parent 5:1 handle 20: dualpi2 target 8ms"
 
 
+@pytest.mark.parametrize(
+    ("aqm", "expected"),
+    [
+        (
+            AqmKind.red,
+            "red limit 240000 min 20000 max 60000 avpkt 1200 burst 28 "
+            "probability 0.02 bandwidth 20mbit ecn",
+        ),
+        (AqmKind.pie, "pie ecn"),
+        (AqmKind.fq_codel, "fq_codel ecn"),
+    ],
+)
+def test_rate_plus_ecn_aqm_uses_reproducible_command(aqm, expected):
+    commands = shaping_commands(
+        "r1-eth0", DirectionSpec(bandwidth_mbps=20), aqm
+    )
+
+    assert commands[2] == f"tc qdisc add dev r1-eth0 parent 5:1 handle 20: {expected}"
+
+
 def test_full_chain_uses_netem_child_slot_for_aqm():
     spec = DirectionSpec(bandwidth_mbps=20, delay_ms=5)
     cmds = shaping_commands("r1-eth0", spec, AqmKind.dualpi2)
@@ -81,6 +102,19 @@ def test_netem_plus_aqm_without_rate():
     assert shaping_commands("r1-eth0", spec, AqmKind.dualpi2) == [
         "tc qdisc replace dev r1-eth0 root handle 10: netem delay 10ms limit 50000",
         "tc qdisc add dev r1-eth0 parent 10:1 handle 20: dualpi2",
+    ]
+
+
+def test_live_aqm_change_replaces_only_the_leaf():
+    spec = DirectionSpec(bandwidth_mbps=20)
+
+    assert live_aqm_commands(
+        "r1-eth0", spec, AqmKind.red, AqmKind.dualpi2
+    ) == [
+        "tc qdisc del dev r1-eth0 parent 5:1 handle 20:",
+        "tc qdisc add dev r1-eth0 parent 5:1 handle 20: red limit 240000 "
+        "min 20000 max 60000 avpkt 1200 burst 28 probability 0.02 "
+        "bandwidth 20mbit ecn",
     ]
 
 

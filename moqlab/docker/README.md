@@ -16,7 +16,8 @@ defined in YAML under [../configs/](../configs/) and brought up with
 
 The router image runs no MoQ binary. It exists to own link queues: it builds
 a pinned modern iproute2 from source (multi-stage) because distro tc is too
-old to know L4S AQMs like `dualpi2`, and ships `ethtool`, `tcpdump`, and
+old to know L4S AQMs like `dualpi2`; the resulting `tc` also drives RED, PIE,
+and FQ-CoDel, and the image ships `ethtool`, `tcpdump`, and
 `ping` for in-path debugging. The build fails if the compiled tc does not
 recognize `dualpi2`.
 It also contains the stdlib-only `moqlab-router-metrics` sampler used by the
