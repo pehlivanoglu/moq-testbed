@@ -375,6 +375,7 @@ struct ParsedSbdConfig {
 };
 
 struct ParsedConfig {
+  std::optional<std::map<std::string, std::string>> rtt_outputs;
   std::optional<bool> edge;
   std::optional<ParsedSbdConfig> sbd;
   rfl::Description<

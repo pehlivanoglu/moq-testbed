@@ -13,6 +13,7 @@
 #include <unordered_set>
 
 #include <folly/String.h>
+#include <folly/IPAddress.h>
 
 namespace openmoq::moqx::config {
 
@@ -847,6 +848,19 @@ folly::Expected<ResolvedConfig, std::string> resolveConfig(const ParsedConfig& c
   if (sbd.enabled && !edge) errors.push_back("sbd.enabled requires edge: true");
 
   const bool mvfstBpfSteering = config.mvfst_bpf_steering.value().value_or(true);
+  const auto rttOutputs = config.rtt_outputs.value_or(std::map<std::string, std::string>{});
+  if (!rttOutputs.empty()) {
+    for (const auto& listener : config.listeners.value()) {
+      if (listener.quic_stack.value().value_or(kStackMvfst) != kStackMvfst) {
+        errors.push_back("rtt_outputs requires mvfst listeners");
+      }
+    }
+  }
+  for (const auto& [peer, directory] : rttOutputs) {
+    if (!folly::IPAddress::validate(peer) || directory.empty() || directory.front() != '/') {
+      errors.push_back("rtt_outputs requires numeric peer IPs and absolute output directories");
+    }
+  }
 
   if (!errors.empty()) {
     return folly::makeUnexpected("Config validation failed:\n  - " + folly::join("\n  - ", errors));
@@ -900,6 +914,7 @@ folly::Expected<ResolvedConfig, std::string> resolveConfig(const ParsedConfig& c
               .mvfstBpfSteering = mvfstBpfSteering,
               .edge = edge,
               .sbd = std::move(sbd),
+              .rttOutputs = rttOutputs,
           },
       .warnings = std::move(warnings),
   };

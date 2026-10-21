@@ -172,6 +172,11 @@ class ContainernetBackend:
         on_running: Callable[[TopologyConfig], None] | None = None,
     ) -> ContainernetRunRecord:
         topology = load_topology(config_path)
+        record_rtt = any(s.rtt_metrics for s in topology.subscribers.values())
+        if record_rtt:
+            from moqlab.rtt import check_plotting
+
+            check_plotting()
         if not topology.links:
             raise OrchestratorError(
                 "the containernet backend requires explicit `links:` wiring; "
@@ -211,6 +216,7 @@ class ContainernetBackend:
             run_dir=run_dir,
             loopback_ips=node_loopback_ips(topology),
         )
+        event_monitors = None
 
         try:
             self._build(net, topology, relay_yaml_paths, record, info)
@@ -243,6 +249,18 @@ class ContainernetBackend:
             # resolves and dials its peer.
             self._configure_network(net, topology, record, info)
             self._sanity_ping(net, topology, record, info)
+            if record_rtt:
+                from moqlab.tc_events import TcEventMonitors
+
+                event_dir = run_dir / "rtt" / "events"
+                event_dir.mkdir(parents=True, exist_ok=True)
+                egresses: dict[str, dict[str, str]] = {}
+                for edge in containernet_edge_interfaces(topology):
+                    egresses.setdefault(edge.a, {})[edge.a_iface] = edge.b
+                    egresses.setdefault(edge.b, {})[edge.b_iface] = edge.a
+                (event_dir / "egresses.json").write_text(json.dumps(egresses, indent=2) + "\n")
+                event_monitors = TcEventMonitors(event_dir, all_node_ids(topology))
+                event_monitors.start()
             self._launch_node_binaries(net, topology, record, info)
             if on_running is not None:
                 on_running(topology)
@@ -254,11 +272,32 @@ class ContainernetBackend:
             info("***   Exit the CLI to tear the topology down.\n\n")
             CLI(net)
         finally:
+            if record_rtt and topology.traffic is not None:
+                try:
+                    _stop_traffic_sender(net, topology)
+                except Exception as error:
+                    _log.warning("traffic sender did not stop gracefully: %s", error)
+            if event_monitors is not None:
+                try:
+                    event_monitors.stop()
+                except Exception as error:
+                    _log.warning("bandwidth event history is incomplete: %s", error)
             info("*** Stopping network\n")
             try:
                 net.stop()
             except Exception as e:  # net.stop() can throw on partial state
                 _log.warning("net.stop() raised during teardown: %s", e)
+            if record_rtt:
+                from moqlab.rtt import plot_rtt
+
+                try:
+                    (run_dir / "rtt" / "run-end.json").write_text(json.dumps({
+                        "timestamp_unix_ns": time.time_ns(), "timestamp_mono_ns": time.monotonic_ns(),
+                    }) + "\n")
+                    output = plot_rtt(run_dir / "rtt")
+                    info(f"*** QUIC RTT graph: {output}\n")
+                except Exception as e:
+                    _log.warning("RTT plot failed; CSVs remain in %s: %s", run_dir / "rtt", e)
 
         return record
 
@@ -280,6 +319,13 @@ class ContainernetBackend:
         for rid in relay_order(topology):
             cfg = relay_yaml_paths[rid].resolve()
             volumes = [f"{cfg}:/etc/moqx/relay.yaml:ro"]
+            rtt_clients = [sid for sid, subscriber in topology.subscribers.items()
+                           if subscriber.rtt_metrics and subscriber.connects_to == rid]
+            if rtt_clients:
+                rtt_root = (record.run_dir / "rtt").resolve()
+                for sid in rtt_clients:
+                    (rtt_root / sid).mkdir(parents=True, exist_ok=True)
+                volumes.append(f"{rtt_root}:/var/log/moqlab/rtt:rw")
             if topology.relays[rid].sbd.enabled:
                 sbd_dir = (record.run_dir / "sbd" / rid).resolve()
                 sbd_dir.mkdir(parents=True, exist_ok=True)
@@ -353,11 +399,16 @@ class ContainernetBackend:
 
         if topology.traffic is not None:
             plan_path = (record.run_dir / "traffic-plan.json").resolve()
+            traffic_volumes = [f"{plan_path}:{_TRAFFIC_PLAN_PATH}:ro"]
+            if any(s.rtt_metrics for s in topology.subscribers.values()):
+                archive = (record.run_dir / "rtt" / "traffic").resolve()
+                archive.mkdir(parents=True, exist_ok=True)
+                traffic_volumes.append(f"{archive}:/var/log/moqlab/traffic:rw")
             for endpoint in (topology.traffic.sender, topology.traffic.receiver):
                 nodes[endpoint.id] = net.addDocker(
                     endpoint.id,
                     dimage=topology.traffic_image(endpoint.id),
-                    volumes=[f"{plan_path}:{_TRAFFIC_PLAN_PATH}:ro"],
+                    volumes=traffic_volumes,
                     sysctls=dict(_ENDPOINT_SYSCTLS),
                 )
                 record.traffic_endpoints.append(endpoint.id)
@@ -630,9 +681,15 @@ class ContainernetBackend:
         if topology.traffic is not None:
             receiver = topology.traffic.receiver.id
             sender = topology.traffic.sender.id
+            archive_traffic = any(s.rtt_metrics for s in topology.subscribers.values())
+            if archive_traffic:
+                for node in (sender, receiver):
+                    net.get(node).cmd(f"ln -sf /var/log/moqlab/traffic/{node}.jsonl /tmp/{node}.log")
+            receiver_errors = f"2> /tmp/{receiver}.stderr.log" if archive_traffic else "2>&1"
+            sender_errors = f"2> /tmp/{sender}.stderr.log" if archive_traffic else "2>&1"
             receiver_cmd = (
                 f"{_TRAFFIC_BINARY} receiver --plan {_TRAFFIC_PLAN_PATH} "
-                f"> /tmp/{receiver}.log 2>&1 &"
+                f"> /tmp/{receiver}.log {receiver_errors} &"
             )
             info(f"*** launching traffic receiver {receiver}\n")
             net.get(receiver).cmd(receiver_cmd)
@@ -641,7 +698,7 @@ class ContainernetBackend:
             )
             sender_cmd = (
                 f"{_TRAFFIC_BINARY} sender --plan {_TRAFFIC_PLAN_PATH} "
-                f"> /tmp/{sender}.log 2>&1 &"
+                f"> /tmp/{sender}.log {sender_errors} & echo $! > /tmp/moqlab-traffic-sender.pid"
             )
             info(f"*** launching traffic sender {sender}\n")
             net.get(sender).cmd(sender_cmd)
@@ -652,6 +709,20 @@ def _shell_quote_argv(argv: list[str]) -> list[str]:
     import shlex
 
     return [shlex.quote(a) for a in argv]
+
+
+def _stop_traffic_sender(net, topology: TopologyConfig) -> None:
+    sender = topology.traffic.sender.id
+    command = (
+        'if test -f /tmp/moqlab-traffic-sender.pid; then '
+        'pid=$(cat /tmp/moqlab-traffic-sender.pid); '
+        'if grep -aq moqlab-traffic /proc/"$pid"/cmdline 2>/dev/null; then '
+        'kill -TERM "$pid"; timeout 3s tail --pid="$pid" --sleep-interval=0.05 -f /dev/null; '
+        'fi; fi'
+    )
+    status, output = _node_command_status(net.get(sender), command)
+    if status:
+        raise OrchestratorError(f"{sender}: {output.strip() or f'exit {status}'}")
 
 
 def _sleep_if_configured(seconds: float, reason: str, info) -> None:
@@ -671,7 +742,7 @@ def _await_traffic_receiver(node, node_id: str, timeout_s: float) -> None:
         if "__MOQLAB_READY__" in output:
             return
         time.sleep(0.05)
-    detail = node.cmd(f"tail -n 40 /tmp/{node_id}.log 2>/dev/null").strip()
+    detail = node.cmd(f"tail -n 40 /tmp/{node_id}.log /tmp/{node_id}.stderr.log 2>/dev/null").strip()
     raise OrchestratorError(
         f"traffic receiver {node_id!r} was not ready within {timeout_s:g}s"
         + (f": {detail}" if detail else "")

@@ -19,6 +19,12 @@ cut from current versions, not bugs or oversights.
 
 ## Now-Shippable Cleanups
 
+- [x] Annotate RTT graphs with kernel-observed bandwidth changes on every
+      node/egress and actual external-traffic start/end/interruption events.
+      Preserve event archives and use a shared monotonic clock.
+- [x] Add opt-in relay-side QUIC RTT CSV sampling at a 1 ms target cadence
+      and automatic post-run RTT/interval plots for Containernet experiments.
+      RTT feedback cadence is independent of sampling cadence; see README.
 - [x] Add unmanaged Linux bridge switches, shared-LAN addressing, designer
       support, and one-router shared DualPI2 example. See `ROUTER.md`.
 - [x] Restore `linear_3r_1s.yaml` and `external_traffic.yaml` examples used by

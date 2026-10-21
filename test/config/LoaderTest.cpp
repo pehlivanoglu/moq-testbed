@@ -22,6 +22,8 @@ using ::testing::HasSubstr;
 
 TEST(ConfigLoader, MinimalConfig) {
   TempYamlFile yaml(R"(
+rtt_outputs:
+  "10.99.0.2": /tmp/rtt/sub
 listeners:
   - name: main
     udp:
@@ -47,6 +49,8 @@ admin:
 )");
 
   auto cfg = loadConfig(yaml.path());
+  ASSERT_TRUE(cfg.rtt_outputs.has_value());
+  EXPECT_EQ(cfg.rtt_outputs->at("10.99.0.2"), "/tmp/rtt/sub");
   EXPECT_EQ(cfg.listeners.value().size(), 1);
   EXPECT_EQ(cfg.listeners.value()[0].name.value(), "main");
   EXPECT_TRUE(cfg.listeners.value()[0].tls.value().insecure.value());

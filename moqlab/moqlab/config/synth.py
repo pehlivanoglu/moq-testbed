@@ -18,6 +18,7 @@ from typing import Any
 import yaml
 
 from moqlab.certs import TLS_CERT, TLS_KEY
+from moqlab.runtime import node_loopback_ips
 from moqlab.config.schema import (
     CacheConfig,
     TlsConfig,
@@ -112,6 +113,11 @@ def synthesize_relay_yaml(topology: TopologyConfig, relay_id: str) -> dict[str, 
     if r.l4s_ce_target is not None:
         listener["mvfst"] = {"l4s": {"ce_target": r.l4s_ce_target}}
 
+    rtt_outputs = {
+        node_loopback_ips(topology)[sid]: f"/var/log/moqlab/rtt/{sid}"
+        for sid, subscriber in topology.subscribers.items()
+        if subscriber.rtt_metrics and subscriber.connects_to == relay_id
+    }
     return {
         "relay_id": relay_id,
         "edge": r.edge,
@@ -122,6 +128,7 @@ def synthesize_relay_yaml(topology: TopologyConfig, relay_id: str) -> dict[str, 
             **({"output_file": "/var/log/moqx/sbd/snapshots.jsonl"} if r.sbd.enabled else {}),
         },
         "listeners": [listener],
+        **({"rtt_outputs": rtt_outputs} if rtt_outputs else {}),
         "services": {"default": service},
         "admin": {
             "port": r.admin_port,

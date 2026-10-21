@@ -8,6 +8,7 @@
 #include "sbd/Service.h"
 #include <chrono>
 #include <cstdint>
+#include <map>
 #include <deque>
 #include <memory>
 #include <mutex>
@@ -16,6 +17,8 @@
 #include <string_view>
 #include <unordered_map>
 #include <vector>
+#include <folly/File.h>
+#include <folly/io/async/AsyncTimeout.h>
 
 #include <quic/api/QuicSocket.h>
 #include <quic/observer/SocketObserverTypes.h>
@@ -85,6 +88,7 @@ public:
       std::chrono::milliseconds inactiveRetention = std::chrono::seconds(10));
 
   std::shared_ptr<sbd::Service> sbdService; // configured before workers start
+  std::map<std::string, std::string> rttOutputs; // peer IP -> archive directory
   void markRelayPeer(std::string_view connectionId);
   void put(ClientNetworkMetrics metrics);
   std::vector<ClientNetworkMetrics> snapshot() const;
@@ -138,11 +142,13 @@ private:
 
 // Runs on the connection's EventBase.  It gathers on ACK/RTT/loss events and
 // publishes at most every 100 ms, keeping policy work out of mvfst's ACK path.
-class ClientNetworkMetricsObserver final : public quic::ManagedObserver {
+class ClientNetworkMetricsObserver final : public quic::ManagedObserver,
+                                           private folly::AsyncTimeout {
 public:
   ClientNetworkMetricsObserver(
       quic::QuicSocket& socket,
       std::shared_ptr<ClientNetworkMetricsStore> store);
+  ~ClientNetworkMetricsObserver() override;
 
   void acksProcessed(
       quic::QuicSocketLite*,
@@ -166,6 +172,7 @@ public:
   void closing(quic::QuicSocketLite*, const ClosingEvent&) noexcept override;
 
 private:
+  void timeoutExpired() noexcept override;
   void readTransportInfo(quic::QuicSocketLite& socket);
   void publish(bool force = false);
 
@@ -177,6 +184,9 @@ private:
   uint64_t lastRateEcn_{0};
   uint64_t lastRateCe_{0};
   std::chrono::steady_clock::time_point lastPublish_{};
+  quic::QuicSocket* socket_;
+  folly::File rttFile_;
+  std::chrono::steady_clock::time_point rttStart_{}, rttPrevious_{};
 };
 
 } // namespace openmoq::moqx::stats

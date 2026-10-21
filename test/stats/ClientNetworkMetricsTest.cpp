@@ -8,11 +8,68 @@
 #include <chrono>
 
 #include <gtest/gtest.h>
+#include <gmock/gmock.h>
+#include <folly/FileUtil.h>
+#include <folly/io/async/EventBaseManager.h>
+#include <folly/ScopeGuard.h>
+#include <quic/api/test/MockQuicSocket.h>
+#include <filesystem>
+#include <sstream>
 
 namespace openmoq::moqx::stats {
 namespace {
 
 using namespace std::chrono_literals;
+
+TEST(ClientNetworkMetricsObserverTest, RelayTimerReadsSocketWithoutWaitingForPolicyPublish) {
+  char pattern[] = "/tmp/moqx-rtt-test-XXXXXX";
+  const auto* created = mkdtemp(pattern);
+  ASSERT_NE(created, nullptr);
+  const std::filesystem::path directory(created);
+  auto cleanup = folly::makeGuard([&] { std::filesystem::remove_all(directory); });
+  auto store = std::make_shared<ClientNetworkMetricsStore>();
+  store->rttOutputs["10.99.0.2"] = directory.string();
+  testing::NiceMock<quic::MockQuicSocket> socket;
+  const folly::SocketAddress peer("10.99.0.2", 12345);
+  ON_CALL(socket, getPeerAddress()).WillByDefault(testing::ReturnRef(peer));
+  const auto cid = *quic::ConnectionId::create(std::vector<uint8_t>{1, 2, 3, 4, 5, 6, 7, 8});
+  ON_CALL(socket, getServerConnectionId()).WillByDefault(testing::Return(cid));
+  quic::TransportInfo info;
+  info.lrtt = info.srtt = 20ms;
+  info.maybeMinRtt = 20ms;
+  ON_CALL(socket, getTransportInfo()).WillByDefault(testing::Invoke([&] { return info; }));
+  auto* evb = folly::EventBaseManager::get()->getEventBase();
+  {
+    ClientNetworkMetricsObserver observer(socket, store);
+    evb->runAfterDelay([&] { info.lrtt = info.srtt = 80ms; }, 10);
+    evb->runAfterDelay([&] { evb->terminateLoopSoon(); }, 30);
+    evb->loopForever();
+    // The regular policy snapshot stays at 20 ms for 100 ms; the CSV must see 80 ms.
+    ASSERT_EQ(store->snapshot().front().srttUs, 20000);
+    observer.closing(&socket, {});
+    EXPECT_CALL(socket, getTransportInfo()).Times(0);
+    evb->runAfterDelay([&] { evb->terminateLoopSoon(); }, 5);
+    evb->loopForever();
+  }
+  std::string csv;
+  ASSERT_TRUE(folly::readFile((directory / (cid.hex() + ".csv")).string().c_str(), csv));
+  ASSERT_NE(csv.find("latest_rtt_ms,srtt_ms,min_rtt_ms"), std::string::npos);
+  EXPECT_NE(csv.find(",20,20,20,relay,"), std::string::npos);
+  EXPECT_NE(csv.find(",80,80,20,relay,"), std::string::npos);
+  std::istringstream rows(csv);
+  std::string row;
+  std::getline(rows, row);
+  int64_t previous = 0;
+  while (std::getline(rows, row)) {
+    std::istringstream fields(row);
+    std::string wall, elapsed, interval;
+    std::getline(fields, wall, ',');
+    std::getline(fields, elapsed, ',');
+    std::getline(fields, interval, ',');
+    EXPECT_EQ(std::stoll(elapsed) - previous, std::stoll(interval));
+    previous = std::stoll(elapsed);
+  }
+}
 
 ClientNetworkMetrics sample(
     std::chrono::steady_clock::time_point at,

@@ -57,6 +57,17 @@ and the CDP readiness runner. X11 mode uses host display socket directly. No
 process manager is used. Chrome and native media subscribers atomically write
 live player metrics to `/tmp/moqlab-player-metrics.json`; simulated native
 playback does not add a decoder or FFmpeg process.
+Relay-side RTT recording uses the topology subscriber's `rtt_metrics` flag.
+Containernet mounts the archive root into the **relay** at
+`/var/log/moqlab/rtt`; synthesized `rtt_outputs` selects peer IPs and
+per-subscriber directories. Rebuild the relay image after sampler changes.
+Native clients need no RTT flags or archive mounts.
+Traffic images also write monotonic lifecycle timestamps and handle SIGTERM
+so `exit` can archive interrupted flow ends. With RTT recording enabled,
+Containernet mounts `/var/log/moqlab/traffic` and retains structured endpoint
+logs for graph annotations; stderr stays separate in `/tmp/<node>.stderr.log`.
+Rebuild `moqlab-traffic` after changing `trafficgen.py`. Bandwidth event
+monitors run from the host in node network namespaces and need no image build.
 
 Image tags can be overridden per topology via `defaults.relay.image` /
 `defaults.publisher.image` / `defaults.subscriber.image` /

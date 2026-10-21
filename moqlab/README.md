@@ -128,6 +128,97 @@ python -m moqlab build images
 python -m moqlab build media-images
 ```
 
+## Shared bottleneck with different client RTTs
+
+[`shared_bottleneck_different_rtt.yaml`](configs/examples/shared_bottleneck_different_rtt.yaml)
+connects `pub -> relay -> router -> switch -> subscribers`.
+Native subscribers request `video/s2` over separate relay connections.
+The router-to-switch forward link is shared; client access links have different
+delays. Link capacities/delays and background traffic are configured in the YAML.
+Run with the Containernet backend from this directory:
+
+```bash
+sudo /path/to/containernet/venv/bin/python3 -m moqlab run -c configs/examples/shared_bottleneck_different_rtt.yaml --visualize
+```
+
+This example enables `rtt_metrics: true` for selected subscribers
+(Containernet only). **Measurements are taken at the relay**, on each selected
+client's downstream QUIC socket. Both native and browser clients are supported.
+Rebuild `moqlab-relay` after updating moqx. Install the optional plotting
+dependency in the Python environment used to run Containernet:
+`python -m pip install "matplotlib>=3.8,<4"`. Missing Matplotlib is reported
+before the network starts.
+
+A 1 ms target timer runs on the relay connection's EventBase and reads its
+latest RTT, smoothed RTT, and minimum RTT directly from mvfst. It bypasses
+the 100 ms policy/admin snapshot throttle. The relay sends media and measures
+RTT as client ACKs return; no probe traffic or client-side sampler is added.
+The scheduler can miss deadlines; CSVs preserve actual wall-clock timestamps,
+monotonic elapsed time, and intervals instead of filling missed ticks.
+RTT updates still require QUIC feedback: consecutive samples can repeat.
+CSVs identify their source with `measurement_side=relay`. Old client-side
+archives are rejected by the plotter; start a new run for relay measurements.
+Topology synthesis maps each opted-in client's canonical IP to a relay
+`rtt_outputs` directory. Every connection writes its own exclusive CSV, so
+reconnections preserve previous samples and are plotted as separate curves.
+
+Exit the Mininet CLI with `exit` to end the run. After network teardown,
+the combined graph is generated automatically:
+
+```text
+.runs/<run-id>/rtt/sub-fast/<connection-id>.csv
+.runs/<run-id>/rtt/sub-slow/<connection-id>.csv
+.runs/<run-id>/rtt/rtt.png
+```
+
+The PNG contains latest RTT, smoothed RTT, and actual sampling intervals for
+all selected clients on a common time axis. New runs use the host's shared
+monotonic clock for RTTs and experiment events; older RTT-only archives retain
+their initial wall-clock alignment and monotonic elapsed time. CSVs are written directly to
+host-mounted directories and remain available if plotting fails. To redraw:
+
+```bash
+python -m moqlab.rtt .runs/<run-id>/rtt
+```
+
+When RTT recording is enabled, the graph also marks bandwidth changes and
+external traffic activity. Orange dashed lines mark bandwidth changes;
+green/red lines mark traffic starts/ends, with a light green span over active
+traffic. Event numbers (`E1`, `E2`, ...) refer to the table below the plots,
+which lists the exact recorded time, node, egress interface, neighboring node,
+class/qdisc handle, and old/new rates and ceilings. Different routers and
+both directions of a link are recorded separately.
+
+The backend subscribes to kernel `RTMGRP_TC` events in **every topology node's
+network namespace** before starting applications. It captures manual Mininet
+`tc` commands, `docker exec ... tc`, and visualizer edits without polling link
+state. HTB (the project's shaper), TBF, netem rate, and CAKE bandwidth fields
+are decoded, including 64-bit rates and rate removal. Failed commands and
+unchanged rates are not annotated. Times indicate when the event monitor
+received each kernel notification, not when a shell command was typed.
+Monitors use the host Python and `nsenter`; no node image changes are needed
+for bandwidth monitoring. Startup fails if any monitor cannot subscribe.
+Lost/truncated notifications or a failed monitor are reported as incomplete
+history rather than silently claiming complete coverage.
+
+Traffic annotations use the sender's actual `flow_start`/`flow_end` logs,
+including flow id, kind, route, and path. They do not infer activity from YAML
+`start_s` or `duration_s`. On `exit`, the sender is stopped gracefully before
+network teardown; active flows record an `interrupted` end. A forced teardown
+without a final flow log is explicitly marked as an end observed at teardown.
+These times describe the sender's flow lifecycle, not the arrival of the final
+queued packet at the receiver. Rebuild `moqlab-traffic` and `moqlab-relay` after
+updating this instrumentation.
+
+Additional artifacts under `.runs/<run-id>/rtt/`:
+
+```text
+events/<node>.jsonl       # observed bandwidth changes and initial rates
+events/egresses.json      # node/interface -> neighbor map
+traffic/<endpoint>.jsonl  # archived structured traffic logs
+run-end.json              # teardown completion timestamp
+```
+
 ## Quick start
 
 ```bash

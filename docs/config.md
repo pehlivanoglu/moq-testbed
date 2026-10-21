@@ -21,6 +21,8 @@ moqx --config <path> --strict_config    # reject unknown fields,
 ```yaml
 relay_id: "my-relay"       # optional; auto-generated if absent
 threads: 1                 # optional; default 1 (only 1 currently supported)
+rtt_outputs:               # optional; mvfst relay-side RTT sampling at a 1 ms target interval
+  "10.99.0.2": /var/log/moqlab/rtt/sub-fast  # existing directory; one CSV per connection
 
 listener_defaults:         # optional; QUIC defaults inherited by all listeners
   quic: { ... }

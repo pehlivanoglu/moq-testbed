@@ -7,6 +7,12 @@
 
 #include <algorithm>
 #include <limits>
+#include <stdexcept>
+#include <fcntl.h>
+#include <folly/Conv.h>
+#include <folly/FileUtil.h>
+#include <folly/io/async/EventBaseManager.h>
+#include <folly/logging/xlog.h>
 
 namespace openmoq::moqx::stats {
 
@@ -300,7 +306,8 @@ ClientNetworkMetricsObserver::ClientNetworkMetricsObserver(
               .enable(Events::pacingRateUpdatedEvents)
               .enable(Events::appRateLimitedEvents)
               .build()),
-      store_(std::move(store)) {
+      folly::AsyncTimeout(folly::EventBaseManager::get()->getEventBase()),
+      store_(std::move(store)), socket_(&socket) {
   if (auto cid = socket.getServerConnectionId()) {
     metrics_.connectionId = cid->hex();
   } else if (auto cid = socket.getClientConnectionId()) {
@@ -311,6 +318,52 @@ ClientNetworkMetricsObserver::ClientNetworkMetricsObserver(
   metrics_.peer = socket.getPeerAddress().describe();
   readTransportInfo(socket);
   publish(true);
+  const auto output = store_->rttOutputs.find(socket.getPeerAddress().getAddressStr());
+  if (output != store_->rttOutputs.end()) {
+    rttFile_ = folly::File(output->second + "/" + metrics_.connectionId + ".csv",
+                         O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0644);
+    const std::string header =
+        "timestamp_unix_ns,elapsed_ns,interval_ns,latest_rtt_ms,srtt_ms,min_rtt_ms,measurement_side,timestamp_mono_ns\n";
+    if (folly::writeFull(rttFile_.fd(), header.data(), header.size()) !=
+        static_cast<ssize_t>(header.size())) {
+      throw std::runtime_error("failed to write relay RTT CSV header");
+    }
+    rttStart_ = rttPrevious_ = std::chrono::steady_clock::now();
+    scheduleTimeout(std::chrono::milliseconds(1));
+  }
+}
+
+ClientNetworkMetricsObserver::~ClientNetworkMetricsObserver() {
+  cancelTimeout();
+}
+
+void ClientNetworkMetricsObserver::timeoutExpired() noexcept {
+  try {
+    const auto now = std::chrono::steady_clock::now();
+    const auto wall = std::chrono::system_clock::now();
+    // Read the sender's transport directly; policy snapshots are throttled to 100 ms.
+    const auto info = socket_->getTransportInfo();
+    if (!info.maybeMinRtt) {
+      scheduleTimeout(std::chrono::milliseconds(1));
+      return;
+    }
+    const auto row = folly::to<std::string>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(wall.time_since_epoch()).count(), ",",
+        std::chrono::duration_cast<std::chrono::nanoseconds>(now - rttStart_).count(), ",",
+        std::chrono::duration_cast<std::chrono::nanoseconds>(now - rttPrevious_).count(), ",",
+        info.lrtt.count() / 1000.0, ",", info.srtt.count() / 1000.0, ",",
+        info.maybeMinRtt->count() / 1000.0, ",relay,",
+        std::chrono::duration_cast<std::chrono::nanoseconds>(now.time_since_epoch()).count(), "\n");
+    if (folly::writeFull(rttFile_.fd(), row.data(), row.size()) !=
+        static_cast<ssize_t>(row.size())) {
+      throw std::runtime_error("failed to write relay RTT CSV sample");
+    }
+    rttPrevious_ = now;
+    scheduleTimeout(std::chrono::milliseconds(1));
+  } catch (const std::exception& error) {
+    XLOG(ERR) << "Relay RTT recording stopped for " << metrics_.connectionId << ": " << error.what();
+    rttFile_.closeNoThrow();
+  }
 }
 
 void ClientNetworkMetricsObserver::readTransportInfo(quic::QuicSocketLite& socket) {
@@ -416,6 +469,9 @@ void ClientNetworkMetricsObserver::startWritingFromAppLimited(
 void ClientNetworkMetricsObserver::closing(
     quic::QuicSocketLite* socket,
     const ClosingEvent&) noexcept {
+  cancelTimeout();
+  rttFile_.closeNoThrow();
+  socket_ = nullptr;
   readTransportInfo(*socket);
   metrics_.active = false;
   publish(true);

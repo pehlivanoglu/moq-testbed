@@ -1,0 +1,118 @@
+topology_mode: explicit
+relays:
+  relay:
+    edge: true
+    listen_port: 9668
+    admin_port: 9669
+    upstream: null
+    tls:
+      insecure: false
+      generated: true
+publishers:
+  pub:
+    connects_to: relay
+    asset: testsvc
+    listen_port: 4443
+    fingerprint_port: 8081
+subscribers:
+  sub-fast:
+    connects_to: relay
+    namespace: msf/clear
+    track: video/s2
+    media_client: native
+    native_playback: receive
+    rtt_metrics: true
+  sub-slow:
+    connects_to: relay
+    namespace: msf/clear
+    track: video/s2
+    media_client: native
+    native_playback: receive
+    rtt_metrics: true
+  sub:
+    kind: media
+    connects_to: relay
+    namespace: msf/clear
+    track: video/s2
+    image: moqlab-media-native-sub
+    log_level: INFO
+    media_client: native
+    native_playback: receive
+    rtt_metrics: true
+routers:
+  router:
+    queue_metrics:
+      enabled: true
+      interval_ms: 25
+    aqm: dualpi2
+switches:
+  switch: {}
+links:
+- from: pub
+  to: relay
+- from: relay
+  to: router
+- from: router
+  to: switch
+  forward:
+    bandwidth_mbps: 100
+  reverse:
+    bandwidth_mbps: 10000
+- from: switch
+  to: sub-fast
+  forward:
+    bandwidth_mbps: 100
+    delay_ms: 10
+  reverse:
+    bandwidth_mbps: 100
+    delay_ms: 5
+    jitter_ms: 1
+- from: switch
+  to: sub-slow
+  forward:
+    bandwidth_mbps: 100
+    delay_ms: 40
+  reverse:
+    bandwidth_mbps: 100
+    delay_ms: 15
+    jitter_ms: 3
+- from: router
+  to: traffic-tx
+- from: traffic-rx
+  to: switch
+- from: switch
+  to: sub
+  forward:
+    bandwidth_mbps: 4
+    delay_ms: 30
+    jitter_ms: 3
+  reverse:
+    bandwidth_mbps: 1000
+    delay_ms: 10
+defaults:
+  traffic:
+    image: moqlab-traffic
+    tcp_port: 9000
+    udp_port: 9001
+  relay:
+    tls:
+      insecure: false
+      generated: true
+traffic:
+  routes:
+    load-1-route:
+      path:
+      - traffic-tx
+      - router
+      - switch
+      - traffic-rx
+  flows:
+  - id: load-1
+    kind: cbr
+    route: load-1-route
+    duration_s: 30
+    rate_mbps: 0.001
+  sender:
+    id: traffic-tx
+  receiver:
+    id: traffic-rx

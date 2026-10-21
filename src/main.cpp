@@ -115,6 +115,7 @@ int main(int argc, char* argv[]) {
 
   // === 6a. Stats registry ===
   auto statsRegistry = std::make_shared<stats::StatsRegistry>();
+  statsRegistry->clientNetworkMetrics()->rttOutputs = config.rttOutputs;
 
   statsRegistry->clientNetworkMetrics()->sbdService =
       std::make_shared<sbd::Service>(config.sbd, config.relayID);

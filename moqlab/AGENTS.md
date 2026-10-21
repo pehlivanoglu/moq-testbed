@@ -81,6 +81,16 @@ ergonomics. This is research infrastructure, not a demo script.
 - **Tests** (`tests/unit/`) - unit tests for schema, synthesis, and
   Containernet launch ordering plus visualizer snapshot/rate helpers. They do
   not require Docker, Containernet, or root.
+- **QUIC RTT** (`moqlab/rtt.py`) - subscriber `rtt_metrics` selects downstream
+  connections to sample **at the relay**, directly from mvfst on a 1 ms target
+  EventBase timer. Synthesized `rtt_outputs` maps client IPs to archive
+  directories. CSVs live under `.runs/<run-id>/rtt/<subscriber>/<connection>.csv`;
+  Containernet generates a combined Matplotlib PNG after teardown.
+- **Experiment events** (`moqlab/tc_events.py`) - when RTT recording is on,
+  per-node namespace monitors capture kernel bandwidth changes (HTB/TBF/netem/
+  CAKE), including direct `tc` commands. Archived traffic lifecycle logs and
+  bandwidth events share the relay RTT monotonic clock and annotate the PNG.
+  Stop the traffic sender and monitors before tearing down the network.
 
 Media support is clear LOC AV1 spatial-SVC only: one origin per relay tree,
 configured namespace/track, headless or direct-X11 Chromium with strict

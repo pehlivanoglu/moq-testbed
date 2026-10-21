@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import signal
 import socket
 import struct
 import time
@@ -14,10 +15,13 @@ _LOG_CONTEXT: dict[str, object] = {}
 
 
 def _log(event: str, **fields: object) -> None:
+    wall_ns = time.time_ns()
     print(
         json.dumps(
             {
-                "ts": time.time(),
+                "ts": wall_ns / 1e9,
+                "timestamp_unix_ns": wall_ns,
+                "timestamp_mono_ns": time.monotonic_ns(),
                 **_LOG_CONTEXT,
                 "event": event,
                 "level": "INFO",
@@ -238,23 +242,32 @@ async def _run_flow(
     await asyncio.sleep(max(0, epoch + float(flow["start_s"]) - time.monotonic()))
     deadline = time.monotonic() + float(flow["duration_s"])
     _log("flow_start", flow_id=flow["id"], kind=flow["kind"], route=flow["route"])
-    if flow["kind"] == "bulk":
-        await asyncio.gather(
-            *(
-                _bulk_connection(plan, flow, connection, deadline)
-                for connection in range(int(flow["connections"]))
+    status = "completed"
+    try:
+        if flow["kind"] == "bulk":
+            await asyncio.gather(
+                *(
+                    _bulk_connection(plan, flow, connection, deadline)
+                    for connection in range(int(flow["connections"]))
+                )
             )
-        )
-    elif flow["kind"] == "segmented":
-        await asyncio.gather(
-            *(
-                _segmented_client(plan, flow, connection, deadline)
-                for connection in range(int(flow["clients"]))
+        elif flow["kind"] == "segmented":
+            await asyncio.gather(
+                *(
+                    _segmented_client(plan, flow, connection, deadline)
+                    for connection in range(int(flow["clients"]))
+                )
             )
-        )
-    else:
-        await _run_cbr(plan, flow, flow_index, deadline)
-    _log("flow_end", flow_id=flow["id"])
+        else:
+            await _run_cbr(plan, flow, flow_index, deadline)
+    except asyncio.CancelledError:
+        status = "interrupted"
+        raise
+    except Exception:
+        status = "error"
+        raise
+    finally:
+        _log("flow_end", flow_id=flow["id"], status=status)
 
 
 async def _run_sender(plan: dict[str, object]) -> None:
@@ -262,10 +275,26 @@ async def _run_sender(plan: dict[str, object]) -> None:
     assert isinstance(flows, list)
     epoch = time.monotonic()
     _log("sender_start", flows=len(flows))
-    await asyncio.gather(
-        *(_run_flow(plan, flow, index, epoch) for index, flow in enumerate(flows))
-    )
-    _log("sender_end")
+    try:
+        await asyncio.gather(
+            *(_run_flow(plan, flow, index, epoch) for index, flow in enumerate(flows))
+        )
+    finally:
+        _log("sender_end")
+
+
+async def _run_with_signals(role: str, plan: dict[str, object]) -> None:
+    task = asyncio.create_task(_run_sender(plan) if role == "sender" else _run_receiver(plan))
+    loop = asyncio.get_running_loop()
+    for signum in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(signum, task.cancel)
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+    finally:
+        for signum in (signal.SIGTERM, signal.SIGINT):
+            loop.remove_signal_handler(signum)
 
 
 def main() -> None:
@@ -279,7 +308,7 @@ def main() -> None:
         node=plan[f"{args.role}_id"],
         node_type=f"traffic_{args.role}",
     )
-    asyncio.run(_run_sender(plan) if args.role == "sender" else _run_receiver(plan))
+    asyncio.run(_run_with_signals(args.role, plan))
 
 
 if __name__ == "__main__":

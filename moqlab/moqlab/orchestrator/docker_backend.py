@@ -85,6 +85,8 @@ class DockerBackend:
         readiness_timeout_s: float = 10.0,
     ) -> RunRecord:
         topology = load_topology(config_path)
+        if any(s.rtt_metrics for s in topology.subscribers.values()):
+            raise OrchestratorError("rtt_metrics requires the containernet backend")
         if topology.routers or topology.switches or topology.traffic is not None:
             raise OrchestratorError(
                 "topology declares routers or external traffic or switches; the docker backend is a flat "

@@ -1675,5 +1675,23 @@ TEST(ResolveConfig, MvfstAlgoFieldsRoundTrip) {
   EXPECT_FLOAT_EQ(out.l4s.ceTarget, 0.05f);
 }
 
+TEST(ResolveConfig, RelayRttOutputsValidateAndResolve) {
+  auto cfg = makeMinimalInsecureConfig();
+  cfg.rtt_outputs = std::map<std::string, std::string>{{"10.99.0.2", "/tmp/rtt/sub"}};
+  auto result = resolveConfig(cfg);
+  ASSERT_TRUE(result.hasValue());
+  EXPECT_EQ(result->config.rttOutputs.at("10.99.0.2"), "/tmp/rtt/sub");
+  auto pico = makeMinimalPicoConfig();
+  pico.rtt_outputs = cfg.rtt_outputs;
+  EXPECT_TRUE(resolveConfig(pico).hasError());
+  for (const auto& outputs : {
+           std::map<std::string, std::string>{{"not-an-ip", "/tmp/rtt"}},
+           std::map<std::string, std::string>{{"10.99.0.2", "relative"}},
+           std::map<std::string, std::string>{{"10.99.0.2", ""}}}) {
+    cfg.rtt_outputs = outputs;
+    EXPECT_TRUE(resolveConfig(cfg).hasError());
+  }
+}
+
 } // namespace
 } // namespace openmoq::moqx::config

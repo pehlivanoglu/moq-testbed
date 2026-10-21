@@ -11,6 +11,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <map>
 #include <optional>
 #include <string>
 #include <variant>
@@ -202,6 +203,7 @@ struct Config {
   bool mvfstBpfSteering{true};
   bool edge{false};
   sbd::Config sbd;
+  std::map<std::string, std::string> rttOutputs;
 };
 
 } // namespace openmoq::moqx::config

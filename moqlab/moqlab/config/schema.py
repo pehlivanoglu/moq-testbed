@@ -309,6 +309,7 @@ class SubscriberConfig(_StrictBase):
     log_level: str | None = None
     media_client: Literal["chrome-headless", "chrome", "native"] | None = None
     native_playback: Literal["receive", "simulate"] | None = None
+    rtt_metrics: bool = False
     minimal_buffer_ms: int | None = Field(default=None, ge=0)
     target_latency_ms: int | None = Field(default=None, gt=0)
 

@@ -130,6 +130,7 @@ target_include_directories(moqx_client_network_metrics_test PRIVATE
 target_link_libraries(moqx_client_network_metrics_test PRIVATE
   moqx_core
   GTest::gtest_main
+  GTest::gmock
 )
 gtest_discover_tests(moqx_client_network_metrics_test)
 
