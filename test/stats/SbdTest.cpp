@@ -213,7 +213,22 @@ TEST(Sbd, RelayPeerExcludedFromClientEligibility) {
 }
 
 #include "sbd/VideoStart.h"
+#include <moxygen/test/MockMoQSession.h>
 #include <moxygen/test/Mocks.h>
+TEST(Sbd, DcSbdWatchesForwardedVideoStart) {
+  using namespace moxygen;
+  using namespace moxygen::test;
+  using namespace testing;
+  auto service = std::make_shared<Service>(
+      Config{true, "owd", "", std::string(kDcSbd)}, "test");
+  auto consumer = std::make_shared<NiceMock<MockTrackConsumer>>();
+  auto session = std::make_shared<NiceMock<MockMoQSession>>();
+  session->setTransportConnectionId("dc-client");
+  auto watched = watchVideo(consumer,
+      FullTrackName{TrackNamespace{{"msf", "clear"}}, "video/s2"},
+      session, service);
+  EXPECT_NE(watched.get(), consumer.get());
+}
 TEST(Sbd, VideoStartRequiresSuccessfullyForwardedPayload) {
   using namespace moxygen;
   using namespace testing;

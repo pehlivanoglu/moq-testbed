@@ -838,8 +838,12 @@ folly::Expected<ResolvedConfig, std::string> resolveConfig(const ParsedConfig& c
   if (sbd.delaySource != "owd" && sbd.delaySource != "rtt")
     errors.push_back("sbd.delay_source must be owd or rtt");
   if (sbd.algorithm != sbd::kPracticalPassiveAndRFC &&
+      sbd.algorithm != sbd::kDcSbd &&
       sbd.algorithm != sbd::kWei2020ECN)
-    errors.push_back("sbd.algorithm must be PracticalPassiveAndRFC or Wei2020ECN");
+    errors.push_back(
+        "sbd.algorithm must be PracticalPassiveAndRFC, DcSBD, or Wei2020ECN");
+  if (sbd.algorithm == sbd::kDcSbd && sbd.delaySource != "owd")
+    errors.push_back("sbd.algorithm DcSBD requires sbd.delay_source: owd");
   if (sbd.enabled && !edge) errors.push_back("sbd.enabled requires edge: true");
 
   const bool mvfstBpfSteering = config.mvfst_bpf_steering.value().value_or(true);

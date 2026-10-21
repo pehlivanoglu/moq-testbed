@@ -16,7 +16,9 @@ Observer::Observer(quic::QuicSocket& socket, std::shared_ptr<Service> service)
     : quic::ManagedObserver(EventSetBuilder().enable(Events::acksProcessedEvents)
           .enable(Events::lossEvents).enable(Events::spuriousLossEvents).build()),
       folly::AsyncTimeout(folly::EventBaseManager::get()->getEventBase()),
-      service_(std::move(service)), peer_(socket.getPeerAddress().describe()), peerAddress_(socket.getPeerAddress()) {
+      service_(std::move(service)), peer_(socket.getPeerAddress().describe()),
+      peerAddress_(socket.getPeerAddress()),
+      receiver_(service_->config().algorithm == kDcSbd) {
   if (auto cid = socket.getServerConnectionId()) id_ = cid->hex();
   else if (auto cid = socket.getClientConnectionId()) id_ = cid->hex();
   else { stopped_ = true; return; }
@@ -30,6 +32,7 @@ bool Observer::measuring() {
     if (started_) {
       XLOG(INFO) << "SBD connection=" << id_ << " history_reset reason=measurement_ineligible";
       detector_.reset(); receiver_.reset(); loss_.reset(); started_ = false;
+      dcPreviouslyBottlenecked_ = false;
       samples_ = 0;
     }
     return false;
@@ -49,6 +52,7 @@ void Observer::stop(std::string reason) {
   detector_.reset();
   receiver_.reset();
   loss_.reset();
+  dcPreviouslyBottlenecked_ = false;
   cancelTimeout();
   service_->publish(id_, {}, std::move(reason));
 }
@@ -57,6 +61,7 @@ void Observer::recover(std::string reason) {
   detector_.reset();
   receiver_.reset();
   loss_.reset();
+  dcPreviouslyBottlenecked_ = false;
   samples_ = 0;
   measurementStart_ = lastFeedback_ = std::chrono::steady_clock::now();
   next_ = measurementStart_ + kInterval;
@@ -123,6 +128,13 @@ void Observer::acksProcessed(quic::QuicSocketLite* socket, const AcksProcessedEv
     // the whole batch is sampled its greatest receive time is a safe watermark.
     for (auto& summary : receiver_.finishThrough(*receiveWatermarkUs)) {
       loss_.apply(summary.intervalEndUs, summary);
+      if (service_->config().algorithm == kDcSbd) {
+        summary.bottleneck = dcBottleneck(summary, dcPreviouslyBottlenecked_);
+        if (summary.ready() && summary.measurementValid)
+          dcPreviouslyBottlenecked_ = summary.bottleneck;
+        else if (!summary.intervals)
+          dcPreviouslyBottlenecked_ = false;
+      }
       const auto status = !summary.samples ? "waiting_receiver_samples" :
           !summary.ready() ? "warming_up" :
           summary.measurementValid ? "ready" : "waiting_previous_interval";

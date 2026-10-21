@@ -133,6 +133,18 @@ target_link_libraries(moqx_client_network_metrics_test PRIVATE
 )
 gtest_discover_tests(moqx_client_network_metrics_test)
 
+add_executable(moqx_dc_sbd_test
+  stats/DcSbdTest.cpp
+)
+target_include_directories(moqx_dc_sbd_test PRIVATE
+  ${PROJECT_SOURCE_DIR}/src
+)
+target_link_libraries(moqx_dc_sbd_test PRIVATE
+  moqx_core
+  GTest::gtest_main
+)
+gtest_discover_tests(moqx_dc_sbd_test)
+
 add_executable(moqx_pico_quic_stats_test
   stats/PicoQuicStatsCollectorTest.cpp
 )

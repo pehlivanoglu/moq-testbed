@@ -148,8 +148,14 @@ class StartupConfig(_StrictBase):
 
 class SbdConfig(_StrictBase):
     enabled: bool = False
-    algorithm: Literal["PracticalPassiveAndRFC", "Wei2020ECN"] = "PracticalPassiveAndRFC"
+    algorithm: Literal["PracticalPassiveAndRFC", "DcSBD", "Wei2020ECN"] = "PracticalPassiveAndRFC"
     delay_source: Literal["owd", "rtt"] = "owd"
+
+    @model_validator(mode="after")
+    def _check_delay_source(self) -> "SbdConfig":
+        if self.algorithm == "DcSBD" and self.delay_source != "owd":
+            raise ValueError("DcSBD requires delay_source: owd")
+        return self
 
 
 class RelayConfig(_StrictBase):

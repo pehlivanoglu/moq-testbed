@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #pragma once
+#include "sbd/DcSbd.h"
 #include "sbd/Detector.h"
 #include <map>
 #include <optional>
@@ -12,15 +13,18 @@ inline constexpr auto kFeedbackTimeout = 5 * kInterval;
 // every timestamp in one cumulative ACK feedback batch.
 class ReceiveIntervals {
  public:
+  explicit ReceiveIntervals(bool dcSbd = false) : dcSbd_(dcSbd) {}
   bool sample(int64_t receiveUs, double delayUs);
   std::vector<Summary> finishThrough(int64_t receiveWatermarkUs);
-  void reset() { *this = ReceiveIntervals{}; }
+  void reset() { *this = ReceiveIntervals{dcSbd_}; }
  private:
   Detector detector_;
+  DcEstimator dcDetector_;
   std::map<int64_t, std::vector<double>> buckets_;
   std::optional<int64_t> next_, first_;
   int64_t watermark_{0};
   size_t samples_{0};
+  bool dcSbd_{false};
 };
 
 // Lost packets have no receive timestamp. Bucket transport outcomes by their

@@ -28,6 +28,7 @@ class Observer final : public quic::ManagedObserver, public folly::AsyncTimeout 
   ReceiveIntervals receiver_;
   FeedbackLoss loss_;
   bool started_{false}, stopped_{false}, closed_{false};
+  bool dcPreviouslyBottlenecked_{false};
   uint64_t samples_{0};
   std::chrono::steady_clock::time_point next_{}, measurementStart_{};
   std::chrono::steady_clock::time_point lastFeedback_{};

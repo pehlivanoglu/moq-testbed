@@ -74,6 +74,7 @@ void Service::eligible(const std::string& id, bool value) {
     flow->summary = {};
     flow->summaries.clear();
     flow->lastBottleneck.reset();
+    dcClusterer_.remove(id);
   }
   if (wei_) wei_->eligible(id, value);
 }
@@ -106,6 +107,7 @@ void Service::publish(const std::string& id, const Summary& summary, std::string
     else if (!summary.intervals) {
       flow.lastBottleneck.reset();
       flow.summaries.clear();
+      dcClusterer_.remove(id);
     }
     if (status == "ready" && summary.intervalEndUs > 0) {
       flow.summaries[summary.intervalEndUs] = summary;
@@ -133,6 +135,7 @@ void Service::close(const std::string& id) {
     it->second->status = "closed";
     it->second->updated = std::chrono::steady_clock::now();
     it->second->updatedUnixNs = unixNs();
+    dcClusterer_.remove(id);
   }
   if (wei_) wei_->close(id);
 }
@@ -193,7 +196,8 @@ void Service::snapshot() {
     std::vector<FlowSummary> ready;
     for (const auto& [id, flow] : candidates)
       ready.push_back({id, flow->summaries.at(*commonEnd)});
-    groups = group(std::move(ready));
+    groups = config_.algorithm == kDcSbd ?
+        dcClusterer_.update(std::move(ready)) : group(std::move(ready));
     lastGroupIntervalEndUs_ = *commonEnd;
     lastGroupDecisionMonoUs_ = decisionMonoUs;
     lastGroupDecisionUnixNs_ = wallNs;
@@ -218,7 +222,7 @@ void Service::snapshot() {
       ("connection_id", id)("peer", f->peer)("status", status)
       ("eligible", bool(f->eligible))("video_started", bool(f->videoStarted))("intervals", m.intervals)
       ("decision_valid", decisionValid)
-      ("full_history", m.groupingReady())("grouping_ready", m.groupingReady())("samples", m.samples)
+      ("full_history", m.fullHistory())("grouping_ready", m.groupingReady())("samples", m.samples)
       ("interval_start_mono_us", m.intervalStartUs)("interval_end_mono_us", m.intervalEndUs)
       ("evidence_window_start_mono_us", m.intervalEndUs - int64_t(std::min<uint64_t>(m.intervals, kN)) * kIntervalUs)
       ("measurement_published_mono_us", monotonicUs(f->updated))
@@ -242,7 +246,8 @@ void Service::snapshot() {
     if (!events_) XLOG(ERR) << "SBD event write failed: " << config_.outputFile << ".events.jsonl";
   }
   lastGroups_ = groups;
-  latest_ = folly::toJson(folly::dynamic::object
+  const bool dc = config_.algorithm == kDcSbd;
+  folly::dynamic document = folly::dynamic::object
     ("schema_version", 1)("algorithm", config_.algorithm)
     ("timestamp_ms", wall)("snapshot_unix_ns", wallNs)
     ("group_decision_mono_us", lastGroupDecisionMonoUs_)
@@ -250,10 +255,17 @@ void Service::snapshot() {
     ("group_interval_end_mono_us", lastGroupIntervalEndUs_)
     ("relay_id", relayId_)
     ("enabled", config_.enabled)("delay_source", config_.delaySource)
-    ("c_s", 0.0)("p_f", kFrequencyThreshold)("p_d", kLossDifferenceThreshold)
-    ("p_s", kSkewThreshold)("p_pdv", kVariationThreshold)("p_v", kCrossingThreshold)
-    ("variability_estimator", "pdv2")("variance_threshold_mode", "relative_to_larger")
-    ("loss_threshold_mode", "paper_substitution_rfc_relative_to_larger")
+    ("c_s", dc ? kDcCongestionSkew : 0.0)
+    ("p_f", dc ? kDcFrequencyDifference : kFrequencyThreshold)
+    ("p_d", dc ? kDcLossDifference : kLossDifferenceThreshold)
+    ("p_s", dc ? kDcSkewDifference : kSkewThreshold)
+    ("p_v", dc ? kDcCrossingThreshold : kCrossingThreshold)
+    ("variability_estimator", dc ? "mad" : "pdv2")
+    ("variance_threshold_mode", dc ?
+        "threshold_normalized_squared_distance" : "relative_to_larger")
+    ("loss_threshold_mode", dc ?
+        "threshold_normalized_squared_distance" :
+        "paper_substitution_rfc_relative_to_larger")
     ("delay_measurement", config_.delaySource == "owd" ? "absolute_owd" : "rtt")
     ("receive_timestamp_basis", config_.delaySource == "owd" ? "linux_clock_monotonic" : "not_applicable")
     ("interval_clock", config_.delaySource == "owd" ? "receiver_clock_monotonic" : "ack_arrival")
@@ -265,13 +277,30 @@ void Service::snapshot() {
     ("gap_policy", "reset_and_rewarm")
     ("group_interval_policy", config_.delaySource == "owd" ?
         "latest_common_completed_interval" : "latest_fresh_summary")
-    ("parameter_precedence", "LCN2014_then_RFC8382")
+    ("parameter_precedence", dc ?
+        "OnlineIdentification2020_then_RFC8382" : "LCN2014_then_RFC8382")
     ("transport_gap_policy", "stale_without_reset")
     ("loss_correction", "packet_number_ledger")
-    ("interval_ms", kInterval.count())("N", kN)("M", kM)
-    ("metric_window_intervals", kN)("grouping_warmup_intervals", kGroupingWarmupIntervals)
-    ("p_l", kLossThreshold)
-    ("clients", std::move(clients))("groups", jsonGroups(groups)));
+    ("interval_ms", kInterval.count())("N", dc ? kDcN : kN)
+    ("M", dc ? kDcM : kM)
+    ("metric_window_intervals", dc ? kDcN : kN)
+    ("grouping_warmup_intervals", dc ? kDcM : kGroupingWarmupIntervals)
+    ("full_history_intervals", dc ? kDcFullHistoryIntervals : kGroupingWarmupIntervals)
+    ("p_l", dc ? kDcLossThreshold : kLossThreshold)
+    ("clients", std::move(clients))("groups", jsonGroups(groups));
+  if (dc) {
+    document["c_h"] = kDcHysteresisSkew;
+    document["F"] = kDcF;
+    document["p_mad"] = kDcMadDifference;
+    document["distance_measure"] = "inverse_sum_of_squared_normalized_differences";
+    document["distance_cutoff_squared"] = 1.0;
+    document["clustering_iterations"] = 2;
+    document["processing_order"] = "connection_id_with_recently_separated_last";
+    document["crossing_bottleneck_gating"] = false;
+  } else {
+    document["p_pdv"] = kVariationThreshold;
+  }
+  latest_ = folly::toJson(document);
   if (output_.is_open()) {
     output_ << latest_ << '\n';
     output_.flush();

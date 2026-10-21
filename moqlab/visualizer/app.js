@@ -142,6 +142,7 @@ function updateNodeMetrics(payload) {
     panel.replaceChildren();
     const status = document.createElement("p");
     const wei = payload.sbd?.algorithm === "Wei2020ECN";
+    const dc = payload.sbd?.algorithm === "DcSBD";
     status.textContent = payload.sbd
       ? `${payload.status} · ${wei ? payload.sbd.algorithm : payload.sbd.delay_source} · ${new Date(payload.sbd.timestamp_ms).toISOString()}`
       : (payload.reason ?? payload.status);
@@ -156,7 +157,8 @@ function updateNodeMetrics(payload) {
     const header = table.insertRow();
     const headers = wei
       ? ["Client", "State", "ECT(0)", "ECT(1)", "CE", "CWND (packets)", "Half-window", "Sent", "Feedback", "Group"]
-      : ["Client", "State", "Intervals", "OWD mean/min/max (ms)", "Skew", "PDV2 (ms)", "Frequency", "Loss", "Bottleneck"];
+      : ["Client", "State", "Intervals", "OWD mean/min/max (ms)", "Skew",
+        `${dc ? "MAD" : "PDV2"} (ms)`, "Frequency", "Loss", "Bottleneck"];
     for (const label of headers) {
       const th = document.createElement("th"); th.textContent = label; header.append(th);
     }

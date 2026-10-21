@@ -533,12 +533,26 @@ MOQLAB_INTEGRATION=1 .venv/bin/python -m pytest -q tests/integration/test_media_
 
 ### SBD estimator output
 
-Two relay-side detectors are selectable. `sbd.algorithm: Wei2020ECN` is the
+Three relay-side detectors are selectable. `sbd.algorithm: Wei2020ECN` is the
 paper-faithful ECN baseline from Wei et al.: an ACK_ECN CE-counter increase
 triggers a `cwnd/2` packet-domain observation, CE or QUIC-declared packet loss
 is supporting evidence, and a second CE-triggered episode verifies the group.
 PTO is never treated as loss. See
 [the Wei baseline implementation note](../wei-sbd-implementation.md).
+
+Select `sbd.algorithm: DcSBD` for the dynamic clustering algorithm from
+“Online Identification of Groups of Flows Sharing a Network Bottleneck”. It
+uses OWD only, the paper's 350 ms intervals, N=50, M=30, F=20, weighted
+skew/MAD summaries, loss and oscillation frequency. Decisions start after 30
+complete intervals; `full_history` becomes true after 100. The two clustering
+iterations start from the preceding classes, separate the member furthest from
+its closest neighbour, and process recently separated flows last. Where the
+paper leaves the graph scale and “too distant” test unspecified, each metric
+difference is normalized by its grouping threshold and a squared distance over
+1 is considered too far. Stable connection-ID order resolves unspecified
+processing ties. Empty receiver intervals reset and rewarm that flow. The
+paper does not explicitly gate oscillation crossings on bottleneck state, so
+DcSBD does not apply that RFC-only rule.
 
 Select the current detector with `sbd.algorithm: PracticalPassiveAndRFC`; this
 is also the algorithm name reported by the relay. It implements LCN 2014 PDV2

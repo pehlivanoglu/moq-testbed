@@ -51,6 +51,22 @@ def test_wei_sbd_config_reaches_relay():
     assert doc["sbd"]["algorithm"] == "Wei2020ECN"
 
 
+def test_dc_sbd_config_reaches_relay_and_rejects_rtt():
+    topology = TopologyConfig.model_validate({
+        "relays": {"edge": {"listen_port": 4443, "admin_port": 4444,
+                            "edge": True,
+                            "sbd": {"enabled": True, "algorithm": "DcSBD"}}},
+        "publishers": {"pub": {"connects_to": "edge"}},
+        "subscribers": {"sub": {"connects_to": "edge",
+                                  "namespace": "msf/clear", "track": "video/s2"}},
+    })
+    doc = synthesize_relay_yaml(topology, "edge")
+    assert doc["sbd"]["algorithm"] == "DcSBD"
+    with pytest.raises(ValidationError, match="requires delay_source: owd"):
+        RelayConfig(listen_port=4443, admin_port=4444, edge=True,
+                    sbd={"enabled": True, "algorithm": "DcSBD", "delay_source": "rtt"})
+
+
 def test_sbd_live_stale_and_invalid_snapshots():
     assert parse_sbd_metrics(None)["status"] == "unavailable"
     assert parse_sbd_metrics(b"[]")["status"] == "unavailable"

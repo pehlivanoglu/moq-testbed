@@ -69,7 +69,8 @@ inline std::shared_ptr<moxygen::TrackConsumer> watchVideo(
   // ponytail: the testbed's LOC/CMSF video naming; use catalog media types if
   // arbitrary publisher track names are introduced.
   if (!service || !service->config().enabled ||
-      service->config().algorithm != kPracticalPassiveAndRFC || !session ||
+      (service->config().algorithm != kPracticalPassiveAndRFC &&
+       service->config().algorithm != kDcSbd) || !session ||
       (track.trackName != "video" && !track.trackName.starts_with("video/"))) return consumer;
   auto flow = service->attach(session->getTransportConnectionId(), session->getPeerAddress().describe());
   if (flow->videoStarted) return consumer;

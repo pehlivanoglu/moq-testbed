@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #pragma once
+#include "sbd/DcSbd.h"
 #include "sbd/Detector.h"
 #include "sbd/WeiDetector.h"
 #include <atomic>
@@ -59,5 +60,6 @@ class Service {
   int64_t lastGroupDecisionMonoUs_{0}, lastGroupDecisionUnixNs_{0};
   std::thread worker_;
   std::unique_ptr<WeiDetector> wei_;
+  DcClusterer dcClusterer_;
 };
 } // namespace openmoq::moqx::sbd

@@ -27,13 +27,16 @@ std::vector<Summary> ReceiveIntervals::finishThrough(int64_t receiveWatermarkUs)
   watermark_ = std::max(watermark_, receiveWatermarkUs);
   while ((*next_ + 1) * kIntervalUs <= watermark_) {
     if (auto it = buckets_.find(*next_); it != buckets_.end()) {
-      for (double delay : it->second) detector_.sample(delay);
+      for (double delay : it->second) {
+        if (dcSbd_) dcDetector_.sample(delay);
+        else detector_.sample(delay);
+      }
       samples_ -= it->second.size();
       buckets_.erase(it);
     }
     // The paper assumes a usable estimate every T. An empty T invalidates the
     // contiguous evidence window and restarts warm-up instead of adding zero.
-    auto summary = detector_.finishInterval();
+    auto summary = dcSbd_ ? dcDetector_.finishInterval() : detector_.finishInterval();
     summary.intervalStartUs = *next_ * kIntervalUs;
     summary.intervalEndUs = (*next_ + 1) * kIntervalUs;
     result.push_back(std::move(summary));

@@ -21,13 +21,16 @@ inline constexpr double kCrossingThreshold = 0.2;
 
 struct Summary {
   uint64_t intervals{0}, samples{0}, acked{0}, lost{0};
+  size_t readyAfter{kN}, groupingReadyAfter{kGroupingWarmupIntervals};
+  size_t fullHistoryAfter{kGroupingWarmupIntervals};
   double skew{0}, variation{0}, frequency{0}, loss{0}, groupingVariation{0};
   double intervalMeanDelayUs{0}, intervalMinDelayUs{0}, intervalMaxDelayUs{0};
   int64_t intervalStartUs{0}, intervalEndUs{0};
   bool bottleneck{false};
   bool measurementValid{false};
-  bool ready() const { return intervals >= kN; }
-  bool groupingReady() const { return intervals >= kGroupingWarmupIntervals; }
+  bool ready() const { return intervals >= readyAfter; }
+  bool groupingReady() const { return intervals >= groupingReadyAfter; }
+  bool fullHistory() const { return intervals >= fullHistoryAfter; }
 };
 
 // Single connection, owned by its transport EventBase. No per-packet allocation.
