@@ -718,3 +718,12 @@ plots read the algorithm
 identifier and estimator metadata (older archives use a generic variability
 label). Thresholds and remaining measurement limitations are documented in
 [the SBD implementation notes](../rfc-8382-sbd-implementation.md).
+
+
+## QUIC simulation
+
+A separate ns-3/picoquic workflow lives in [simulation/](simulation/README.md).
+It reuses topology/designer/SBD code and runs without Docker or Containernet.
+Start with `python -m simulation design` from this directory; simulation YAML,
+commands, dependencies, and run outputs stay separate from emulation.
+Validation evidence and model limits are in [simulation/VALIDATION.md](simulation/VALIDATION.md).

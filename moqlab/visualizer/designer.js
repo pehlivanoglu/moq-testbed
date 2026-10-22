@@ -196,8 +196,84 @@ function renderObjectEditor(container, rawSchema, value, onReplace, options = {}
   if (advancedCount) container.append(advanced);
 }
 
+function simulationDefault(rawSchema) {
+  const spec = resolveSchema(rawSchema);
+  if (spec.oneOf) return simulationDefault(spec.oneOf[0]);
+  const result = schemaDefault(spec);
+  if (result && typeof result === "object" && !Array.isArray(result)) {
+    for (const key of spec.required || []) {
+      if (result[key] === undefined) result[key] = simulationDefault(spec.properties[key]);
+    }
+  }
+  if (result !== undefined) return result;
+  if (spec.const !== undefined) return spec.const;
+  if (spec.enum) return spec.enum[0];
+  if (spec.type === "array") return [];
+  if (spec.type === "integer" || spec.type === "number") return spec.minimum ?? spec.exclusiveMinimum ?? 0;
+  if (spec.type === "boolean") return false;
+  return "";
+}
+
+function renderSimulationCollection(name, spec, current, onChange) {
+  const box = document.createElement("fieldset");
+  const legend = document.createElement("legend");
+  legend.textContent = fieldTitle(name, spec);
+  box.append(legend);
+  if (spec.oneOf) {
+    const variants = spec.oneOf.map(resolveSchema);
+    const discriminator = spec.discriminator?.propertyName || "kind";
+    const index = Math.max(0, variants.findIndex((v) => v.properties?.[discriminator]?.const === current?.[discriminator]));
+    const select = document.createElement("select");
+    select.setAttribute("aria-label", `${name} type`);
+    variants.forEach((v, i) => select.append(new Option(v.properties?.[discriminator]?.const || v.title || String(i), String(i))));
+    select.value = String(index);
+    select.addEventListener("change", () => onChange(simulationDefault(variants[Number(select.value)]), false));
+    box.append(select);
+    renderObjectEditor(box, variants[index], current || simulationDefault(variants[index]), (value) => onChange(value, false), { skip: [discriminator], common: Object.keys(variants[index].properties || {}) });
+    return box;
+  }
+  const isArray = spec.type === "array";
+  const values = current || (isArray ? [] : {});
+  for (const [key, value] of Object.entries(values)) {
+    const row = document.createElement("div");
+    row.append(renderField(isArray ? `Item ${Number(key) + 1}` : key, isArray ? spec.items : spec.additionalProperties, value, true, (next) => {
+      const updated = clone(values); updated[key] = next; onChange(updated, false);
+    }));
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.textContent = "Remove";
+    remove.setAttribute("aria-label", `Remove ${name} ${key}`);
+    remove.addEventListener("click", () => {
+      const updated = clone(values); if (isArray) updated.splice(Number(key), 1); else delete updated[key]; onChange(updated, false);
+    });
+    row.append(remove); box.append(row);
+  }
+  const keyInput = document.createElement("input");
+  keyInput.setAttribute("aria-label", `${name} key`);
+  keyInput.placeholder = name === "queues" ? "source->target" : "Node or entry id";
+  if (!isArray) box.append(keyInput);
+  const add = document.createElement("button");
+  add.type = "button"; add.textContent = `Add ${name}`;
+  add.addEventListener("click", () => {
+    const updated = clone(values);
+    if (isArray) updated.push(simulationDefault(spec.items));
+    else {
+      const key = keyInput.value.trim();
+      if (!key || Object.hasOwn(updated, key) || ["__proto__", "constructor", "prototype"].includes(key)) return;
+      updated[key] = simulationDefault(spec.additionalProperties);
+    }
+    onChange(updated, false);
+  });
+  box.append(add);
+  return box;
+}
+
 function renderField(name, rawSchema, current, required, onChange, inherited) {
   const spec = resolveSchema(rawSchema);
+  if (manifest?.simulation && (spec.oneOf || (spec.type === "array" && (resolveSchema(spec.items).properties || resolveSchema(spec.items).oneOf))
+      || (spec.type === "object" && spec.additionalProperties && !spec.properties))) {
+    return renderSimulationCollection(name, spec, current, onChange);
+  }
   const wrapper = document.createElement("div");
   wrapper.className = "field";
   const label = document.createElement("label");
@@ -295,7 +371,7 @@ function renderField(name, rawSchema, current, required, onChange, inherited) {
   input.addEventListener("change", () => {
     if (input.value === "" && !required) return onChange(undefined, true);
     const next = spec.type === "number" ? Number(input.value)
-      : spec.type === "integer" ? Number.parseInt(input.value, 10)
+      : spec.type === "integer" ? (manifest?.simulation ? Number(input.value) : Number.parseInt(input.value, 10))
       : input.value;
     onChange(next, false);
   });
@@ -545,6 +621,39 @@ function nodeDefinition(role) {
   return definitions[manifest.nodeCollections[role].definition];
 }
 
+function simulationReferences(id, replacement) {
+  const refs = [];
+  const experiment = draft.experiment;
+  if (!manifest?.simulation || !experiment) return refs;
+  for (const field of ["transport_overrides", "workloads", "queues", "connections"]) {
+    const values = experiment[field] || {};
+    for (const key of Object.keys(values)) {
+      const parts = ["queues", "connections"].includes(field) ? key.split("->") : [key];
+      if (!parts.includes(id)) continue;
+      refs.push(`experiment ${field} ${key}`);
+      if (replacement) {
+        values[parts.map(part => part === id ? replacement : part).join("->")] = values[key];
+        delete values[key];
+      }
+    }
+  }
+  for (const field of ["routes", "events", "quic_bulk"]) {
+    for (const item of experiment[field] || []) {
+      for (const key of ["source", "target", "sender", "receiver", "origin"]) {
+        if (item[key] !== id) continue;
+        refs.push(`experiment ${field} ${key}`);
+        if (replacement) item[key] = replacement;
+      }
+      for (const key of ["forward", "reverse"]) {
+        if (!item[key]?.includes(id)) continue;
+        refs.push(`experiment ${field} ${key}`);
+        if (replacement) item[key] = item[key].map(node => node === id ? replacement : node);
+      }
+    }
+  }
+  return refs;
+}
+
 function renameNode(role, oldId, newId) {
   newId = newId.trim();
   if (!newId || (newId !== oldId && nodeExists(newId))) {
@@ -573,6 +682,7 @@ function renameNode(role, oldId, newId) {
     for (const route of Object.values(draft.traffic?.routes || {})) {
       route.path = route.path.map((id) => id === oldId ? newId : id);
     }
+    simulationReferences(oldId, newId);
     positions[newId] = positions[oldId] || nextCanvasPosition();
     delete positions[oldId];
     selected.id = newId;
@@ -580,7 +690,7 @@ function renameNode(role, oldId, newId) {
 }
 
 function nodeReferences(id) {
-  const refs = [];
+  const refs = simulationReferences(id);
   for (const [rid, relay] of Object.entries(draft.relays || {})) if (relay.upstream === id) refs.push(`relay ${rid} upstream`);
   for (const [pid, pub] of Object.entries(draft.publishers || {})) if (pub.connects_to === id) refs.push(`publisher ${pid}`);
   for (const [sid, sub] of Object.entries(draft.subscribers || {})) if (sub.connects_to === id) refs.push(`subscriber ${sid}`);
@@ -1420,7 +1530,7 @@ function renderSummary() {
   summaryEl.textContent = parts.join(", ");
   const shaped = (draft.links || []).some((link) => [link.forward, link.reverse].some((value) => value && Object.values(value).some((field) => field !== null && field !== undefined)));
   const containernet = Object.keys(draft.routers || {}).length || Object.keys(draft.switches || {}).length || draft.traffic || shaped;
-  backendBadge.textContent = containernet ? "Containernet required" : "Docker compatible";
+  backendBadge.textContent = manifest?.simulation ? "ns-3 / QUIC simulation" : containernet ? "Containernet required" : "Docker compatible";
   backendBadge.classList.toggle("containernet", Boolean(containernet));
 }
 
@@ -1507,7 +1617,7 @@ async function downloadYaml() {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = "topology.yaml";
+  link.download = manifest?.simulation ? "simulation.yaml" : "topology.yaml";
   link.click();
   URL.revokeObjectURL(url);
 }
@@ -1569,6 +1679,16 @@ async function initialize() {
   definitions = schema.$defs;
   manifest = payload.manifest;
   digest = payload.digest;
+  if (manifest.simulation) {
+    document.querySelector("h1").textContent = "moqlab QUIC simulation designer";
+    for (const [role, label] of Object.entries({ publisher: "Origin", relay: "QUIC server / relay", subscriber: "QUIC client" })) {
+      document.querySelector(`#node-palette [data-role="${role}"]`).textContent = label;
+    }
+    const note = document.createElement("p");
+    note.className = "hint";
+    note.textContent = "Simulation: edit Experiment for workloads, controllers, queues, feedback and timed events. Image, codec, media-track and browser fields are compatibility metadata; no simulated effect.";
+    document.querySelector("#global-config-buttons").before(note);
+  }
   draft = payload.initial_config || blankDraft();
   const savedText = localStorage.getItem(`moqlab-designer:${digest}`);
   let restored = false;

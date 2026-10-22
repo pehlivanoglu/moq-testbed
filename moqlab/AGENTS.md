@@ -421,3 +421,16 @@ Ask before:
 - Moving run output from `.runs/` to an experiment archive layout.
 - Implementing intentionally incomplete behavior. If something is deferred,
   document it in [TODO.md](TODO.md).
+
+
+## QUIC Simulation Workflow
+
+The user approved [simulation/PLAN.md](simulation/PLAN.md). Implementation lives
+under `simulation/` with a dedicated `python -m simulation` entry point and
+`.build/` / `.runs/` directories. It reuses `TopologyConfig`, designer assets,
+and dependency-light `src/sbd/` sources; it does not import or dispatch through
+Docker/Containernet backends. Simulation documents wrap `topology` plus
+`experiment`; keep them separate from emulation YAML. Shared designer behavior
+is selected by the simulation manifest, including schema forms and reference
+updates. Check [simulation/VALIDATION.md](simulation/VALIDATION.md) before making
+accuracy claims or changing model assumptions.

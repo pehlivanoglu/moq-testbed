@@ -1,0 +1,2470 @@
+kind: simulation
+schema_version: 1
+topology:
+  topology_mode: explicit
+  defaults:
+    relay:
+      image: moqlab-relay
+      endpoint: /moq-relay
+      tls:
+        insecure: false
+        generated: true
+        cert_file: null
+        key_file: null
+        ca_cert: null
+      cache:
+        enabled: false
+        max_tracks: 100
+        max_groups_per_track: 3
+    publisher:
+      image: moqlab-media-pub
+    subscriber:
+      image: moqlab-media-sub
+      native_media_image: moqlab-media-native-sub
+      media_client: chrome-headless
+      native_playback: receive
+      log_level: INFO
+    router:
+      image: moqlab-router
+    traffic:
+      image: moqlab-traffic
+      tcp_port: 9000
+      udp_port: 9001
+    link:
+      forward:
+        bandwidth_mbps: null
+        delay_ms: null
+        jitter_ms: null
+        loss_pct: null
+      reverse:
+        bandwidth_mbps: null
+        delay_ms: null
+        jitter_ms: null
+        loss_pct: null
+  startup:
+    relay_warmup_s: 2.0
+    publisher_warmup_s: 1.0
+    media_ready_timeout_s: 30.0
+    traffic_ready_timeout_s: 5.0
+  relays:
+    server:
+      edge: true
+      sbd:
+        enabled: true
+        algorithm: PracticalPassiveAndRFC
+        delay_source: owd
+      listen_port: 9668
+      admin_port: 9669
+      upstream: null
+      image: null
+      endpoint: null
+      tls: null
+      cache: null
+      l4s_ce_target: null
+  publishers:
+    origin:
+      kind: media
+      connects_to: server
+      asset: synthetic
+      listen_port: 4443
+      fingerprint_port: 8081
+      image: null
+  subscribers:
+    client-000:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-001:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-002:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-003:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-004:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-005:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-006:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-007:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-008:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-009:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-010:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-011:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-012:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-013:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-014:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-015:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-016:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-017:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-018:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-019:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-020:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-021:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-022:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-023:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-024:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-025:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-026:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-027:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-028:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-029:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-030:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-031:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-032:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-033:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-034:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-035:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-036:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-037:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-038:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-039:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-040:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-041:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-042:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-043:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-044:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-045:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-046:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-047:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-048:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-049:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-050:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-051:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-052:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-053:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-054:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-055:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-056:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-057:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-058:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-059:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-060:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-061:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-062:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-063:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-064:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-065:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-066:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-067:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-068:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-069:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-070:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-071:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-072:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-073:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-074:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-075:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-076:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-077:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-078:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-079:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-080:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-081:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-082:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-083:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-084:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-085:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-086:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-087:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-088:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-089:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-090:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-091:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-092:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-093:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-094:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-095:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-096:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-097:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-098:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-099:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+  routers:
+    router:
+      image: null
+      aqm: null
+      dualpi2_target_ms: null
+      queue_metrics:
+        enabled: false
+        interval_ms: 25
+  switches:
+    switch:
+      image: null
+  traffic: null
+  links:
+  - from: origin
+    to: server
+    forward:
+      bandwidth_mbps: null
+      delay_ms: null
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: null
+      jitter_ms: null
+      loss_pct: null
+  - from: server
+    to: router
+    forward:
+      bandwidth_mbps: null
+      delay_ms: null
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: null
+      jitter_ms: null
+      loss_pct: null
+  - from: router
+    to: switch
+    forward:
+      bandwidth_mbps: 20.0
+      delay_ms: 5.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: null
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-000
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 15.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 15.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-001
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 16.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 16.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-002
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 17.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 17.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-003
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 18.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 18.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-004
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 19.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 19.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-005
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 20.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 20.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-006
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 21.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 21.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-007
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 22.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 22.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-008
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 23.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 23.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-009
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 24.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 24.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-010
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 25.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 25.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-011
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 26.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 26.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-012
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 27.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 27.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-013
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 28.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 28.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-014
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 29.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 29.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-015
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 30.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 30.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-016
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 31.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 31.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-017
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 32.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 32.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-018
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 33.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 33.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-019
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 34.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 34.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-020
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 15.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 15.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-021
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 16.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 16.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-022
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 17.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 17.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-023
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 18.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 18.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-024
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 19.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 19.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-025
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 20.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 20.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-026
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 21.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 21.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-027
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 22.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 22.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-028
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 23.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 23.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-029
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 24.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 24.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-030
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 25.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 25.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-031
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 26.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 26.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-032
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 27.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 27.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-033
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 28.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 28.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-034
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 29.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 29.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-035
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 30.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 30.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-036
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 31.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 31.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-037
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 32.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 32.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-038
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 33.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 33.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-039
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 34.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 34.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-040
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 15.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 15.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-041
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 16.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 16.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-042
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 17.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 17.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-043
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 18.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 18.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-044
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 19.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 19.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-045
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 20.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 20.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-046
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 21.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 21.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-047
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 22.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 22.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-048
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 23.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 23.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-049
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 24.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 24.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-050
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 25.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 25.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-051
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 26.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 26.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-052
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 27.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 27.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-053
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 28.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 28.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-054
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 29.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 29.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-055
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 30.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 30.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-056
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 31.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 31.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-057
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 32.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 32.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-058
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 33.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 33.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-059
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 34.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 34.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-060
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 15.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 15.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-061
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 16.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 16.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-062
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 17.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 17.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-063
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 18.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 18.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-064
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 19.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 19.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-065
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 20.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 20.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-066
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 21.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 21.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-067
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 22.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 22.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-068
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 23.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 23.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-069
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 24.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 24.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-070
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 25.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 25.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-071
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 26.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 26.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-072
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 27.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 27.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-073
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 28.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 28.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-074
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 29.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 29.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-075
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 30.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 30.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-076
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 31.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 31.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-077
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 32.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 32.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-078
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 33.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 33.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-079
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 34.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 34.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-080
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 15.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 15.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-081
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 16.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 16.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-082
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 17.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 17.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-083
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 18.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 18.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-084
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 19.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 19.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-085
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 20.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 20.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-086
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 21.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 21.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-087
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 22.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 22.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-088
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 23.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 23.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-089
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 24.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 24.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-090
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 25.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 25.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-091
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 26.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 26.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-092
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 27.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 27.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-093
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 28.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 28.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-094
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 29.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 29.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-095
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 30.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 30.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-096
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 31.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 31.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-097
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 32.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 32.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-098
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 33.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 33.0
+      jitter_ms: null
+      loss_pct: null
+  - from: switch
+    to: client-099
+    forward:
+      bandwidth_mbps: null
+      delay_ms: 34.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 34.0
+      jitter_ms: null
+      loss_pct: null
+experiment:
+  duration_s: 300.0
+  seed: 1
+  repetitions: 30
+  transport:
+    congestion_control: bbr
+    ecn: ect0
+    mtu_bytes: 1252
+    relay_buffer_bytes: 1048576
+    feedback_batch_ms: 10.0
+    max_feedback_records: 65536
+  transport_overrides: {}
+  workload:
+    kind: paced
+    rate_mbps: 0.5
+    segment_duration_ms: 2000.0
+    representation_sequence_mbps:
+    - 5.0
+    start_s: 0.1
+    stop_s: null
+  workloads: {}
+  default_bandwidth_mbps: 1000.0
+  default_delay_ms: 0.0
+  wire_overhead_bytes: 38
+  queue:
+    kind: fifo
+    limit_packets: 100
+    target_ms: 15.0
+    ecn: true
+    red_min_packets: 20.0
+    red_max_packets: 60.0
+    dualpi2_step_ms: 1.0
+    dualpi2_update_ms: 16.0
+    dualpi2_coupling: 2.0
+  queues: {}
+  routes: []
+  quic_bulk: []
+  events: []
+  trace: summary
+  pcap: false
+  qlog: false
+  evaluation:
+    window_ms: 350.0
+    utilization_threshold: 0.8
+    backlog_fraction_threshold: 0.5
+    sojourn_threshold_ms: 1.0
+    bootstrap_samples: 2000
+    analysis_seed: 20261021
+  link_mtu_bytes: 1500

@@ -3,6 +3,18 @@
 Deferred work for the `moqlab` orchestrator. Items here are scope explicitly
 cut from current versions, not bugs or oversights.
 
+## QUIC Simulation Proposal
+
+- [x] Review and approve [the SBD simulation plan](simulation/PLAN.md).
+- [x] Complete implementation and internal verification of the approved simulation plan.
+      Simulation uses a separate workflow; shared topology/designer/SBD code
+      reuse is allowed. See [validation evidence](simulation/VALIDATION.md):
+      28 integration cases and 60 large reference repetitions completed.
+- [ ] Add matched physical/Linux QUIC calibration before claiming external
+      equivalence. Current simulation assumes ideal clocks and explicit
+      receiver-timestamp feedback. Existing unrelated test failures remain
+      documented; 100-flow SBD decision coverage is approximately 0.15%.
+
 ## Documentation And Hygiene
 
 - [ ] Keep all moqlab-specific agent guidance and plans under `moqlab/`.

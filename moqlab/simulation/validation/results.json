@@ -1,0 +1,298 @@
+{
+  "date": "2026-10-22",
+  "verification_archive": ".runs/verification-20261022T044944.050499Z",
+  "checks": {
+    "status": "passed",
+    "checks": [
+      "native SBD independent calculations and analytic wire checks",
+      "Python schema, API, scoring and isolation tests",
+      "picoquic upstream tests",
+      "ns-3 dualpi2-queue-disc",
+      "ns-3 stratum-l4s",
+      "ns-3 red-queue-disc",
+      "ns-3 pie-queue-disc",
+      "ns-3 codel-queue-disc",
+      "CE marking reaches sender through QUIC ACK_ECN",
+      "identical same-seed semantic traces"
+    ],
+    "cases": {
+      "shared": {
+        "status": "passed",
+        "analysis": "/home/ubuntu/Research/Repos/multirelay/moq-testbed/moqlab/simulation/.runs/verification-20261022T044944.050499Z/shared/analysis.json"
+      },
+      "uncongested": {
+        "status": "passed",
+        "analysis": "/home/ubuntu/Research/Repos/multirelay/moq-testbed/moqlab/simulation/.runs/verification-20261022T044944.050499Z/uncongested/analysis.json"
+      },
+      "private": {
+        "status": "passed",
+        "analysis": "/home/ubuntu/Research/Repos/multirelay/moq-testbed/moqlab/simulation/.runs/verification-20261022T044944.050499Z/private/analysis.json"
+      },
+      "route-change": {
+        "status": "passed",
+        "analysis": "/home/ubuntu/Research/Repos/multirelay/moq-testbed/moqlab/simulation/.runs/verification-20261022T044944.050499Z/route-change/analysis.json"
+      },
+      "cubic-fifo": {
+        "status": "passed",
+        "analysis": "/home/ubuntu/Research/Repos/multirelay/moq-testbed/moqlab/simulation/.runs/verification-20261022T044944.050499Z/cubic-fifo/analysis.json"
+      },
+      "cubic-red": {
+        "status": "passed",
+        "analysis": "/home/ubuntu/Research/Repos/multirelay/moq-testbed/moqlab/simulation/.runs/verification-20261022T044944.050499Z/cubic-red/analysis.json"
+      },
+      "cubic-pie": {
+        "status": "passed",
+        "analysis": "/home/ubuntu/Research/Repos/multirelay/moq-testbed/moqlab/simulation/.runs/verification-20261022T044944.050499Z/cubic-pie/analysis.json"
+      },
+      "cubic-fq_codel": {
+        "status": "passed",
+        "analysis": "/home/ubuntu/Research/Repos/multirelay/moq-testbed/moqlab/simulation/.runs/verification-20261022T044944.050499Z/cubic-fq_codel/analysis.json"
+      },
+      "cubic-dualpi2": {
+        "status": "passed",
+        "analysis": "/home/ubuntu/Research/Repos/multirelay/moq-testbed/moqlab/simulation/.runs/verification-20261022T044944.050499Z/cubic-dualpi2/analysis.json"
+      },
+      "bbr-fifo": {
+        "status": "passed",
+        "analysis": "/home/ubuntu/Research/Repos/multirelay/moq-testbed/moqlab/simulation/.runs/verification-20261022T044944.050499Z/bbr-fifo/analysis.json"
+      },
+      "bbr-red": {
+        "status": "passed",
+        "analysis": "/home/ubuntu/Research/Repos/multirelay/moq-testbed/moqlab/simulation/.runs/verification-20261022T044944.050499Z/bbr-red/analysis.json"
+      },
+      "bbr-pie": {
+        "status": "passed",
+        "analysis": "/home/ubuntu/Research/Repos/multirelay/moq-testbed/moqlab/simulation/.runs/verification-20261022T044944.050499Z/bbr-pie/analysis.json"
+      },
+      "bbr-fq_codel": {
+        "status": "passed",
+        "analysis": "/home/ubuntu/Research/Repos/multirelay/moq-testbed/moqlab/simulation/.runs/verification-20261022T044944.050499Z/bbr-fq_codel/analysis.json"
+      },
+      "bbr-dualpi2": {
+        "status": "passed",
+        "analysis": "/home/ubuntu/Research/Repos/multirelay/moq-testbed/moqlab/simulation/.runs/verification-20261022T044944.050499Z/bbr-dualpi2/analysis.json"
+      },
+      "dualpi2-ect1": {
+        "status": "passed",
+        "analysis": "/home/ubuntu/Research/Repos/multirelay/moq-testbed/moqlab/simulation/.runs/verification-20261022T044944.050499Z/dualpi2-ect1/analysis.json"
+      },
+      "instrumentation": {
+        "status": "passed",
+        "analysis": "/home/ubuntu/Research/Repos/multirelay/moq-testbed/moqlab/simulation/.runs/verification-20261022T044944.050499Z/instrumentation/analysis.json"
+      },
+      "events": {
+        "status": "passed",
+        "analysis": "/home/ubuntu/Research/Repos/multirelay/moq-testbed/moqlab/simulation/.runs/verification-20261022T044944.050499Z/events/analysis.json"
+      },
+      "segmented": {
+        "status": "passed",
+        "analysis": "/home/ubuntu/Research/Repos/multirelay/moq-testbed/moqlab/simulation/.runs/verification-20261022T044944.050499Z/segmented/analysis.json"
+      },
+      "quic-bulk": {
+        "status": "passed",
+        "analysis": "/home/ubuntu/Research/Repos/multirelay/moq-testbed/moqlab/simulation/.runs/verification-20261022T044944.050499Z/quic-bulk/analysis.json"
+      },
+      "feedback-impairment": {
+        "status": "passed",
+        "analysis": "/home/ubuntu/Research/Repos/multirelay/moq-testbed/moqlab/simulation/.runs/verification-20261022T044944.050499Z/feedback-impairment/analysis.json"
+      },
+      "flow-churn": {
+        "status": "passed",
+        "analysis": "/home/ubuntu/Research/Repos/multirelay/moq-testbed/moqlab/simulation/.runs/verification-20261022T044944.050499Z/flow-churn/analysis.json"
+      },
+      "tandem": {
+        "status": "passed",
+        "analysis": "/home/ubuntu/Research/Repos/multirelay/moq-testbed/moqlab/simulation/.runs/verification-20261022T044944.050499Z/tandem/analysis.json"
+      },
+      "overlapping-sharing": {
+        "status": "passed",
+        "analysis": "/home/ubuntu/Research/Repos/multirelay/moq-testbed/moqlab/simulation/.runs/verification-20261022T044944.050499Z/overlapping-sharing/analysis.json"
+      },
+      "correlated-independent": {
+        "status": "passed",
+        "analysis": "/home/ubuntu/Research/Repos/multirelay/moq-testbed/moqlab/simulation/.runs/verification-20261022T044944.050499Z/correlated-independent/analysis.json"
+      },
+      "traffic-bulk": {
+        "status": "passed",
+        "analysis": "/home/ubuntu/Research/Repos/multirelay/moq-testbed/moqlab/simulation/.runs/verification-20261022T044944.050499Z/traffic-bulk/analysis.json"
+      },
+      "traffic-cbr": {
+        "status": "passed",
+        "analysis": "/home/ubuntu/Research/Repos/multirelay/moq-testbed/moqlab/simulation/.runs/verification-20261022T044944.050499Z/traffic-cbr/analysis.json"
+      },
+      "traffic-segmented": {
+        "status": "passed",
+        "analysis": "/home/ubuntu/Research/Repos/multirelay/moq-testbed/moqlab/simulation/.runs/verification-20261022T044944.050499Z/traffic-segmented/analysis.json"
+      },
+      "repeat-shared": {
+        "status": "passed",
+        "analysis": "/home/ubuntu/Research/Repos/multirelay/moq-testbed/moqlab/simulation/.runs/verification-20261022T044944.050499Z/repeat-shared/analysis.json"
+      }
+    }
+  },
+  "python_tests": 19,
+  "native_tests": 2,
+  "picoquic_tests": 696,
+  "browser": "passed real Chrome; forms, event variants, undo/redo, validation, YAML round trip",
+  "shared_regression": {
+    "passed": 273,
+    "failed": 7,
+    "same_seven_fail_on_staged_baseline": true
+  },
+  "analysis_source_sha256": "febb8a8400bd8e8a1e5227649aa6f2dbc0a5e677862f057ef52b05051066fb5d",
+  "benchmarks": {
+    "cubic": {
+      "archive": ".runs/final-benchmark-cubic",
+      "repetitions": 30,
+      "measured_connections": 100,
+      "duration_s": 300,
+      "execution_workers": 16,
+      "median_wall_s": 84.2062902955222,
+      "max_rss_mib": 822.08203125,
+      "raw_output_gib": 2.775562820956111,
+      "binary_sha256": "88bf8c2e4e30b9d2d181857f8a3b9d03fa0408ea8a34114131a642bb1dfc19ef",
+      "native_source_archive_sha256": "0a1df641eeb2f25215db9a248b8629ec0388aaf87ff877c58472f35283a590f1",
+      "decision_active": {
+        "precision": {
+          "mean": 0.04647553183933374,
+          "ci95": [
+            0.022796639537190924,
+            0.07643936830037991
+          ],
+          "n": 24
+        },
+        "recall": {
+          "mean": 0.05223973502670581,
+          "ci95": [
+            0.024676727270401724,
+            0.0840155126378969
+          ],
+          "n": 26
+        },
+        "f1": {
+          "mean": 0.036890679501669355,
+          "ci95": [
+            0.018872555404743658,
+            0.060369204127344714
+          ],
+          "n": 26
+        },
+        "false_positive_rate": {
+          "mean": 0.022092164178441065,
+          "ci95": [
+            0.01072393099652837,
+            0.03723829737609488
+          ],
+          "n": 26
+        },
+        "coverage": {
+          "mean": 0.0016005563216765085,
+          "ci95": [
+            0.001206141539863827,
+            0.002021789265663245
+          ],
+          "n": 30
+        }
+      },
+      "latency": {
+        "detection_ms": {
+          "mean": 296.78819444444446,
+          "ci95": [
+            233.59375,
+            344.44444444444446
+          ],
+          "n": 16
+        },
+        "recovery_ms": {
+          "mean": 16316.357161141614,
+          "ci95": [
+            15670.641920377275,
+            16984.05571442861
+          ],
+          "n": 26
+        }
+      },
+      "missed_completed_epochs": 23691988,
+      "unresolved_transitions": 23840488
+    },
+    "bbr": {
+      "archive": ".runs/final-benchmark-bbr",
+      "repetitions": 30,
+      "measured_connections": 100,
+      "duration_s": 300,
+      "execution_workers": 16,
+      "median_wall_s": 66.25549809198128,
+      "max_rss_mib": 147.69140625,
+      "raw_output_gib": 2.8389535946771502,
+      "binary_sha256": "88bf8c2e4e30b9d2d181857f8a3b9d03fa0408ea8a34114131a642bb1dfc19ef",
+      "native_source_archive_sha256": "0a1df641eeb2f25215db9a248b8629ec0388aaf87ff877c58472f35283a590f1",
+      "decision_active": {
+        "precision": {
+          "mean": 0.48783473196777566,
+          "ci95": [
+            0.3434897415829079,
+            0.6299458524622699
+          ],
+          "n": 25
+        },
+        "recall": {
+          "mean": 0.3098534952576819,
+          "ci95": [
+            0.22808594757863923,
+            0.39316722369403945
+          ],
+          "n": 25
+        },
+        "f1": {
+          "mean": 0.3561084822935926,
+          "ci95": [
+            0.2596024259769045,
+            0.45040264139437713
+          ],
+          "n": 25
+        },
+        "false_positive_rate": {
+          "mean": 0.033280661139211416,
+          "ci95": [
+            0.01704149790610937,
+            0.05684737684845217
+          ],
+          "n": 25
+        },
+        "coverage": {
+          "mean": 0.0013995576142600647,
+          "ci95": [
+            0.0009939378224092343,
+            0.001799142730297923
+          ],
+          "n": 30
+        }
+      },
+      "latency": {
+        "detection_ms": {
+          "mean": 2445.4862218373246,
+          "ci95": [
+            1669.4219604605635,
+            3327.491420616421
+          ],
+          "n": 24
+        },
+        "recovery_ms": {
+          "mean": 25521.97526636304,
+          "ci95": [
+            22005.920635903538,
+            28793.462271970166
+          ],
+          "n": 25
+        }
+      },
+      "missed_completed_epochs": 2464217,
+      "unresolved_transitions": 2612688
+    }
+  },
+  "feedback_observation_delay_ms": {
+    "samples": 3627,
+    "median": 24.006,
+    "p95": 33.904
+  }
+}

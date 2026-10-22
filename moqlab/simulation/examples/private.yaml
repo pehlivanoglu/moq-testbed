@@ -1,0 +1,202 @@
+kind: simulation
+schema_version: 1
+topology:
+  topology_mode: explicit
+  defaults:
+    relay:
+      image: moqlab-relay
+      endpoint: /moq-relay
+      tls:
+        insecure: false
+        generated: true
+        cert_file: null
+        key_file: null
+        ca_cert: null
+      cache:
+        enabled: false
+        max_tracks: 100
+        max_groups_per_track: 3
+    publisher:
+      image: moqlab-media-pub
+    subscriber:
+      image: moqlab-media-sub
+      native_media_image: moqlab-media-native-sub
+      media_client: chrome-headless
+      native_playback: receive
+      log_level: INFO
+    router:
+      image: moqlab-router
+    traffic:
+      image: moqlab-traffic
+      tcp_port: 9000
+      udp_port: 9001
+    link:
+      forward:
+        bandwidth_mbps: null
+        delay_ms: null
+        jitter_ms: null
+        loss_pct: null
+      reverse:
+        bandwidth_mbps: null
+        delay_ms: null
+        jitter_ms: null
+        loss_pct: null
+  startup:
+    relay_warmup_s: 2.0
+    publisher_warmup_s: 1.0
+    media_ready_timeout_s: 30.0
+    traffic_ready_timeout_s: 5.0
+  relays:
+    server:
+      edge: true
+      sbd:
+        enabled: true
+        algorithm: PracticalPassiveAndRFC
+        delay_source: owd
+      listen_port: 9668
+      admin_port: 9669
+      upstream: null
+      image: null
+      endpoint: null
+      tls: null
+      cache: null
+      l4s_ce_target: null
+  publishers:
+    origin:
+      kind: media
+      connects_to: server
+      asset: synthetic
+      listen_port: 4443
+      fingerprint_port: 8081
+      image: null
+  subscribers:
+    client-a:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+    client-b:
+      kind: media
+      connects_to: server
+      namespace: synthetic
+      track: bytes
+      image: null
+      log_level: null
+      media_client: null
+      rtt_metrics: false
+      minimal_buffer_ms: 200
+      target_latency_ms: 300
+  routers:
+    router:
+      image: null
+      aqm: null
+      dualpi2_target_ms: null
+      queue_metrics:
+        enabled: false
+        interval_ms: 25
+  switches: {}
+  traffic: null
+  links:
+  - from: origin
+    to: server
+    forward:
+      bandwidth_mbps: null
+      delay_ms: null
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: null
+      jitter_ms: null
+      loss_pct: null
+  - from: server
+    to: router
+    forward:
+      bandwidth_mbps: null
+      delay_ms: null
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: null
+      jitter_ms: null
+      loss_pct: null
+  - from: router
+    to: client-a
+    forward:
+      bandwidth_mbps: 4.0
+      delay_ms: 15.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 15.0
+      jitter_ms: null
+      loss_pct: null
+  - from: router
+    to: client-b
+    forward:
+      bandwidth_mbps: 4.0
+      delay_ms: 25.0
+      jitter_ms: null
+      loss_pct: null
+    reverse:
+      bandwidth_mbps: null
+      delay_ms: 25.0
+      jitter_ms: null
+      loss_pct: null
+experiment:
+  duration_s: 60.0
+  seed: 1
+  repetitions: 1
+  transport:
+    congestion_control: cubic
+    ecn: ect0
+    mtu_bytes: 1252
+    relay_buffer_bytes: 1048576
+    feedback_batch_ms: 10.0
+    max_feedback_records: 65536
+  transport_overrides: {}
+  workload:
+    kind: paced
+    rate_mbps: 7.0
+    segment_duration_ms: 2000.0
+    representation_sequence_mbps:
+    - 5.0
+    start_s: 0.1
+    stop_s: null
+  workloads: {}
+  default_bandwidth_mbps: 1000.0
+  default_delay_ms: 0.0
+  wire_overhead_bytes: 38
+  queue:
+    kind: fifo
+    limit_packets: 100
+    target_ms: 15.0
+    ecn: true
+    red_min_packets: 20.0
+    red_max_packets: 60.0
+    dualpi2_step_ms: 1.0
+    dualpi2_update_ms: 16.0
+    dualpi2_coupling: 2.0
+  queues: {}
+  routes: []
+  quic_bulk: []
+  events: []
+  trace: summary
+  pcap: false
+  qlog: false
+  evaluation:
+    window_ms: 350.0
+    utilization_threshold: 0.8
+    backlog_fraction_threshold: 0.5
+    sojourn_threshold_ms: 1.0
+    bootstrap_samples: 2000
+    analysis_seed: 20261021
+  link_mtu_bytes: 1500

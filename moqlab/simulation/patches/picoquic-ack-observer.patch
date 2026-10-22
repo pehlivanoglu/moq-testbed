@@ -1,0 +1,24 @@
+diff --git a/picoquic/frames.c b/picoquic/frames.c
+index 22944c9..a54b39f 100644
+--- a/picoquic/frames.c
++++ b/picoquic/frames.c
+@@ -3633,9 +3633,19 @@ int picoquic_process_ack_of_stream_frame(picoquic_cnx_t* cnx, uint8_t* bytes,
+ /* If the packet contained an ACK frame, perform the ACK of ACK pruning logic.
+  * Record stream data as acknowledged, signal datagram frames as acknowledged.
+  */
++/* Simulation observation only; production callers retain the no-op default. */
++__attribute__((weak)) void moqlab_packet_ack(picoquic_cnx_t* cnx,
++    uint64_t packet_number, uint64_t sent_us, int spurious)
++{
++    (void)cnx; (void)packet_number; (void)sent_us; (void)spurious;
++}
++
+ void picoquic_process_ack_of_frames(picoquic_cnx_t* cnx, picoquic_packet_t* p, 
+     int is_spurious)
+ {
++    if (p->ptype == picoquic_packet_1rtt_protected) {
++        moqlab_packet_ack(cnx, p->sequence_number, p->send_time, is_spurious);
++    }
+     int ret = 0;
+     size_t byte_index;
+     int frame_is_pure_ack = 0;
