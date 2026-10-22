@@ -236,6 +236,10 @@ def validate(config: Path) -> None:
     except MoqlabError as e:
         raise click.ClickException(str(e)) from e
 
+    traffic_count = (
+        len(topology.traffic.senders) + len(topology.traffic.receivers)
+        if topology.traffic is not None else 0
+    )
     click.echo(f"OK: {config}")
     click.echo(
         f"  relays={len(topology.relays)} "
@@ -243,7 +247,7 @@ def validate(config: Path) -> None:
         f"switches={len(topology.switches)} "
         f"publishers={len(topology.publishers)} "
         f"subscribers={len(topology.subscribers)} "
-        f"traffic_endpoints={2 if topology.traffic is not None else 0} "
+        f"traffic_endpoints={traffic_count} "
         f"links={len(topology.links)}"
     )
     for rid, r in topology.relays.items():
@@ -264,14 +268,12 @@ def validate(config: Path) -> None:
             f"track={s.track}  client={topology.subscriber_media_client(sid)}"
         )
     if topology.traffic is not None:
-        click.echo(
-            f"  traffic     {topology.traffic.sender.id:14}  sender  "
-            f"image={topology.traffic_image(topology.traffic.sender.id)}"
-        )
-        click.echo(
-            f"  traffic     {topology.traffic.receiver.id:14}  receiver  "
-            f"image={topology.traffic_image(topology.traffic.receiver.id)}"
-        )
+        for role, endpoints in (("sender", topology.traffic.senders), ("receiver", topology.traffic.receivers)):
+            for endpoint in endpoints:
+                click.echo(
+                    f"  traffic     {endpoint.id:14}  {role}  "
+                    f"image={topology.traffic_image(endpoint.id)}"
+                )
 
 
 def _run_options(default_backend: str):

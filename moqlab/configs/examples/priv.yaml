@@ -1,0 +1,152 @@
+topology_mode: explicit
+relays:
+  relay:
+    edge: true
+    listen_port: 9668
+    admin_port: 9669
+    upstream: null
+    tls:
+      insecure: false
+      generated: true
+publishers:
+  pub:
+    connects_to: relay
+    asset: testsvc
+    listen_port: 4443
+    fingerprint_port: 8081
+subscribers:
+  sub-2-2:
+    connects_to: relay
+    namespace: msf/clear
+    track: video/s2
+    media_client: native
+    native_playback: receive
+    rtt_metrics: true
+  sub-2-1:
+    kind: media
+    connects_to: relay
+    namespace: msf/clear
+    track: video/s2
+    image: moqlab-media-native-sub
+    log_level: INFO
+    media_client: native
+    native_playback: receive
+    rtt_metrics: true
+  sub-1:
+    kind: media
+    connects_to: relay
+    namespace: msf/clear
+    track: video/s2
+    image: moqlab-media-native-sub
+    log_level: INFO
+    media_client: native
+    rtt_metrics: true
+    native_playback: receive
+routers:
+  router:
+    queue_metrics:
+      enabled: true
+      interval_ms: 25
+    aqm: dualpi2
+  router-1:
+    image: moqlab-router
+    aqm: red
+    queue_metrics:
+      enabled: true
+      interval_ms: 25
+switches:
+  switch: {}
+  switch-1:
+    image: moqlab-router
+links:
+- from: pub
+  to: relay
+- from: relay
+  to: router
+- from: router
+  to: switch
+  forward:
+    bandwidth_mbps: 20
+  reverse:
+    bandwidth_mbps: 10000
+- from: switch
+  to: sub-2-2
+  forward:
+    bandwidth_mbps: 100
+    delay_ms: 40
+  reverse:
+    bandwidth_mbps: 100
+    delay_ms: 15
+    jitter_ms: 3
+- from: router
+  to: traffic-tx
+- from: traffic-rx
+  to: switch
+- from: switch
+  to: sub-2-1
+  forward:
+    bandwidth_mbps: 1000
+    delay_ms: 30
+    jitter_ms: 3
+  reverse:
+    bandwidth_mbps: 1000
+    delay_ms: 10
+- from: switch
+  to: router-1
+- from: switch-1
+  to: router-1
+  reverse:
+    bandwidth_mbps: 10
+- from: router-1
+  to: traffic-tx-1
+- from: traffic-rx-1
+  to: switch-1
+- from: sub-1
+  to: switch-1
+  reverse:
+    delay_ms: 5
+    jitter_ms: 2
+defaults:
+  traffic:
+    image: moqlab-traffic
+    tcp_port: 9000
+    udp_port: 9001
+  relay:
+    tls:
+      insecure: false
+      generated: true
+traffic:
+  routes:
+    load-1-route:
+      path:
+      - traffic-tx
+      - router
+      - switch
+      - traffic-rx
+    load-2-route:
+      path:
+      - traffic-tx-1
+      - router-1
+      - switch-1
+      - traffic-rx-1
+  flows:
+  - id: load-1
+    kind: cbr
+    route: load-1-route
+    duration_s: 3000
+    rate_mbps: 20
+    start_s: 10
+  - id: load-2
+    kind: segmented
+    route: load-2-route
+    duration_s: 3000
+    representation_sequence_mbps:
+    - 3
+    segment_duration_ms: 2000
+    start_s: 10
+  senders:
+  - id: traffic-tx
+  - id: traffic-tx-1
+  receivers:
+  - id: traffic-rx
+  - id: traffic-rx-1

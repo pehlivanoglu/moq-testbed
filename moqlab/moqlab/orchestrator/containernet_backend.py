@@ -404,7 +404,7 @@ class ContainernetBackend:
                 archive = (record.run_dir / "rtt" / "traffic").resolve()
                 archive.mkdir(parents=True, exist_ok=True)
                 traffic_volumes.append(f"{archive}:/var/log/moqlab/traffic:rw")
-            for endpoint in (topology.traffic.sender, topology.traffic.receiver):
+            for endpoint in (*topology.traffic.senders, *topology.traffic.receivers):
                 nodes[endpoint.id] = net.addDocker(
                     endpoint.id,
                     dimage=topology.traffic_image(endpoint.id),
@@ -499,9 +499,9 @@ class ContainernetBackend:
 
         if topology.traffic is not None:
             aliases = traffic_route_ips(topology)
-            sender = topology.traffic.sender.id
-            receiver = topology.traffic.receiver.id
-            for sender_ip, receiver_ip in aliases.values():
+            for name, (sender_ip, receiver_ip) in aliases.items():
+                path = topology.traffic.routes[name].path
+                sender, receiver = path[0], path[-1]
                 net.get(sender).cmd(f"ip addr replace {sender_ip}/32 dev lo")
                 net.get(receiver).cmd(f"ip addr replace {receiver_ip}/32 dev lo")
 
@@ -679,29 +679,36 @@ class ContainernetBackend:
                 )
 
         if topology.traffic is not None:
-            receiver = topology.traffic.receiver.id
-            sender = topology.traffic.sender.id
             archive_traffic = any(s.rtt_metrics for s in topology.subscribers.values())
             if archive_traffic:
-                for node in (sender, receiver):
+                for endpoint in [*topology.traffic.receivers, *topology.traffic.senders]:
+                    node = endpoint.id
                     net.get(node).cmd(f"ln -sf /var/log/moqlab/traffic/{node}.jsonl /tmp/{node}.log")
-            receiver_errors = f"2> /tmp/{receiver}.stderr.log" if archive_traffic else "2>&1"
-            sender_errors = f"2> /tmp/{sender}.stderr.log" if archive_traffic else "2>&1"
-            receiver_cmd = (
-                f"{_TRAFFIC_BINARY} receiver --plan {_TRAFFIC_PLAN_PATH} "
-                f"> /tmp/{receiver}.log {receiver_errors} &"
-            )
-            info(f"*** launching traffic receiver {receiver}\n")
-            net.get(receiver).cmd(receiver_cmd)
-            _await_traffic_receiver(
-                net.get(receiver), receiver, topology.startup.traffic_ready_timeout_s
-            )
-            sender_cmd = (
-                f"{_TRAFFIC_BINARY} sender --plan {_TRAFFIC_PLAN_PATH} "
-                f"> /tmp/{sender}.log {sender_errors} & echo $! > /tmp/moqlab-traffic-sender.pid"
-            )
-            info(f"*** launching traffic sender {sender}\n")
-            net.get(sender).cmd(sender_cmd)
+            for endpoint in topology.traffic.receivers:
+                receiver = endpoint.id
+                receiver_errors = f"2> /tmp/{receiver}.stderr.log" if archive_traffic else "2>&1"
+                receiver_cmd = (
+                    f"{_TRAFFIC_BINARY} receiver --plan {_TRAFFIC_PLAN_PATH} --node {receiver} "
+                    f"> /tmp/{receiver}.log {receiver_errors} &"
+                )
+                info(f"*** launching traffic receiver {receiver}\n")
+                net.get(receiver).cmd(receiver_cmd)
+            for endpoint in topology.traffic.receivers:
+                _await_traffic_receiver(
+                    net.get(endpoint.id), endpoint.id, topology.startup.traffic_ready_timeout_s
+                )
+            # Container processes share the host monotonic clock. Preserve one
+            # scheduling epoch across all senders.
+            epoch = time.monotonic()
+            for endpoint in topology.traffic.senders:
+                sender = endpoint.id
+                sender_errors = f"2> /tmp/{sender}.stderr.log" if archive_traffic else "2>&1"
+                sender_cmd = (
+                    f"{_TRAFFIC_BINARY} sender --plan {_TRAFFIC_PLAN_PATH} --node {sender} --epoch {epoch} "
+                    f"> /tmp/{sender}.log {sender_errors} & echo $! > /tmp/moqlab-traffic-sender.pid"
+                )
+                info(f"*** launching traffic sender {sender}\n")
+                net.get(sender).cmd(sender_cmd)
 
 
 def _shell_quote_argv(argv: list[str]) -> list[str]:
@@ -712,7 +719,6 @@ def _shell_quote_argv(argv: list[str]) -> list[str]:
 
 
 def _stop_traffic_sender(net, topology: TopologyConfig) -> None:
-    sender = topology.traffic.sender.id
     command = (
         'if test -f /tmp/moqlab-traffic-sender.pid; then '
         'pid=$(cat /tmp/moqlab-traffic-sender.pid); '
@@ -720,9 +726,13 @@ def _stop_traffic_sender(net, topology: TopologyConfig) -> None:
         'kill -TERM "$pid"; timeout 3s tail --pid="$pid" --sleep-interval=0.05 -f /dev/null; '
         'fi; fi'
     )
-    status, output = _node_command_status(net.get(sender), command)
-    if status:
-        raise OrchestratorError(f"{sender}: {output.strip() or f'exit {status}'}")
+    errors = []
+    for endpoint in topology.traffic.senders:
+        status, output = _node_command_status(net.get(endpoint.id), command)
+        if status:
+            errors.append(f"{endpoint.id}: {output.strip() or f'exit {status}'}")
+    if errors:
+        raise OrchestratorError("; ".join(errors))
 
 
 def _sleep_if_configured(seconds: float, reason: str, info) -> None:
@@ -906,7 +916,7 @@ def _client_facing_router_interfaces(
 
     receivers = set(topology.subscribers)
     if topology.traffic is not None:
-        receivers.add(topology.traffic.receiver.id)
+        receivers.update(endpoint.id for endpoint in topology.traffic.receivers)
 
     result = []
     for edge in edges:

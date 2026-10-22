@@ -12,7 +12,7 @@ from urllib.parse import unquote, urlparse
 import yaml
 from pydantic import ValidationError
 
-from moqlab.config.schema import TopologyConfig
+from moqlab.config.schema import TopologyConfig, TrafficConfig
 from moqlab.exceptions import ConfigError
 
 _log = logging.getLogger(__name__)
@@ -47,7 +47,7 @@ UI_MANIFEST: dict[str, object] = {
         "router": {"property": "routers", "definition": "RouterConfig"},
         "switch": {"property": "switches", "definition": "SwitchConfig"},
     },
-    "trafficEndpoints": ["sender", "receiver"],
+    "trafficEndpoints": ["senders", "receivers"],
     "flowKinds": {
         "bulk": "BulkTrafficFlow",
         "cbr": "CbrTrafficFlow",
@@ -65,6 +65,8 @@ UI_MANIFEST: dict[str, object] = {
         "TopologyConfig.properties.routers",
         "TopologyConfig.properties.switches",
         "TopologyConfig.properties.links",
+        "TopologyConfig.$defs.TrafficConfig.properties.senders",
+        "TopologyConfig.$defs.TrafficConfig.properties.receivers",
         "TopologyConfig.$defs.TrafficConfig.properties.routes",
         "TopologyConfig.$defs.TrafficConfig.properties.flows",
     ],
@@ -239,6 +241,8 @@ def normalized_draft(raw: dict[str, object]) -> dict[str, object]:
     result: dict[str, object] = {"topology_mode": "explicit"}
     result.update(deepcopy(raw))
     result["topology_mode"] = "explicit"
+    if isinstance(result.get("traffic"), dict):
+        result["traffic"] = TrafficConfig.normalize_endpoints(result["traffic"])
     return result
 
 

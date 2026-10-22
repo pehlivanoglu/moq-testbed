@@ -46,6 +46,9 @@ cut from current versions, not bugs or oversights.
 - [x] Add one external traffic sender and one receiver with explicit named
       router paths, bulk TCP, paced CBR UDP, scripted segmented TCP, resolved
       plans, and JSONL runtime logs.
+- [x] Support multiple external traffic senders/receivers, per-route endpoint
+      ownership, shared receivers, and designer endpoint selection. Preserve
+      legacy singular YAML and route alias isolation.
 - [ ] Add ECN/L4S modes to external traffic sockets: codepoint selection,
       congestion-control selection/validation, CE accounting, and packet-level
       verification. Do not label ECT(1) CBR as compliant L4S.

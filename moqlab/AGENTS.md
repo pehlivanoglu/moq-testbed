@@ -44,8 +44,8 @@ ergonomics. This is research infrastructure, not a demo script.
   strict (`extra="forbid"`) and validates node ids, relay references, port
   collisions, cycles, duplicate links, link-graph reachability of every
   app edge and orphan routers.
-- **External traffic** (`moqlab/trafficgen.py`) - one custom Python sender and
-  one receiver generate bulk TCP, paced CBR UDP, and scripted segmented TCP.
+- **External traffic** (`moqlab/trafficgen.py`) - custom Python senders and
+  receivers generate bulk TCP, paced CBR UDP, and scripted segmented TCP.
   Named paths get generated `/32` alias pairs and explicit symmetric routes;
   resolved plans live in each run directory. Containernet only.
 - **Synthesis** (`moqlab/config/synth.py`) - turns topology config into
@@ -90,7 +90,7 @@ ergonomics. This is research infrastructure, not a demo script.
   per-node namespace monitors capture kernel bandwidth changes (HTB/TBF/netem/
   CAKE), including direct `tc` commands. Archived traffic lifecycle logs and
   bandwidth events share the relay RTT monotonic clock and annotate the PNG.
-  Stop the traffic sender and monitors before tearing down the network.
+  Stop all traffic senders and monitors before tearing down the network.
 
 Media support is clear LOC AV1 spatial-SVC only: one origin per relay tree,
 configured namespace/track, headless or direct-X11 Chromium with strict
@@ -204,8 +204,8 @@ routers:
     queue_metrics: { enabled: true, interval_ms: 25 }
 
 traffic:
-  sender: { id: traffic-tx }
-  receiver: { id: traffic-rx }
+  senders: [{ id: traffic-tx }]
+  receivers: [{ id: traffic-rx }]
   routes:
     main: { path: [traffic-tx, rt-1, traffic-rx] }
   flows:
@@ -252,8 +252,11 @@ Implemented invariants:
   every declared router must appear in at least one link; `jitter_ms` requires
   `delay_ms`.
 - Unknown fields are rejected.
-- Traffic uses exactly two endpoint containers. Named paths must follow
-  declared links with routers as all intermediate nodes; flows select a path.
+- Traffic declares one or more `senders` and `receivers` (lists of endpoint
+  configs). Legacy singular YAML normalizes to lists. Each named path starts
+  at a sender, ends at a receiver, and follows declared links through routers
+  or switches. Each route has unique alias IPs; flows select a path. Receivers
+  become ready before senders launch against a shared monotonic epoch.
 
 Future target config work may introduce named `networks`, relay `upstreams`,
 scenarios, and generative topology mode. Do not start

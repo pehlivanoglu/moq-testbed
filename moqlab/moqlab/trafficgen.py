@@ -270,21 +270,31 @@ async def _run_flow(
         _log("flow_end", flow_id=flow["id"], status=status)
 
 
-async def _run_sender(plan: dict[str, object]) -> None:
+async def _run_sender(
+    plan: dict[str, object], node_id: str | None = None, epoch: float | None = None
+) -> None:
     flows = plan["flows"]
     assert isinstance(flows, list)
-    epoch = time.monotonic()
-    _log("sender_start", flows=len(flows))
+    routes = plan["routes"]
+    assert isinstance(routes, dict)
+    assigned = [
+        (index, flow) for index, flow in enumerate(flows)
+        if node_id is None or routes[flow["route"]]["path"][0] == node_id
+    ]
+    epoch = time.monotonic() if epoch is None else epoch
+    _log("sender_start", flows=len(assigned), epoch_mono_s=epoch)
     try:
         await asyncio.gather(
-            *(_run_flow(plan, flow, index, epoch) for index, flow in enumerate(flows))
+            *(_run_flow(plan, flow, index, epoch) for index, flow in assigned)
         )
     finally:
         _log("sender_end")
 
 
-async def _run_with_signals(role: str, plan: dict[str, object]) -> None:
-    task = asyncio.create_task(_run_sender(plan) if role == "sender" else _run_receiver(plan))
+async def _run_with_signals(
+    role: str, plan: dict[str, object], node_id: str | None = None, epoch: float | None = None
+) -> None:
+    task = asyncio.create_task(_run_sender(plan, node_id, epoch) if role == "sender" else _run_receiver(plan))
     loop = asyncio.get_running_loop()
     for signum in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(signum, task.cancel)
@@ -301,14 +311,22 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("role", choices=("sender", "receiver"))
     parser.add_argument("--plan", required=True)
+    parser.add_argument("--node")
+    parser.add_argument("--epoch", type=float)
     args = parser.parse_args()
     plan = _load_plan(args.plan)
+    node_ids = plan.get(f"{args.role}_ids", [plan.get(f"{args.role}_id")])
+    node_id = args.node
+    if node_id is None and len(node_ids) == 1:
+        node_id = node_ids[0]
+    if node_id is None or node_id not in node_ids:
+        parser.error(f"--node must select a declared {args.role}")
     _LOG_CONTEXT.update(
         run_id=plan.get("run_id", "standalone"),
-        node=plan[f"{args.role}_id"],
+        node=node_id,
         node_type=f"traffic_{args.role}",
     )
-    asyncio.run(_run_with_signals(args.role, plan))
+    asyncio.run(_run_with_signals(args.role, plan, node_id, args.epoch))
 
 
 if __name__ == "__main__":

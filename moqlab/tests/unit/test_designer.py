@@ -278,3 +278,30 @@ def test_design_command_reports_port_collision(monkeypatch) -> None:
 
     assert result.exit_code == 1
     assert "failed to start designer: address already in use" in result.output
+
+
+def test_multi_endpoint_import_validate_export(designer_url):
+    from test_multi_traffic import EXAMPLE
+
+    status, _, body = _request(designer_url, "/api/designer/import", EXAMPLE.read_bytes(), "application/yaml")
+    assert status == 200
+    data = json.loads(body)["config"]
+    assert [node["id"] for node in data["traffic"]["senders"]] == ["tx", "tx2"]
+    status, _, _ = _request(designer_url, "/api/designer/validate", json.dumps(data).encode())
+    assert status == 200
+    status, _, body = _request(designer_url, "/api/designer/export", json.dumps(data).encode())
+    assert status == 200
+    assert TopologyConfig.model_validate(yaml.safe_load(body)) == TopologyConfig.model_validate(data)
+
+
+def test_designer_multi_endpoint_operations():
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("Node.js required for designer behavior test")
+    root = Path(__file__).resolve().parents[2]
+    subprocess.run(
+        [node, str(Path(__file__).with_name("designer_multi_traffic.cjs")), str(root / "visualizer/designer.js")],
+        input=json.dumps({"schema": topology_json_schema(), "manifest": UI_MANIFEST}),
+        text=True,
+        check=True,
+    )

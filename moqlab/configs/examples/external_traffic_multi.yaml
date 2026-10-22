@@ -1,0 +1,37 @@
+topology_mode: explicit
+
+relays:
+  relay: {listen_port: 9668, admin_port: 9669}
+routers:
+  router: {}
+switches:
+  switch: {}
+
+traffic:
+  senders:
+    - {id: tx}
+    - {id: tx2}
+  receivers:
+    - {id: rx}
+    - {id: rx2}
+  routes:
+    first: {path: [tx, router, rx]}
+    second: {path: [tx2, router, switch, rx2]}
+    shared: {path: [tx2, router, rx]}
+    fanout: {path: [tx, router, switch, rx2]}
+  flows:
+    - {id: bulk, kind: bulk, route: first, duration_s: 30}
+    - {id: video, kind: cbr, route: second, duration_s: 30, rate_mbps: 5}
+    - {id: voice, kind: cbr, route: shared, duration_s: 30, rate_mbps: 1}
+    - id: segments
+      kind: segmented
+      route: fanout
+      duration_s: 30
+      representation_sequence_mbps: [2, 5]
+
+links:
+  - {from: tx, to: router}
+  - {from: tx2, to: router}
+  - {from: router, to: rx}
+  - {from: router, to: switch}
+  - {from: switch, to: rx2}

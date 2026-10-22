@@ -319,8 +319,9 @@ function allNodes() {
     for (const id of Object.keys(draft[property] || {})) nodes.push({ id, role });
   }
   for (const endpoint of ["sender", "receiver"]) {
-    const value = draft.traffic?.[endpoint];
-    if (value?.id) nodes.push({ id: value.id, role: `traffic-${endpoint}` });
+    for (const value of draft.traffic?.[`${endpoint}s`] || []) {
+      nodes.push({ id: value.id, role: `traffic-${endpoint}` });
+    }
   }
   return nodes;
 }
@@ -456,10 +457,6 @@ function nodeDefaults(role) {
 
 function addNode(role, point) {
   const endpoint = role.startsWith("traffic-") ? role.slice(8) : null;
-  if (endpoint && draft.traffic?.[endpoint]) {
-    alert(`Traffic ${endpoint} already exists.`);
-    return;
-  }
   const trafficDefaults = endpoint && !draft.traffic ? availableTrafficDefaults() : null;
   const value = nodeDefaults(role);
   commit(() => {
@@ -470,7 +467,7 @@ function addNode(role, point) {
         draft.defaults.traffic = trafficDefaults;
       }
       draft.traffic ||= { routes: {}, flows: [] };
-      draft.traffic[endpoint] = { id: value.id };
+      (draft.traffic[`${endpoint}s`] ||= []).push({ id: value.id });
     } else {
       const property = propertyForRole(role);
       draft[property] ||= {};
@@ -491,7 +488,7 @@ function propertyForRole(role) {
 }
 
 function nodeConfig(role, id) {
-  if (role.startsWith("traffic-")) return draft.traffic?.[role.slice(8)];
+  if (role.startsWith("traffic-")) return draft.traffic?.[`${role.slice(8)}s`]?.find((endpoint) => endpoint.id === id);
   return draft[propertyForRole(role)]?.[id];
 }
 
@@ -558,7 +555,7 @@ function renameNode(role, oldId, newId) {
   if (newId === oldId) return;
   commit(() => {
     if (role.startsWith("traffic-")) {
-      draft.traffic[role.slice(8)].id = newId;
+      nodeConfig(role, oldId).id = newId;
     } else {
       const property = propertyForRole(role);
       const replaced = {};
@@ -600,9 +597,11 @@ function deleteNode(role, id) {
   const attached = (draft.links || []).filter((link) => link.from === id || link.to === id).length;
   if (!confirm(`Delete ${id}${attached ? ` and ${attached} attached link(s)` : ""}?`)) return;
   commit(() => {
-    if (role.startsWith("traffic-")) delete draft.traffic[role.slice(8)];
-    else delete draft[propertyForRole(role)][id];
-    if (draft.traffic && !draft.traffic.sender && !draft.traffic.receiver
+    if (role.startsWith("traffic-")) {
+      const endpoints = draft.traffic[`${role.slice(8)}s`];
+      endpoints.splice(endpoints.findIndex((endpoint) => endpoint.id === id), 1);
+    } else delete draft[propertyForRole(role)][id];
+    if (draft.traffic && !draft.traffic.senders?.length && !draft.traffic.receivers?.length
         && !Object.keys(draft.traffic.routes || {}).length && !(draft.traffic.flows || []).length) {
       delete draft.traffic;
     }
@@ -613,7 +612,6 @@ function deleteNode(role, id) {
 }
 
 function duplicateNodes(role, id, count) {
-  if (role.startsWith("traffic-")) return alert("Traffic endpoints are singletons.");
   const source = clone(nodeConfig(role, id));
   const copyLinks = ["publisher", "subscriber"].includes(role) && confirm("Copy incident physical links too?");
   commit(() => {
@@ -631,7 +629,10 @@ function duplicateNodes(role, id, count) {
       } else if (role === "publisher" && config.port !== undefined) {
         config.port = allocatePort(config.port);
       }
-      draft[propertyForRole(role)][newId] = config;
+      if (role.startsWith("traffic-")) {
+        config.id = newId;
+        draft.traffic[`${role.slice(8)}s`].push(config);
+      } else draft[propertyForRole(role)][newId] = config;
       const origin = positions[id] || nextCanvasPosition();
       positions[newId] = { x: origin.x + 45 * (index + 1), y: origin.y + 45 * (index + 1) };
       if (copyLinks) {
@@ -687,9 +688,21 @@ function deleteLink(index) {
   });
 }
 
-function shortestTrafficPath() {
-  const sender = draft.traffic?.sender?.id;
-  const receiver = draft.traffic?.receiver?.id;
+function defaultTrafficEndpoints() {
+  const senders = (draft.traffic?.senders || []).filter((endpoint) =>
+    selected?.kind !== "node" || selected.role !== "traffic-sender" || selected.id === endpoint.id);
+  const receivers = (draft.traffic?.receivers || []).filter((endpoint) =>
+    selected?.kind !== "node" || selected.role !== "traffic-receiver" || selected.id === endpoint.id);
+  for (const sender of senders) {
+    for (const receiver of receivers) {
+      if (shortestTrafficPath(sender.id, receiver.id)) return [sender.id, receiver.id];
+    }
+  }
+  return [senders[0]?.id, receivers[0]?.id];
+}
+
+function shortestTrafficPath(...endpoints) {
+  const [sender, receiver] = endpoints.length ? endpoints : defaultTrafficEndpoints();
   if (!sender || !receiver) return null;
   const allowed = new Set([
     sender,
@@ -727,10 +740,9 @@ function appendRouteNode(id) {
   const returnSelection = routeBuildFlow === null
     ? { kind: "route", name: routeBuild }
     : { kind: "flow", index: routeBuildFlow };
-  const sender = draft.traffic.sender.id;
-  const receiver = draft.traffic.receiver.id;
-  if (id === sender) {
-    commit(() => { route.path = [sender]; selected = returnSelection; });
+  const receiver = draft.traffic.receivers?.some((endpoint) => endpoint.id === id);
+  if (draft.traffic.senders?.some((endpoint) => endpoint.id === id)) {
+    commit(() => { route.path = [id]; selected = returnSelection; });
     linkPrompt.textContent = "Route reset. Select connected router or switch.";
     return;
   }
@@ -739,10 +751,10 @@ function appendRouteNode(id) {
   if (!linked) return alert(`${id} is not physically linked to ${last}.`);
   if (route.path.includes(id)) return alert("Traffic route cannot repeat a node.");
   const intermediate = id in (draft.routers || {}) || id in (draft.switches || {});
-  if (id !== receiver && !intermediate) return alert("Intermediate traffic nodes must be routers or switches.");
-  if (id === receiver && route.path.length < 2) return alert("Route needs at least one intermediate node.");
+  if (!receiver && !intermediate) return alert("Intermediate traffic nodes must be routers or switches.");
+  if (receiver && route.path.length < 2) return alert("Route needs at least one intermediate node.");
   commit(() => { route.path.push(id); selected = returnSelection; });
-  if (id === receiver) {
+  if (receiver) {
     routeBuild = null;
     routeBuildFlow = null;
     linkPrompt.textContent = "Traffic route complete.";
@@ -752,11 +764,11 @@ function appendRouteNode(id) {
 }
 
 function addRoute() {
-  if (!draft.traffic?.sender || !draft.traffic?.receiver) return alert("Add traffic sender and receiver first.");
+  if (!draft.traffic?.senders?.length || !draft.traffic?.receivers?.length) return alert("Add traffic sender and receiver first.");
   let name = "route";
   let index = 1;
   while (draft.traffic.routes?.[name]) name = `route-${index++}`;
-  const path = shortestTrafficPath() || [draft.traffic.sender.id, draft.traffic.receiver.id];
+  const path = shortestTrafficPath() || defaultTrafficEndpoints();
   commit(() => {
     draft.traffic.routes ||= {};
     draft.traffic.routes[name] = { path };
@@ -802,7 +814,7 @@ function addFlow() {
 }
 
 function addTrafficLoad() {
-  if (!draft.traffic?.sender || !draft.traffic?.receiver) {
+  if (!draft.traffic?.senders?.length || !draft.traffic?.receivers?.length) {
     return alert("Add traffic sender and receiver first.");
   }
   const path = shortestTrafficPath();
@@ -1116,8 +1128,10 @@ function renderNodeInspector() {
       ? ["namespace", "track", "media_client", ...(nativeSubscriber ? ["native_playback"] : []), ...(bufferedSubscriber ? ["minimal_buffer_ms", "target_latency_ms"] : [])]
       : role === "router" ? ["aqm", "dualpi2_target_ms"] : role === "switch" ? ["image"] : ["kind", "namespace", "track"];
   renderObjectEditor(editor, nodeDefinition(role), config, (next) => commit(() => {
-    if (role.startsWith("traffic-")) draft.traffic[role.slice(8)] = next;
-    else draft[propertyForRole(role)][id] = normalizedNodeConfig(role, next);
+    if (role.startsWith("traffic-")) {
+      const endpoints = draft.traffic[`${role.slice(8)}s`];
+      endpoints[endpoints.findIndex((endpoint) => endpoint.id === id)] = next;
+    } else draft[propertyForRole(role)][id] = normalizedNodeConfig(role, next);
   }), {
     skip: [
       ...(["publisher", "subscriber"].includes(role) ? ["kind"] : []),
@@ -1134,18 +1148,16 @@ function renderNodeInspector() {
   });
   const actions = document.createElement("div");
   actions.className = "inspector-actions";
-  if (!role.startsWith("traffic-")) {
-    const duplicate = document.createElement("button");
-    duplicate.textContent = "Duplicate";
-    duplicate.addEventListener("click", () => duplicateNodes(role, id, 1));
-    const bulk = document.createElement("button");
-    bulk.textContent = "Bulk add";
-    bulk.addEventListener("click", () => {
-      const count = Number.parseInt(prompt("Number of copies", "10"), 10);
-      if (Number.isInteger(count) && count > 0 && (count <= 500 || confirm(`Create ${count} nodes?`))) duplicateNodes(role, id, count);
-    });
-    actions.append(duplicate, bulk);
-  }
+  const duplicate = document.createElement("button");
+  duplicate.textContent = "Duplicate";
+  duplicate.addEventListener("click", () => duplicateNodes(role, id, 1));
+  const bulk = document.createElement("button");
+  bulk.textContent = "Bulk add";
+  bulk.addEventListener("click", () => {
+    const count = Number.parseInt(prompt("Number of copies", "10"), 10);
+    if (Number.isInteger(count) && count > 0 && (count <= 500 || confirm(`Create ${count} nodes?`))) duplicateNodes(role, id, count);
+  });
+  actions.append(duplicate, bulk);
   const remove = document.createElement("button");
   remove.className = "danger";
   remove.textContent = "Delete";
@@ -1220,26 +1232,48 @@ function renderLinkInspector() {
   editor.append(actions);
 }
 
+function renderTrafficEndpoints(parent, route) {
+  for (const [role, index] of [["sender", 0], ["receiver", -1]]) {
+    const wrapper = document.createElement("div");
+    wrapper.className = "field";
+    const label = document.createElement("label");
+    label.textContent = fieldTitle(role, {});
+    const select = document.createElement("select");
+    select.append(new Option(`Select ${role}`, ""));
+    for (const endpoint of draft.traffic[`${role}s`] || []) select.append(new Option(endpoint.id, endpoint.id));
+    select.value = route.path.at(index) || "";
+    select.addEventListener("change", () => {
+      if (!select.value) return;
+      const sender = role === "sender" ? select.value : route.path[0];
+      const receiver = role === "receiver" ? select.value : route.path.at(-1);
+      commit(() => { route.path = shortestTrafficPath(sender, receiver) || [sender, receiver]; });
+    });
+    wrapper.append(label, select);
+    parent.append(wrapper);
+  }
+}
+
 function renderRouteInspector() {
   const name = selected.name;
   const route = draft.traffic?.routes?.[name];
   if (!route) { selected = null; return renderInspector(); }
   heading("Traffic route");
   idField("Route name", name, (next) => renameRoute(name, next));
+  renderTrafficEndpoints(editor, route);
   editor.append(renderField("path", definitions.TrafficRouteConfig.properties.path, route.path, true, (next) => commit(() => { route.path = next; })));
   const actions = document.createElement("div");
   actions.className = "inspector-actions";
   const shortest = document.createElement("button");
   shortest.textContent = "Shortest router path";
   shortest.addEventListener("click", () => {
-    const path = shortestTrafficPath();
+    const path = shortestTrafficPath(route.path[0], route.path.at(-1));
     if (!path) return alert("No sender-to-receiver path through routers exists.");
     commit(() => { route.path = path; });
   });
   const build = document.createElement("button");
   build.textContent = "Build on canvas";
   build.addEventListener("click", () => {
-    const sender = draft.traffic?.sender?.id;
+    const sender = route.path[0] || draft.traffic?.senders?.[0]?.id;
     if (!sender) return alert("Traffic sender missing.");
     routeBuild = name;
     routeBuildFlow = null;
@@ -1289,13 +1323,15 @@ function renderFlowInspector() {
     const path = document.createElement("fieldset");
     const legend = document.createElement("legend");
     legend.textContent = "Path";
-    path.append(legend, renderField("path", definitions.TrafficRouteConfig.properties.path, route.path, true, (next) => commit(() => { route.path = next; })));
+    renderTrafficEndpoints(path, route);
+    path.prepend(legend);
+    path.append(renderField("path", definitions.TrafficRouteConfig.properties.path, route.path, true, (next) => commit(() => { route.path = next; })));
     const actions = document.createElement("div");
     actions.className = "inspector-actions";
     const build = document.createElement("button");
     build.textContent = "Build on canvas";
     build.addEventListener("click", () => {
-      const sender = draft.traffic?.sender?.id;
+      const sender = route.path[0] || draft.traffic?.senders?.[0]?.id;
       if (!sender) return alert("Traffic sender missing.");
       routeBuild = flow.route;
       routeBuildFlow = index;
@@ -1307,7 +1343,7 @@ function renderFlowInspector() {
     const shortest = document.createElement("button");
     shortest.textContent = "Shortest path";
     shortest.addEventListener("click", () => {
-      const next = shortestTrafficPath();
+      const next = shortestTrafficPath(route.path[0], route.path.at(-1));
       if (!next) return alert("No sender-to-receiver path through routers exists.");
       commit(() => { route.path = next; });
     });

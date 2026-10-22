@@ -86,7 +86,9 @@ def all_node_ids(topology: TopologyConfig) -> list[str]:
         *topology.switches,
     ]
     if topology.traffic is not None:
-        node_ids.extend([topology.traffic.sender.id, topology.traffic.receiver.id])
+        node_ids.extend(
+            endpoint.id for endpoint in [*topology.traffic.senders, *topology.traffic.receivers]
+        )
     return node_ids
 
 
@@ -150,8 +152,8 @@ def topology_image_tags(topology: TopologyConfig) -> set[str]:
     }
     if topology.traffic is not None:
         tags.update(
-            topology.traffic_image(nid)
-            for nid in (topology.traffic.sender.id, topology.traffic.receiver.id)
+            topology.traffic_image(endpoint.id)
+            for endpoint in [*topology.traffic.senders, *topology.traffic.receivers]
         )
     return tags
 
@@ -175,8 +177,8 @@ def traffic_plan(
         raise OrchestratorError("topology has no traffic configuration")
     aliases = traffic_route_ips(topology)
     plan: dict[str, object] = {
-        "sender_id": topology.traffic.sender.id,
-        "receiver_id": topology.traffic.receiver.id,
+        "sender_ids": [endpoint.id for endpoint in topology.traffic.senders],
+        "receiver_ids": [endpoint.id for endpoint in topology.traffic.receivers],
         "tcp_port": topology.defaults.traffic.tcp_port,
         "udp_port": topology.defaults.traffic.udp_port,
         "routes": {

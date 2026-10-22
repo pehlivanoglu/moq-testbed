@@ -130,6 +130,30 @@ python -m moqlab build media-images
 
 ## Shared bottleneck with different client RTTs
 
+[`sb.yaml`](configs/examples/sb.yaml) adds a private bottleneck for `sub-1`:
+
+```text
+pub -- relay -- router --[20 Mbit/s]-- switch -- sub-2-1
+                                       |   \-- sub-2-2
+                                       \-- router-1 --[10 Mbit/s]-- switch-1 -- sub-1
+```
+
+All media crosses the shared `router -> switch` egress. Only `sub-1` media
+also crosses `router-1 -> switch-1`. The switches distribute traffic after
+each queue; there is no separate 4 Mbit/s cap on `sub-2-1`.
+`load-1` injects 20 Mbit/s CBR through the shared egress and ends at
+`traffic-rx` on `switch`. `load-2` injects 10 Mbit/s CBR through the private
+egress and ends at `traffic-rx-1` on `switch-1`. Both start at 10 seconds and
+last 3000 seconds. Each CBR offered rate equals its bottleneck capacity, so
+media competes with a persistent background load. Private CBR does not cross
+the shared bottleneck. Propagation delay stays on switch-to-subscriber
+egresses, outside the bottleneck AQM queues. Both routers record queue metrics;
+all three subscribers record RTTs.
+
+```bash
+sudo /path/to/containernet/venv/bin/python3 -m moqlab run -c configs/examples/sb.yaml --visualize
+```
+
 [`shared_bottleneck_different_rtt.yaml`](configs/examples/shared_bottleneck_different_rtt.yaml)
 connects `pub -> relay -> router -> switch -> subscribers`.
 Native subscribers request `video/s2` over separate relay connections.
@@ -144,6 +168,10 @@ sudo /path/to/containernet/venv/bin/python3 -m moqlab run -c configs/examples/sh
 This example enables `rtt_metrics: true` for selected subscribers
 (Containernet only). **Measurements are taken at the relay**, on each selected
 client's downstream QUIC socket. Both native and browser clients are supported.
+Enable `rtt_metrics: true` on every subscriber whose RTT should appear in the
+combined PNG, including newly added designer nodes. The default is false;
+an unrecorded client's RTT cannot be recovered by regenerating an old PNG.
+`configs/examples/sb.yaml` enables recording for all three subscribers.
 Rebuild `moqlab-relay` after updating moqx. Install the optional plotting
 dependency in the Python environment used to run Containernet:
 `python -m pip install "matplotlib>=3.8,<4"`. Missing Matplotlib is reported
@@ -299,9 +327,9 @@ routers:                     # Containernet only; Docker backend refuses
 switches:                    # transparent, unnumbered Layer 2 bridges
   sw-west: {}
 
-traffic:                     # optional; exactly one sender + one receiver
-  sender: { id: traffic-tx }
-  receiver: { id: traffic-rx }
+traffic:                     # optional; one or more senders and receivers
+  senders: [{ id: traffic-tx }]
+  receivers: [{ id: traffic-rx }]
   routes:
     # Switch hops describe physical wiring but are transparent to IP routing.
     west: { path: [traffic-tx, rt-ab, sw-west, traffic-rx] }
@@ -378,18 +406,35 @@ Invariants the schema enforces:
 | `aqm` belongs to a router and applies to all its egress links | Keeps queue policy on the node that owns those interfaces. |
 | `dualpi2_target_ms > 0` requires `aqm: dualpi2` | Keeps AQM-specific tuning explicit and valid. |
 | Every declared router appears in at least one link | An unwired router is a config bug. |
-| Traffic paths start at sender, end at receiver, use routers internally, and follow declared links | Makes selected routes explicit and reproducible. |
+| Traffic paths start at a declared sender, end at a declared receiver, use routers/switches internally, and follow declared links | Makes selected routes explicit and reproducible. |
 | `jitter_ms` requires `delay_ms` | netem expresses jitter as a variation of delay. |
 | Unknown fields rejected | Surfaces typos as `ConfigError`. |
 
 ### External traffic
 
-[`external_traffic.yaml`](configs/examples/external_traffic.yaml) runs one
-`moqlab-traffic` sender and one receiver across multiple named paths. Backend
-generates one sender/receiver `/32` alias pair per path and installs symmetric
-hop-by-hop routes, so concurrent flows between same two containers can traverse
-different routers. Generated aliases and resolved flows are saved as
+[`external_traffic_multi.yaml`](configs/examples/external_traffic_multi.yaml)
+runs two `moqlab-traffic` senders and two receivers, including shared-receiver
+and fan-out routes. Declare endpoints in `traffic.senders` and
+`traffic.receivers` lists; each entry has a globally unique `id` and an optional
+`image`. Each named route starts at a declared sender and ends at a declared
+receiver, with routers or transparent switches in between. Flows select a
+route, so one sender can target several receivers and several senders can
+share a receiver.
+
+The backend generates one sender/receiver `/32` alias pair per route and
+installs symmetric hop-by-hop routes on that route's endpoints and routers.
+Concurrent flows can traverse different routers even when endpoints are shared.
+Generated aliases, endpoint ids, and resolved flows are saved as
 `<run_dir>/traffic-plan.json`; configs never contain IP addresses.
+
+Existing `traffic.sender: {id: ...}` / `traffic.receiver: {id: ...}` YAML remains
+accepted and normalizes to single-entry lists. Do not supply both singular
+and plural forms for the same role. Designer import/export uses the lists.
+To use the new runtime, rebuild the traffic image from the repository root:
+
+```bash
+docker build -f moqlab/docker/Dockerfile.traffic -t moqlab-traffic .
+```
 
 Available flow kinds:
 
@@ -399,7 +444,9 @@ Available flow kinds:
   `segment_duration_ms`; segment sizes cycle through
   `representation_sequence_mbps`.
 
-Sender schedules every flow from one monotonic epoch. JSONL logs contain
+All receivers become ready before senders launch. Each sender runs only its
+assigned flows. All senders schedule against one host monotonic epoch; process
+startup can delay flows whose `start_s` is zero. JSONL logs contain
 planned flow identity, actual timings, byte/packet totals, and CBR late-packet
 counts. `segmented` models network load only: no browser, MPD, codec, or media.
 Python scheduling gives deterministic inputs, not bit-identical kernel timing.
@@ -407,13 +454,18 @@ ECN/L4S socket behavior is intentionally deferred.
 
 ### Topology designer
 
+Add multiple traffic senders/receivers from the palette or duplicate existing
+endpoints. Each traffic load and advanced route exposes Sender and Receiver
+selectors. Changing either selects a shortest physical path when available;
+otherwise connect the endpoints or build the path on the canvas.
+
 The local designer creates the same strict YAML consumed by `validate` and
 `run`, without starting Docker or Containernet:
 
 ```bash
 cd moqlab
 python -m moqlab design
-python -m moqlab design -c configs/examples/external_traffic.yaml
+python -m moqlab design -c configs/examples/external_traffic_multi.yaml
 python -m moqlab design --port 8765
 ```
 

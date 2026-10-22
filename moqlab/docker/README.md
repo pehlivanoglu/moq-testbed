@@ -9,7 +9,7 @@ defined in YAML under [../configs/](../configs/) and brought up with
 |---|---|---|---|
 | `Dockerfile.relay` | `moqlab-relay` | `/usr/local/bin/moqx` | Every `relays:` entry |
 | `Dockerfile.router` | `moqlab-router` | none (IP forwarding, bridge, tc) | Routers and default switch image |
-| `Dockerfile.traffic` | `moqlab-traffic` | Python stdlib traffic runtime | Optional sender + receiver |
+| `Dockerfile.traffic` | `moqlab-traffic` | Python stdlib traffic runtime | Every external traffic sender/receiver |
 | `Dockerfile.media-pub` | `moqlab-media-pub` | `/usr/local/bin/mlmpub` | Every publisher |
 | `Dockerfile.media-sub` | `moqlab-media-sub` | Chromium + WARP Player runner | Chrome subscribers |
 | `Dockerfile.media-native-sub` | `moqlab-media-native-sub` | `/usr/local/bin/mlmsub` | Native media subscribers |
@@ -66,7 +66,10 @@ Traffic images also write monotonic lifecycle timestamps and handle SIGTERM
 so `exit` can archive interrupted flow ends. With RTT recording enabled,
 Containernet mounts `/var/log/moqlab/traffic` and retains structured endpoint
 logs for graph annotations; stderr stays separate in `/tmp/<node>.stderr.log`.
-Rebuild `moqlab-traffic` after changing `trafficgen.py`. Bandwidth event
+Each endpoint gets its own container. All receivers start before senders;
+senders select their assigned flows from the shared plan and preserve global
+UDP flow indices. Rebuild `moqlab-traffic` after changing `trafficgen.py`
+(including the multi-endpoint runtime). Bandwidth event
 monitors run from the host in node network namespaces and need no image build.
 
 Image tags can be overridden per topology via `defaults.relay.image` /

@@ -160,8 +160,8 @@ def topology_snapshot(topology: TopologyConfig) -> dict[str, object]:
         )
     if topology.traffic is not None:
         for role, endpoint in (
-            ("traffic-sender", topology.traffic.sender),
-            ("traffic-receiver", topology.traffic.receiver),
+            *(("traffic-sender", endpoint) for endpoint in topology.traffic.senders),
+            *(("traffic-receiver", endpoint) for endpoint in topology.traffic.receivers),
         ):
             nodes.append(
                 {
@@ -211,7 +211,10 @@ def topology_snapshot(topology: TopologyConfig) -> dict[str, object]:
             "publishers": len(topology.publishers),
             "subscribers": len(topology.subscribers),
             "links": len(links),
-            **({"traffic_endpoints": 2} if topology.traffic is not None else {}),
+            **(
+                {"traffic_endpoints": len(topology.traffic.senders) + len(topology.traffic.receivers)}
+                if topology.traffic is not None else {}
+            ),
         },
     }
 

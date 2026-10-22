@@ -15,21 +15,14 @@ publishers:
     listen_port: 4443
     fingerprint_port: 8081
 subscribers:
-  sub-fast:
+  sub-2-2:
     connects_to: relay
     namespace: msf/clear
     track: video/s2
     media_client: native
     native_playback: receive
     rtt_metrics: true
-  sub-slow:
-    connects_to: relay
-    namespace: msf/clear
-    track: video/s2
-    media_client: native
-    native_playback: receive
-    rtt_metrics: true
-  sub:
+  sub-2-1:
     kind: media
     connects_to: relay
     namespace: msf/clear
@@ -39,14 +32,31 @@ subscribers:
     media_client: native
     native_playback: receive
     rtt_metrics: true
+  sub-1:
+    kind: media
+    connects_to: relay
+    namespace: msf/clear
+    track: video/s2
+    image: moqlab-media-sub
+    log_level: INFO
+    media_client: chrome-headless
+    rtt_metrics: true
 routers:
   router:
     queue_metrics:
       enabled: true
       interval_ms: 25
     aqm: dualpi2
+  router-1:
+    image: moqlab-router
+    aqm: red
+    queue_metrics:
+      enabled: true
+      interval_ms: 25
 switches:
   switch: {}
+  switch-1:
+    image: moqlab-router
 links:
 - from: pub
   to: relay
@@ -54,21 +64,13 @@ links:
   to: router
 - from: router
   to: switch
+  # Shared queue: all media subscribers and load-1 cross this egress.
   forward:
-    bandwidth_mbps: 100
+    bandwidth_mbps: 20
   reverse:
     bandwidth_mbps: 10000
 - from: switch
-  to: sub-fast
-  forward:
-    bandwidth_mbps: 100
-    delay_ms: 10
-  reverse:
-    bandwidth_mbps: 100
-    delay_ms: 5
-    jitter_ms: 1
-- from: switch
-  to: sub-slow
+  to: sub-2-2
   forward:
     bandwidth_mbps: 100
     delay_ms: 40
@@ -81,14 +83,32 @@ links:
 - from: traffic-rx
   to: switch
 - from: switch
-  to: sub
+  to: sub-2-1
   forward:
-    bandwidth_mbps: 4
+    bandwidth_mbps: 1000
     delay_ms: 30
     jitter_ms: 3
   reverse:
     bandwidth_mbps: 1000
     delay_ms: 10
+- from: switch
+  to: router-1
+- from: switch-1
+  to: router-1
+  # Private queue: only sub-1 media and load-2 cross this egress.
+  # reverse is router-1 -> switch-1; keep netem off the AQM queue.
+  reverse:
+    bandwidth_mbps: 10
+- from: router-1
+  to: traffic-tx-1
+- from: traffic-rx-1
+  to: switch-1
+- from: sub-1
+  to: switch-1
+  # Downstream propagation belongs after the private bottleneck.
+  reverse:
+    delay_ms: 5
+    jitter_ms: 2
 defaults:
   traffic:
     image: moqlab-traffic
@@ -106,13 +126,28 @@ traffic:
       - router
       - switch
       - traffic-rx
+    load-2-route:
+      path:
+      - traffic-tx-1
+      - router-1
+      - switch-1
+      - traffic-rx-1
   flows:
   - id: load-1
     kind: cbr
     route: load-1-route
-    duration_s: 30
-    rate_mbps: 0.001
-  sender:
-    id: traffic-tx
-  receiver:
-    id: traffic-rx
+    duration_s: 3000
+    rate_mbps: 20
+    start_s: 10
+  - id: load-2
+    kind: cbr
+    route: load-2-route
+    duration_s: 3000
+    rate_mbps: 10
+    start_s: 10
+  senders:
+  - id: traffic-tx
+  - id: traffic-tx-1
+  receivers:
+  - id: traffic-rx
+  - id: traffic-rx-1

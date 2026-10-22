@@ -268,22 +268,40 @@ TrafficFlow = Annotated[
 
 
 class TrafficConfig(_StrictBase):
-    sender: TrafficEndpointConfig
-    receiver: TrafficEndpointConfig
+    senders: list[TrafficEndpointConfig] = Field(min_length=1)
+    receivers: list[TrafficEndpointConfig] = Field(min_length=1)
     routes: dict[str, TrafficRouteConfig] = Field(min_length=1, max_length=254)
     flows: list[TrafficFlow] = Field(min_length=1)
 
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_endpoints(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+        result = dict(value)
+        for role in ("sender", "receiver"):
+            if role in result:
+                if f"{role}s" in result:
+                    raise ValueError(
+                        f"use either traffic.{role} or traffic.{role}s, not both"
+                    )
+                result[f"{role}s"] = [result.pop(role)]
+        return result
+
     @model_validator(mode="after")
     def _check_local_references(self) -> "TrafficConfig":
-        if self.sender.id == self.receiver.id:
-            raise ValueError("traffic sender and receiver ids must differ")
-        for label, value in (
-            ("traffic sender id", self.sender.id),
-            ("traffic receiver id", self.receiver.id),
-            *(("traffic route name", name) for name in self.routes),
-        ):
-            if not _NODE_ID_RE.fullmatch(value):
-                raise ValueError(f"{label} {value!r} must match {_NODE_ID_RE.pattern}")
+        seen_endpoints: set[str] = set()
+        for endpoint in [*self.senders, *self.receivers]:
+            if not _NODE_ID_RE.fullmatch(endpoint.id):
+                raise ValueError(
+                    f"traffic endpoint id {endpoint.id!r} must match {_NODE_ID_RE.pattern}"
+                )
+            if endpoint.id in seen_endpoints:
+                raise ValueError(f"traffic endpoint id {endpoint.id!r} reused")
+            seen_endpoints.add(endpoint.id)
+        for name in self.routes:
+            if not _NODE_ID_RE.fullmatch(name):
+                raise ValueError(f"traffic route name {name!r} must match {_NODE_ID_RE.pattern}")
         seen: set[str] = set()
         for flow in self.flows:
             if not _NODE_ID_RE.fullmatch(flow.id):
@@ -460,8 +478,8 @@ class TopologyConfig(_StrictBase):
 
         if self.traffic is not None:
             for kind, endpoint in (
-                ("traffic sender", self.traffic.sender),
-                ("traffic receiver", self.traffic.receiver),
+                *(("traffic sender", endpoint) for endpoint in self.traffic.senders),
+                *(("traffic receiver", endpoint) for endpoint in self.traffic.receivers),
             ):
                 nid = endpoint.id
                 if nid in all_nodes:
@@ -636,14 +654,14 @@ class TopologyConfig(_StrictBase):
                     attachments.add(key)
 
         if self.traffic is not None:
-            sender = self.traffic.sender.id
-            receiver = self.traffic.receiver.id
+            senders = {endpoint.id for endpoint in self.traffic.senders}
+            receivers = {endpoint.id for endpoint in self.traffic.receivers}
             link_keys = {link.canonical_key() for link in self.links}
             for name, route in self.traffic.routes.items():
-                if route.path[0] != sender or route.path[-1] != receiver:
+                if route.path[0] not in senders or route.path[-1] not in receivers:
                     raise ValueError(
-                        f"traffic route {name!r} must start at {sender!r} and end at "
-                        f"{receiver!r}"
+                        f"traffic route {name!r} must start at a declared sender "
+                        "and end at a declared receiver"
                     )
                 if len(set(route.path)) != len(route.path):
                     raise ValueError(f"traffic route {name!r} repeats a node")
@@ -755,7 +773,7 @@ class TopologyConfig(_StrictBase):
     def traffic_image(self, node_id: str) -> str:
         if self.traffic is None:
             raise KeyError("topology has no traffic endpoints")
-        for endpoint in (self.traffic.sender, self.traffic.receiver):
+        for endpoint in (*self.traffic.senders, *self.traffic.receivers):
             if endpoint.id == node_id:
                 return endpoint.image or self.defaults.traffic.image
         raise KeyError(node_id)
